@@ -1,0 +1,207 @@
+name: release-win32
+# The Windows x64 installer, signed with SSL.com eSigner and published as a draft release. Four jobs, so that only the
+# signing job holds the signing credentials, and only after a reviewer approves the protected `release` environment:
+#   build   packages the unsigned app (scripts/package-win32.mjs); runs npm and the Code-OSS build, holds no secrets
+#   sign    signs the app, builds and signs the installer, verifies every signature (scripts/release-win32.mjs)
+#   verify  checks the installer on a clean runner: signatures, install, launch, uninstall (scripts/win32/verify-install.ps1)
+#   draft   uploads the installer and SHA256SUMS to a draft release
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing version tag on main, for example v0.2.2'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-win32-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  TAG: ${{ inputs.tag || github.ref_name }}
+
+jobs:
+  build:
+    runs-on: windows-2022
+    timeout-minutes: 180
+    steps:
+      # The patch series applies byte for byte; the runner's Git would otherwise check text files out with CRLF.
+      - name: Keep line endings as committed
+        run: git config --global core.autocrlf false
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Require a main commit and its version tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          git check-ref-format "refs/tags/$TAG"
+          test "$(git rev-parse HEAD)" = "$(git rev-parse "$TAG^{commit}")"
+          git merge-base --is-ancestor HEAD origin/main
+          echo "VSCODE_DIR=$(cygpath -m "$RUNNER_TEMP")/vscode" >> "$GITHUB_ENV"
+
+      - name: Prepare pinned Code-OSS and the patch series
+        shell: bash
+        run: |
+          set -euo pipefail
+          source upstream/vscode.lock
+          git init "$VSCODE_DIR"
+          git -C "$VSCODE_DIR" remote add origin "$repository"
+          git -C "$VSCODE_DIR" fetch --depth=1 origin "$base"
+          git -C "$VSCODE_DIR" checkout --detach FETCH_HEAD
+          git -C "$VSCODE_DIR" config user.name pine-release
+          git -C "$VSCODE_DIR" config user.email pine-release@localhost
+          scripts/upstream-setup.sh
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: ${{ env.VSCODE_DIR }}/.nvmrc
+
+      - name: Install the extension's dependencies
+        run: npm ci --prefix extensions/pine-drama
+
+      # As upstream's Windows build installs them (build/azure-pipelines/win32/product-build-win32-node-modules.yml).
+      - name: Install Code-OSS build dependencies
+        working-directory: ${{ env.VSCODE_DIR }}
+        env:
+          npm_config_arch: x64
+          npm_config_foreground_scripts: 'true'
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+          FOUNDRY_LOCAL_SKIP_INSTALL: '1'
+          GITHUB_TOKEN: ${{ github.token }}
+        run: npm ci
+
+      # signtool on PATH: upstream's packaging strips the native modules' signatures with it
+      # (build/azure-pipelines/win32/steps/product-build-win32-compile.yml, "Build client").
+      - name: Package the minified x64 app
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          NODE_OPTIONS: --max-old-space-size=8192
+        run: |
+          $sdk = Split-Path (Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe' | Sort-Object FullName | Select-Object -Last 1).FullName
+          $env:PATH = "$sdk;$env:PATH"
+          node scripts/package-win32.mjs
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: win32-x64-unsigned
+          path: dist/win32-x64
+          include-hidden-files: true
+          retention-days: 3
+
+  sign:
+    needs: build
+    runs-on: windows-2022
+    timeout-minutes: 60
+    environment: release
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          persist-credentials: false
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: win32-x64-unsigned
+          path: dist/win32-x64
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: dist/win32-x64/.nvmrc
+
+      # SSL.com's CodeSignTool, the release SSL.com publishes on GitHub, checked against the SHA-256 recorded here.
+      - name: Get CodeSignTool 1.3.2
+        run: |
+          $zip = Join-Path $env:RUNNER_TEMP 'CodeSignTool.zip'
+          Invoke-WebRequest -Uri 'https://github.com/SSLcom/CodeSignTool/releases/download/v1.3.2/CodeSignTool-v1.3.2-windows.zip' -OutFile $zip
+          if ((Get-FileHash $zip -Algorithm SHA256).Hash -ne '4AFC32E8B7F79BBE1DE7E4E7049AAAD4E0F754357613B9BBEC0E3052F06FD36B') { throw 'CodeSignTool zip does not match its recorded SHA-256' }
+          Expand-Archive $zip -DestinationPath (Join-Path $env:RUNNER_TEMP 'codesigntool')
+          Remove-Item $zip
+
+      - name: Sign, build and verify the installer
+        env:
+          ES_USERNAME: ${{ vars.ES_USERNAME }}
+          ES_PASSWORD: ${{ secrets.ES_PASSWORD }}
+          ES_TOTP_SECRET: ${{ secrets.ES_TOTP_SECRET }}
+        run: |
+          $signtool = (Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe' | Sort-Object FullName | Select-Object -Last 1).FullName
+          node scripts/release-win32.mjs --input dist/win32-x64 --output dist/release-win32 --tag $env:TAG `
+            --codesigntool (Join-Path $env:RUNNER_TEMP 'codesigntool') --signtool $signtool
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: win32-x64-signed
+          path: dist/release-win32
+          retention-days: 7
+
+      - name: Remove CodeSignTool and its logs
+        if: always()
+        run: Remove-Item -Recurse -Force -ErrorAction SilentlyContinue (Join-Path $env:RUNNER_TEMP 'codesigntool')
+
+  verify:
+    needs: sign
+    runs-on: windows-2022
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          persist-credentials: false
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: win32-x64-signed
+          path: dist/release-win32
+
+      - name: Signatures, install, launch and uninstall
+        run: |
+          $env:PATH = (Split-Path (Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe' | Sort-Object FullName | Select-Object -Last 1).FullName) + ";$env:PATH"
+          Push-Location dist/release-win32
+          $sums = Get-Content SHA256SUMS | ForEach-Object { $h, $f = $_ -split '\s+', 2; if ((Get-FileHash $f -Algorithm SHA256).Hash -ne $h.ToUpper()) { throw "$f does not match SHA256SUMS" }; $f }
+          Pop-Location
+          $publisher = (Get-Content dist/release-win32/build-info.json -Raw | ConvertFrom-Json).publisher
+          ./scripts/win32/verify-install.ps1 -Installer (Resolve-Path "dist/release-win32/$sums") -Seconds 30 -Publisher $publisher
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: win32-x64-install-test
+          path: |
+            ${{ runner.temp }}/install.log
+            ${{ runner.temp }}/install-test.md
+          retention-days: 7
+
+  draft:
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: win32-x64-signed
+          path: release
+
+      # A draft under its own name, so that the version's published release (macOS) is never touched.
+      - name: Draft the Windows release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          (cd release && sha256sum -c SHA256SUMS)
+          gh release create "$TAG-win32" --draft --target "$(gh api "repos/$GH_REPO/commits/$TAG" --jq .sha)" \
+            --title "Pine Drama Studio ${TAG#v} for Windows (x64)" \
+            --notes "Windows x64 installer, signed by 19PINE PRIVATE LIMITED (SSL.com) and timestamped. Per-user install: run the setup, then connect with your Pine project key through Accounts → Pine Computer. Check the download with SHA256SUMS." \
+            release/*.exe release/SHA256SUMS

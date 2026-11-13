@@ -8,6 +8,7 @@ the trademark screen.
 | file | what | who reads it |
 |---|---|---|
 | `pine-drama-studio.icns` | every size `iconutil` asks for: 16, 32, 128, 256 and 512, each with its @2x | packaging (`Contents/Resources/Pine Drama Studio.icns`) |
+| `pine-drama-studio.ico` | Windows: 16, 32 and 64 from `small/`, 128 and 256 from the SVG | Windows packaging (the app, its updater and the installer) |
 | `pine-drama-studio.svg` | the master: a 1024 canvas with the macOS tile (824 px at 100, 100) | rebuilding |
 | `pine-drama-studio-1024.png` | the master as a PNG | reference |
 | `small/` | the 16, 32 and 64 px entries, drawn on the pixel grid | rebuilding |
