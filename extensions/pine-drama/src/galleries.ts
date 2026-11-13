@@ -11,7 +11,7 @@ import { Throttled } from './core/throttled';
 import { GALLERY_PROTOCOL, readFromGallery, type Collection, type ToGallery } from './core/galleryProtocol';
 import type { ChatTitle } from './core/project';
 import type { ProjectViews } from './projectViews';
-import { closeUnrevived, webviewHtml } from './webviewHtml';
+import { closeUnrevived, globalStorageFolder, webviewHtml } from './webviewHtml';
 
 const VIEW_TYPE = 'pineDrama.gallery';
 type Page = { kind: 'collection'; collection: Collection };
@@ -86,7 +86,7 @@ export function registerGalleries(context: vscode.ExtensionContext, views: Proje
 	const setUp = (panel: vscode.WebviewPanel, page: Page, title: string) => {
 		const key = keyOf(page);
 		panels.set(key, panel);
-		panel.webview.options = { enableScripts: true, localResourceRoots: [media, root, context.globalStorageUri] };
+		panel.webview.options = { enableScripts: true, localResourceRoots: [media, root, globalStorageFolder(context)] };
 		show(panel, page, title);
 		panel.webview.html = webviewHtml(panel.webview, media, 'gallery', panel.title, { gallery: page.collection });
 		panel.onDidDispose(() => {

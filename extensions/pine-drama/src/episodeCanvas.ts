@@ -16,7 +16,7 @@ import { episodeIn, roleOf, versionFile, type ChatTitle, type OutlineNode, type 
 import type { CardAction } from './cardActions';
 import type { ProjectViews, StageRef } from './projectViews';
 import { CanvasPicks } from './core/canvasPicks';
-import { closeUnrevived, webviewHtml } from './webviewHtml';
+import { closeUnrevived, globalStorageFolder, webviewHtml } from './webviewHtml';
 
 const VIEW_TYPE = 'pineDrama.episodeCanvas';
 
@@ -98,7 +98,7 @@ export function registerEpisodeCanvas(context: vscode.ExtensionContext, views: P
 		panels.set(episode, panel);
 		panel.title = `${episode} · Canvas`;
 		panel.iconPath = new vscode.ThemeIcon('layout');
-		panel.webview.options = { enableScripts: true, localResourceRoots: [media, root, context.globalStorageUri] };
+		panel.webview.options = { enableScripts: true, localResourceRoots: [media, root, globalStorageFolder(context)] };
 		panel.webview.html = webviewHtml(panel.webview, media, 'canvas', `${episode} · Canvas`, { episode });
 		panel.onDidDispose(() => {
 			panels.delete(episode);

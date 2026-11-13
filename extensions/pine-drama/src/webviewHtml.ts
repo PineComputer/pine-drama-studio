@@ -6,11 +6,17 @@ import * as vscode from 'vscode';
 import { webviewPageHtml, type WebviewPage } from './core/webviewPage';
 
 /**
- * The folder of a webview's preview copies, as a file: URI: both its `localResourceRoots` entry and, through
- * `vscode.Uri.file`, every copy ChatService.preview writes into it. On desktop `globalStorageUri` is a
- * vscode-userdata: URI (Code-OSS environmentService.ts:68, userDataProfile.ts:353), and a webview loads a resource only
- * under a root of the same scheme (resourceLoading.ts:136-159), so a root joined onto it refuses every file: copy.
+ * The extension's global storage as a file: URI, for a webview's `localResourceRoots`: the files under it (the live
+ * previews a turn downloads, the preview copies ChatService.preview writes) reach the page through
+ * `asWebviewUri(vscode.Uri.file(…))`. On desktop `globalStorageUri` is a vscode-userdata: URI (Code-OSS
+ * environmentService.ts:68, userDataProfile.ts:353), and a webview loads a resource only under a root of the same
+ * scheme (resourceLoading.ts:136-159), so that URI as a root refuses every file: one.
  */
+export function globalStorageFolder(context: vscode.ExtensionContext): vscode.Uri {
+	return vscode.Uri.file(context.globalStorageUri.fsPath);
+}
+
+/** The folder of a webview's preview copies under the global storage, as a file: URI (globalStorageFolder). */
 export function previewFolder(context: vscode.ExtensionContext, name: string): vscode.Uri {
 	return vscode.Uri.file(join(context.globalStorageUri.fsPath, name));
 }

@@ -9,7 +9,7 @@ import { episodeIn, type OutlineNode } from './core/project';
 import { segEditorModel, shootRequest } from './core/segEditor';
 import { readFromSegEditor, SEG_PROTOCOL, type ToSegEditor } from './core/segEditorProtocol';
 import type { ProjectViews } from './projectViews';
-import { closeUnrevived, webviewHtml } from './webviewHtml';
+import { closeUnrevived, globalStorageFolder, webviewHtml } from './webviewHtml';
 
 const VIEW_TYPE = 'pineDrama.segEditor';
 const titleOf = (episode: string) => `${episode} · Segs`;
@@ -44,7 +44,7 @@ export function registerSegEditor(context: vscode.ExtensionContext, views: Proje
 		panels.set(episode, panel);
 		panel.title = titleOf(episode);
 		panel.iconPath = new vscode.ThemeIcon('device-camera-video');
-		panel.webview.options = { enableScripts: true, localResourceRoots: [media, vscode.Uri.file(project.root), context.globalStorageUri] };
+		panel.webview.options = { enableScripts: true, localResourceRoots: [media, vscode.Uri.file(project.root), globalStorageFolder(context)] };
 		panel.webview.html = webviewHtml(panel.webview, media, 'seg', titleOf(episode), { episode });
 		panel.onDidDispose(() => panels.delete(episode));
 		panel.webview.onDidReceiveMessage(async (value: unknown) => {

@@ -17,7 +17,7 @@ const disposable = () => ({ dispose() {} });
 const commands = new Map<string, (...args: unknown[]) => unknown>();
 type Panel = { visible: boolean; active: boolean; title: string; posted: unknown[]; receive?: (message: unknown) => Promise<void>; webview: Record<string, unknown> };
 const panels: Panel[] = [];
-const uri = (path: string) => ({ fsPath: path, path, toString: () => `file://${path}` });
+const uri = (path: string, scheme = 'file') => ({ scheme, fsPath: path, path, toString: () => `${scheme}://${path}` });
 const native = {
 	Uri: { file: uri, joinPath: (base: { fsPath: string }, ...parts: string[]) => uri(join(base.fsPath, ...parts)) },
 	ViewColumn: { Active: -1 },
@@ -86,6 +86,23 @@ test('characters, scenes and props share one editor: another kind replaces its c
 		// 2. Assets is no page: the command opens nothing for it.
 		await commands.get('pineDrama.openGallery')!('assets');
 		assert.equal(panels.length, before + 1);
+	} finally {
+		for (const d of context.subscriptions) { d.dispose(); }
+	}
+});
+
+// B7: on desktop the extension's global storage is a vscode-userdata: URI (Code-OSS userDataProfile.ts:353), and a webview
+// loads a file only under a root of its scheme, so a live preview downloaded there needs that folder as a file: root.
+test('a grid can show the live previews in global storage: its resource roots hold that folder as a file: URI', async () => {
+	const root = project();
+	const views = { project: new DramaProject(root, () => [{ scope: 'project', snapshot: SNAPSHOT, task: 'task-1', sent: '2026-11-12T13:00:00Z', installed: '2026-11-12T13:01:00Z' }]), follow() {}, followActive() {}, inspect: async () => undefined } as unknown as Parameters<typeof registerGalleries>[1];
+	const storage = '/user-data/User/globalStorage/pine.pine-drama';
+	const context = { subscriptions: [] as { dispose(): void }[], extensionUri: uri('/ext'), globalStorageUri: uri(storage, 'vscode-userdata') } as unknown as vscode.ExtensionContext;
+	registerGalleries(context, views, { appendLine() {} } as unknown as vscode.OutputChannel);
+	try {
+		await commands.get('pineDrama.openGallery')!('characters');
+		const roots = (panels.at(-1)!.webview.options as { localResourceRoots: { scheme: string; fsPath: string }[] }).localResourceRoots;
+		assert.ok(roots.some(r => r.scheme === 'file' && r.fsPath === storage), JSON.stringify(roots));
 	} finally {
 		for (const d of context.subscriptions) { d.dispose(); }
 	}
