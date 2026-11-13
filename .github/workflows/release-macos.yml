@@ -1,7 +1,6 @@
 name: release-macos
+# Manual only: a tag push would start a run that the public repository, which holds no Apple signing secrets, fails.
 on:
-  push:
-    tags: ['v*']
   workflow_dispatch:
     inputs:
       tag:
@@ -13,7 +12,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: release-macos-${{ inputs.tag || github.ref_name }}
+  group: release-macos-${{ inputs.tag }}
   cancel-in-progress: false
 
 jobs:
@@ -23,7 +22,7 @@ jobs:
     permissions:
       contents: write
     env:
-      TAG: ${{ inputs.tag || github.ref_name }}
+      TAG: ${{ inputs.tag }}
       GH_REPO: ${{ github.repository }}
       APPLE_TEAM_ID: 54XHW83JW7
       APPLE_ID: ${{ secrets.APPLE_ID }}
@@ -31,7 +30,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ inputs.tag || github.ref }}
+          ref: ${{ inputs.tag }}
           fetch-depth: 0
           persist-credentials: false
 
