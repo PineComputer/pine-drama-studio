@@ -75,7 +75,7 @@ The Computer side MUST NOT put lock files, records of a paid call still in progr
 | `inputs` | The versions it was made from, each `{object, version}`. A reader may show only the direct ones: those no other listed input was made from in turn. |
 | `prompt` | The prompt it was made with, or `null`. |
 | `from_import` | The client id of the import it was made from, or `null`. |
-| `continues` | Optional: the id of the version of the same object that this one adds to without revising it, as a bible written in ranges, each range continuing the one before. A chain of versions linked by `continues` is one piece of work written in parts. Absent when a version revises, replaces or starts its object, and in records written before this field. |
+| `continues` | Optional: the id of the version of the same object this one goes on from, as a bible written in ranges, each range written onto the one before, which may also correct what earlier ranges wrote and is not approved yet. A chain of versions linked by `continues` is one piece of work written in parts. Two versions may continue the same one (a range written again with notes): they are alternatives, not one chain. Absent when a version redoes, replaces or starts its object as a whole, and in records written before this field. |
 
 A version is **the person's own** when its `from_import` is set.
 

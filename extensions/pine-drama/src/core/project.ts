@@ -328,7 +328,7 @@ export interface Version {
 	readonly own: boolean;
 	readonly discarded: boolean;
 	readonly reviews: readonly Review[];
-	/** The version it adds to, written in parts (doc/protocol.md 2.1, `continues`), or null. */
+	/** The version it goes on from, written in parts (doc/protocol.md 2.1, `continues`), or null. */
 	readonly continues: string | null;
 }
 
@@ -429,7 +429,7 @@ export function partsOf(version: string, continues: (version: string) => string 
 	return parts;
 }
 
-/** `continues` within `detail`: the version a held version adds to, when it is held too and folding it closes no cycle. */
+/** `continues` within `detail`: the version a held version goes on from, when it is held too and folding it closes no cycle. */
 function continuesIn(detail: Pick<StageDetail, 'versions'>): (version: string) => string | null {
 	const held = new Map(detail.versions.map(v => [v.name, v]));
 	const named = (name: string) => { const up = held.get(name)?.continues; return up && held.has(up) ? up : null; };
