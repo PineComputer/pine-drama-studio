@@ -69,6 +69,8 @@ export interface VersionRecord {
 	readonly inputs: readonly VersionRef[];
 	readonly prompt: string | null;
 	readonly from_import: string | null;
+	/** The version of the same object this one adds to (doc/protocol.md 2.1); absent for a revision and in older records. */
+	readonly continues?: string;
 }
 
 export interface Review {

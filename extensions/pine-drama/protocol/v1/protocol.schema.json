@@ -277,6 +277,9 @@
               "type": "null"
             }
           ]
+        },
+        "continues": {
+          "$ref": "#/$defs/versionId"
         }
       }
     },

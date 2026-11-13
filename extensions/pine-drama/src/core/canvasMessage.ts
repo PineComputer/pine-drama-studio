@@ -39,6 +39,7 @@ async function card(read: CanvasRead, s: LineageStage, board: AssetsBoard | unde
 		name: board?.names[s.id] ?? null,
 		...marksOf(read.drama, read.chatTitle ?? (() => undefined), object ?? null, null),
 		...(s.planned ? { planned: true } : {}),
+		...(s.parts ? { parts: s.parts } : {}),
 	};
 }
 

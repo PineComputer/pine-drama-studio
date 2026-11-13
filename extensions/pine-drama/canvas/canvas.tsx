@@ -88,7 +88,10 @@ function measure(card: CanvasCard): Promise<Loaded> {
 /** The version line: drama-cli's working and accepted versions, and whether status calls it usable, as separate facts (review, clarification 2). */
 /** The version line in words, for a tooltip. */
 const versionText = (card: CanvasCard) => card.planned ? 'planned' : !card.version ? 'no version'
-	: `${card.version}${card.accepted === card.version ? ' · approved' : card.accepted ? ` · approved ${card.accepted}` : ''}`;
+	: `${card.version}${card.accepted === card.version ? ' · approved' : card.accepted ? ` · approved ${card.accepted}` : ''}${written(card)}`;
+
+/** "written in 13 parts", when the version continues earlier ones (doc/protocol.md 2.1, `continues`). */
+const written = (card: CanvasCard) => card.parts ? ` · written in ${card.parts} parts` : '';
 
 function VersionLine({ card }: { card: CanvasCard }) {
 	// A stage its episode plans and has not made yet (section 2d; Pippit's "To be set"; 552).
@@ -101,7 +104,7 @@ function VersionLine({ card }: { card: CanvasCard }) {
 	return (
 		<>
 			<span className={card.accepted === card.version ? 'accepted' : ''}>{card.version}</span>
-			<span className="muted">{card.accepted === card.version ? ' · approved' : card.accepted ? ` · approved ${card.accepted}` : ' · not approved'}</span>
+			<span className="muted">{card.accepted === card.version ? ' · approved' : card.accepted ? ` · approved ${card.accepted}` : ' · not approved'}{written(card)}</span>
 			{/* drama-cli status's judgement (stages.usable, #390): only none made, not accepted, or a changed acceptance (D308). */}
 			{card.notUsable ? <span className="chip stale" title={card.notUsable}>Not usable</span> : null}
 		</>

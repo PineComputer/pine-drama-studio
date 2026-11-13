@@ -4,7 +4,7 @@ import * as vscode from 'vscode';
 import { Latest } from './core/latest';
 import { PROJECT_VIEW_ID, startOnProduction } from './productionStart';
 import { ProjectFinder, PROJECT_FILES } from './core/projectFinder';
-import { DramaProject, describeStage, NOTE_ATTACH, NOTE_INTAKE, reviewText, versionHolding, type Drama, type OutlineNode, type PreviewsOf, type Role, type SnapshotOf, type TasksOf, type StageDetail, type Version } from './core/project';
+import { DramaProject, describeStage, NOTE_ATTACH, NOTE_INTAKE, reviewText, versionHolding, versionRows, type Drama, type OutlineNode, type PreviewsOf, type Role, type SnapshotOf, type TasksOf, type StageDetail, type Version } from './core/project';
 import { holdsNoProject } from './core/binding';
 import { decomposition, detachedStage, kindRow, lockOf, openSteps, sectionLines } from './core/threeSteps';
 
@@ -213,7 +213,7 @@ class ProjectProvider implements vscode.TreeDataProvider<OutlineNode> {
 }
 
 type TimelineEntry =
-	| { kind: 'version'; version: Version; detail: StageDetail }
+	| { kind: 'version'; version: Version; detail: StageDetail; parts: readonly Version[]; parent?: string }
 	| { kind: 'review'; text: string; tooltip: string }
 	| { kind: 'note'; text: string };
 
@@ -234,16 +234,21 @@ class TimelineProvider implements vscode.TreeDataProvider<TimelineEntry> {
 		this.changed.fire();
 	}
 
-	/** The row of the shown stage's version `name`, for `reveal`. */
+	/** The row of the shown stage's version `name`, for `reveal`: its own, or a part's under the one it continues into. */
 	entryOf(name: string): TimelineEntry | undefined {
 		const detail = this.selection?.detail;
-		const version = detail?.versions.find(v => v.name === name);
-		return detail && version ? { kind: 'version', version, detail } : undefined;
+		const row = detail && versionRows(detail).find(r => r.version.name === name);
+		// A part folded under more than one entry (two versions continue it) is revealed under the newest.
+		const under = detail && !row ? versionRows(detail).find(r => r.parts.some(p => p.name === name)) : undefined;
+		return row ? { kind: 'version', ...row, detail: detail! }
+			: under ? { kind: 'version', version: under.parts.find(p => p.name === name)!, parts: [], detail: detail!, parent: under.version.name } : undefined;
 	}
 
-	/** `reveal` needs it (vscode.d.ts, TreeView.reveal); only version rows, which are the roots, are revealed. */
-	getParent(): undefined {
-		return undefined;
+	/** `reveal` needs it (vscode.d.ts, TreeView.reveal): a part's parent is the entry it was listed under. */
+	getParent(entry: TimelineEntry): TimelineEntry | undefined {
+		const detail = this.selection?.detail;
+		const row = entry.kind === 'version' && entry.parent && detail ? versionRows(detail).find(r => r.version.name === entry.parent) : undefined;
+		return row && { kind: 'version', ...row, detail: detail! };
 	}
 
 	getChildren(entry?: TimelineEntry): TimelineEntry[] {
@@ -251,12 +256,14 @@ class TimelineProvider implements vscode.TreeDataProvider<TimelineEntry> {
 			return [];
 		}
 		if (!entry) {
-			return this.selection.detail.versions.map(version => ({ kind: 'version', version, detail: this.selection!.detail }));
+			return versionRows(this.selection.detail).map(row => ({ kind: 'version', ...row, detail: this.selection!.detail }));
 		}
 		if (entry.kind !== 'version') {
 			return [];
 		}
-		const out: TimelineEntry[] = entry.version.reviews.map(r => ({ kind: 'review', ...reviewText(r, shortDate(r.acceptedAt)) }));
+		// A version written in parts holds its earlier parts, each its own version (doc/protocol.md 2.1, `continues`).
+		const out: TimelineEntry[] = [...entry.parts.map(version => ({ kind: 'version' as const, version, parts: [], detail: entry.detail, parent: entry.version.name })),
+			...entry.version.reviews.map(r => ({ kind: 'review' as const, ...reviewText(r, shortDate(r.acceptedAt)) }))];
 		if (entry.version.discarded) {
 			out.push({ kind: 'note', text: 'Deleted by you' });
 		}
@@ -271,8 +278,10 @@ class TimelineProvider implements vscode.TreeDataProvider<TimelineEntry> {
 				detail.pointers.current === version.name ? 'working' : '',
 				version.own ? 'your import' : '',
 			].filter(Boolean);
-			const item = new vscode.TreeItem(version.name, version.reviews.length || version.discarded ? vscode.TreeItemCollapsibleState.Expanded : vscode.TreeItemCollapsibleState.None);
-			item.description = [tags.join(' · '), shortDate(version.createdAt)].filter(Boolean).join('  ');
+			const item = new vscode.TreeItem(version.name, entry.parts.length ? vscode.TreeItemCollapsibleState.Collapsed
+				: version.reviews.length || version.discarded ? vscode.TreeItemCollapsibleState.Expanded : vscode.TreeItemCollapsibleState.None);
+			const written = entry.parts.length ? `written in ${entry.parts.length + 1} parts` : '';
+			item.description = [[...tags, written].filter(Boolean).join(' · '), shortDate(version.createdAt)].filter(Boolean).join('  ');
 			item.iconPath = new vscode.ThemeIcon(tags.includes('accepted') ? 'pass-filled' : 'circle-small');
 			item.tooltip = version.path;
 			if (version.file && this.project) {

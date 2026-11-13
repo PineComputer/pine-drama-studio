@@ -4,7 +4,7 @@
 // 5.2). Nothing is judged here. No vscode import.
 
 import type { ObjectType } from './protocol';
-import { directInputs, episodeIn, versionFile, type Drama, type DramaObject } from './project';
+import { detailOf, directInputs, episodeIn, versionFile, writtenIn, type Drama, type DramaObject } from './project';
 
 /** The object types in pipeline order (doc/protocol.md, section 5.1): a card's column. */
 export const TYPES: readonly ObjectType[] = [
@@ -32,6 +32,8 @@ export interface LineageStage {
 	readonly segment: string | null;
 	/** An object with no version yet: its card stands in its place and says Planned. */
 	readonly planned?: boolean;
+	/** The parts its current version is written in, when more than one (doc/protocol.md 2.1, `continues`). */
+	readonly parts?: number;
 }
 
 /** A line: the current version of `to` was made from `from` (or, planned, will be). */
@@ -82,7 +84,13 @@ function stageOf(drama: Drama, object: DramaObject): LineageStage {
 		shows: versionFile(object, object.resolved.current),
 		label: object.name, section: sectionOf(drama, object), segment: object.segment,
 		...(object.versions.length ? {} : { planned: true }),
+		...partsField(object),
 	};
+}
+
+function partsField(object: DramaObject): { parts?: number } {
+	const parts = object.resolved.current ? writtenIn(detailOf(object), object.resolved.current) : 1;
+	return parts > 1 ? { parts } : {};
 }
 
 /**

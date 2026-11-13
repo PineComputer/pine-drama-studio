@@ -32,6 +32,8 @@ export interface CanvasCard {
 	/** The working version the card shows, or null when drama-cli has none (not generated). */
 	readonly version: string | null;
 	readonly accepted: string | null;
+	/** The parts `version` is written in, when more than one (lineage.ts `parts`). */
+	readonly parts?: number;
 	/** Why the next steps cannot use it yet, in the snapshot's words (`why`), else null. */
 	readonly notUsable: string | null;
 	/** Project-relative file of `version` the card shows (lineage `shows`), or null. */

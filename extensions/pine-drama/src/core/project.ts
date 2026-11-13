@@ -328,6 +328,8 @@ export interface Version {
 	readonly own: boolean;
 	readonly discarded: boolean;
 	readonly reviews: readonly Review[];
+	/** The version it adds to, written in parts (doc/protocol.md 2.1, `continues`), or null. */
+	readonly continues: string | null;
 }
 
 /**
@@ -412,12 +414,44 @@ export function detailOf(object: DramaObject): StageDetail {
 			file: versionFile(object, v.id),
 			own: resolved.own(v), discarded: resolved.discarded.has(v.id),
 			reviews: v.reviews.map(r => ({ reason: r.reason, person: r.person ?? null, acceptedAt: r.accepted_at })),
+			continues: v.record.continues ?? null,
 		})).reverse(),
 	};
 }
 
-/** An object's pointers in one line, "accepted v2 by you · working v3". */
-export function describeStage(detail: Pick<StageDetail, 'pointers' | 'acceptedBy'>): string {
+/**
+ * The parts `version` is written in, itself first: the versions it continues, one after another, while the object
+ * holds them (doc/protocol.md 2.1, `continues`). One part for a version that continues none.
+ */
+export function partsOf(version: string, continues: (version: string) => string | null | undefined): string[] {
+	const parts = [version];
+	for (let up = continues(version); up && !parts.includes(up); up = continues(up)) { parts.push(up); }
+	return parts;
+}
+
+/** `continues` within `detail`: the version a held version adds to, when it is held too and folding it closes no cycle. */
+function continuesIn(detail: Pick<StageDetail, 'versions'>): (version: string) => string | null {
+	const held = new Map(detail.versions.map(v => [v.name, v]));
+	const named = (name: string) => { const up = held.get(name)?.continues; return up && held.has(up) ? up : null; };
+	return name => { const up = named(name); return up && !partsOf(up, named).includes(name) ? up : null; };
+}
+
+/** How many parts `version` of `detail` is written in: one for a version that continues none. */
+export function writtenIn(detail: Pick<StageDetail, 'versions'>, version: string): number {
+	return partsOf(version, continuesIn(detail)).length;
+}
+
+/** The Versions list's rows: each version no held version continues, with the earlier parts it continues. */
+export function versionRows(detail: Pick<StageDetail, 'versions'>): { version: Version; parts: Version[] }[] {
+	const held = new Map(detail.versions.map(v => [v.name, v]));
+	const continues = continuesIn(detail);
+	const continued = new Set(detail.versions.map(v => continues(v.name)));
+	return detail.versions.filter(v => !continued.has(v.name))
+		.map(version => ({ version, parts: partsOf(version.name, continues).slice(1).map(name => held.get(name)!) }));
+}
+
+/** An object's pointers in one line, "accepted v2 by you · working v3", and the parts the working one is written in. */
+export function describeStage(detail: Pick<StageDetail, 'pointers' | 'acceptedBy' | 'versions'>): string {
 	const { current, accepted } = detail.pointers;
 	const parts: string[] = [];
 	if (accepted) {
@@ -425,6 +459,12 @@ export function describeStage(detail: Pick<StageDetail, 'pointers' | 'acceptedBy
 	}
 	if (current && current !== accepted) {
 		parts.push(`working ${current}`);
+	}
+	// The newest work's parts, after its pointer: the working version's, else the approved one's.
+	const shown = current ?? accepted;
+	const written = shown ? writtenIn(detail, shown) : 1;
+	if (written > 1) {
+		parts.push(`written in ${written} parts`);
 	}
 	return parts.length ? parts.join(' · ') : 'no version';
 }
