@@ -272,7 +272,9 @@ The client installs one return at a time, finishing one before it starts the nex
    - **A refused return is resolved**, like an installed one: the session may send its next turn.
 2. **Then rename into place:** version folders first, then review files.
 
-The client then stores `private_state` for the session and keeps `snapshot`, and shows `problems`, `question` and `review`. Returns are ordered by when they were installed. A newer turn's `private_state` or `snapshot` is never replaced by an older one's: when the client installs a return again after a crash, it keeps whatever a later turn left.
+The client then stores `private_state` for the session, and shows `problems`, `question` and `review`. Returns are ordered by when they were installed.
+
+**The turn stays with the folder.** For every return it installs or refuses, the client writes `turns/<turn>.json` into the folder: the return's version folders, review files, `problems` and `snapshot` (null when there is none), when it was sent and installed, and the version folders and choices its request carried. Any client that opens the folder shows the drama from these files (5.3), whichever client sent the turns. The Computer side never reads or writes `turns/`, and a request does not carry it. The session's `private_state`, the person's messages and `notes` stay with the client that sent them. One client works in a folder at a time: a folder moves between machines whole, and is not shared while in use. A newer turn's `private_state` or `snapshot` is never replaced by an older one's: when the client installs a return again after a crash, it keeps whatever a later turn left.
 
 **Versions made from a version deleted during the turn.** Suppose an input of a returned version (2.1) is a version the person deleted after the request was sent. The client then adds that returned version to `discarded` in `choices.json`, and does the same for every returned version made from it. The folders stay installed, so version numbering stays intact, and the person can bring them back.
 

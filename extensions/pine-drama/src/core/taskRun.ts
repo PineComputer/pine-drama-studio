@@ -6,6 +6,7 @@ import { existsSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs
 import { mkdir } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { writeWhole } from './choices';
+import type { TasksOf } from './project';
 import { projectIdentity } from './projectPlace';
 import type { Choices, Folders, Note, ProtocolError, Request, Snapshot } from './protocol';
 import { fileKey, sha256, stateKey, versionKey } from './taskArtifacts';
@@ -63,6 +64,24 @@ export interface Installed {
 	readonly installed: string;
 }
 
+/**
+ * What a turn leaves in the drama's folder, `turns/<turn id>.json` (doc/protocol.md, 4.4): the return as installed, and the
+ * versions and choices its request carried, so that every Studio shows the project the same, from the folder alone.
+ * Nothing of the person's session travels: no Chat, private state or notes.
+ */
+export interface Turn {
+	readonly schema: 1;
+	readonly task: string;
+	readonly scope: string;
+	readonly sent: string;
+	readonly installed: string;
+	readonly request: Pick<Request, 'versions' | 'choices'>;
+	readonly versions: Folders;
+	readonly reviews: Folders;
+	readonly problems: Installed['problems'];
+	readonly snapshot: Snapshot | null;
+}
+
 /** A request as the Studio sent it (DramaRecord.sentRequest). */
 export interface SentTask {
 	readonly sent: string;
@@ -79,14 +98,21 @@ async function writeJson(path: string, value: unknown): Promise<void> {
 
 const readJson = <T>(path: string): T | undefined => existsSync(path) ? JSON.parse(readFileSync(path, 'utf8')) as T : undefined;
 
+/** The turns the drama's folder holds (Turn), oldest installed first. */
+export function turnsOf(root: string): Turn[] {
+	const dir = join(root, 'turns');
+	return (existsSync(dir) ? readdirSync(dir).filter(n => n.endsWith('.json')) : []).map(n => readJson<Turn>(join(dir, n))!)
+		.sort((a, b) => a.installed.localeCompare(b.installed));
+}
+
 /**
  * The Studio's record of one drama, under its storage, outside the drama's folder: each request as sent
  * (`requests/<task>.json`), each return dealt with (`returns/<task>.json`), and each session's latest
- * (`sessions/<chat>.json`). The request's versions and reviews are read from the returns, so they name exactly the
- * archives the Studio holds.
+ * (`sessions/<chat>.json`). What the project is travels with the folder instead (Turn): the returns read from there, so a
+ * request names the archives every Studio knows of.
  */
 export class DramaRecord {
-	constructor(readonly dir: string) { }
+	constructor(readonly dir: string, readonly root: string) { }
 
 	returnPath(task: string): string { return join(this.dir, 'returns', `${task}.json`); }
 	requestPath(task: string): string { return join(this.dir, 'requests', `${task}.json`); }
@@ -105,16 +131,41 @@ export class DramaRecord {
 	/** Records an installed return, and makes it its session's latest unless a later-sent task of the session has returned. */
 	async installed(done: Installed): Promise<void> {
 		await writeJson(this.returnPath(done.task), done);
+		await this.publish(done);
 		this.dropPreviews(done.task);
 		const latest = this.latest(done.chat);
 		if (!latest || latest.sent <= done.sent) { await writeJson(this.sessionPath(done.chat), done); }
 	}
 
 	/** Records a task whose return installed nothing (refused, invalid, or never written), with any problems it carried: it is not read again. */
-	handle(task: string, problems: Installed['problems'] = []): Promise<void> {
+	async handle(task: string, problems: Installed['problems'] = []): Promise<void> {
 		const sent = this.sentTask(task)!;
 		this.dropPreviews(task);
-		return writeJson(this.returnPath(task), { task, scope: sent.request.scope, chat: sent.chat, sent: sent.sent, versions: {}, reviews: {}, private_state: null, snapshot: null, problems, installed: new Date().toISOString() } satisfies Installed);
+		const done: Installed = { task, scope: sent.request.scope, chat: sent.chat, sent: sent.sent, versions: {}, reviews: {}, private_state: null, snapshot: null, problems, installed: new Date().toISOString() };
+		await writeJson(this.returnPath(task), done);
+		await this.publish(done);
+	}
+
+	/** Writes the turn of a return dealt with into the drama's folder (Turn), from the return and its request as sent. */
+	publish(done: Installed): Promise<void> {
+		const request = this.sentTask(done.task)?.request;
+		return writeJson(join(this.root, 'turns', `${done.task}.json`), {
+			schema: 1, task: done.task, scope: done.scope, sent: done.sent, installed: done.installed,
+			request: { versions: request?.versions ?? {}, choices: request?.choices ?? null },
+			versions: done.versions, reviews: done.reviews, problems: done.problems, snapshot: done.snapshot,
+		} satisfies Turn);
+	}
+
+	/**
+	 * Writes into the folder every return this record dealt with whose turn the folder lacks: those dealt with before turns
+	 * travelled with the folder, or by a Studio stopped between the two writes. Returns how many it wrote.
+	 */
+	async publishKept(): Promise<number> {
+		const dir = join(this.dir, 'returns');
+		const kept = (existsSync(dir) ? readdirSync(dir).filter(n => n.endsWith('.json')) : []).map(n => readJson<Installed>(join(dir, n))!)
+			.filter(done => done.installed && !existsSync(join(this.root, 'turns', `${done.task}.json`)));
+		for (const done of kept) { await this.publish(done); }
+		return kept.length;
 	}
 
 	/** Every request sent from this drama, oldest first. */
@@ -129,15 +180,8 @@ export class DramaRecord {
 		return this.requests().filter(t => t.chat === chat && !this.handled(t.request.turn));
 	}
 
-	returns(): Installed[] {
-		const dir = join(this.dir, 'returns');
-		return existsSync(dir) ? readdirSync(dir).filter(n => n.endsWith('.json')).map(n => {
-			const done = readJson<Installed>(join(dir, n))!;
-			// A record from before the install time was kept is not supported (no backward compatibility): said by name.
-			if (!done.installed) { throw new Error(`${join(dir, n)} has no install time: it was written by an earlier Studio; remove the drama's record to start again`); }
-			return done;
-		}) : [];
-	}
+	/** Every return dealt with in the drama, by any Studio: the folder's turns. */
+	returns(): Turn[] { return turnsOf(this.root); }
 
 	latest(chat: string): Installed | undefined { return readJson<Installed>(this.sessionPath(chat)); }
 
@@ -171,7 +215,37 @@ export class DramaRecord {
 
 /** The record of the drama at `root` under the protocol storage `storage` (the extension's `<globalStorage>/protocol`). */
 export function dramaRecordOf(storage: string, root: string): DramaRecord {
-	return new DramaRecord(join(storage, 'dramas', sha256(projectIdentity(root)).slice(0, 32)));
+	return new DramaRecord(join(storage, 'dramas', sha256(projectIdentity(root)).slice(0, 32)), root);
+}
+
+/**
+ * Writes into the folder at `root` the turns every record of this Studio profile holds for it and the folder lacks
+ * (DramaRecord.publishKept): the protocol storage of each connection, and the one used before connections had their own.
+ */
+export async function publishKeptTurns(globalStorage: string, root: string): Promise<number> {
+	const connections = join(globalStorage, 'connections');
+	const storages = [join(globalStorage, 'protocol'), ...(existsSync(connections) ? readdirSync(connections).map(c => join(connections, c, 'protocol')) : [])];
+	let written = 0;
+	for (const storage of storages) { written += await dramaRecordOf(storage, root).publishKept(); }
+	return written;
+}
+
+/**
+ * What the views read of the drama's tasks (core/project.ts, TasksOf): every turn the folder holds, with the Chat that
+ * sent it when this Studio did, and this Studio's requests not dealt with yet.
+ */
+export function tasksOf(record: DramaRecord | undefined, root: string): TasksOf {
+	return {
+		requests: () => {
+			const turns = turnsOf(root);
+			const mine = record?.requests() ?? [];
+			return [
+				...turns.map(t => ({ sent: t.sent, chat: mine.find(r => r.request.turn === t.task)?.chat ?? '', request: { turn: t.task, scope: t.scope as Request['scope'], ...t.request } })),
+				...mine.filter(r => !turns.some(t => t.task === r.request.turn)),
+			];
+		},
+		returns: () => turnsOf(root),
+	};
 }
 
 /**
@@ -179,12 +253,12 @@ export function dramaRecordOf(storage: string, root: string): DramaRecord {
  * task, and when it was sent and installed, in install order (doc/protocol.md, 4.4). Each covers the objects it lists,
  * and a reader shows each object from the latest one that lists it (doc/protocol.md, 5.3).
  */
-export function installedSnapshots(storage: string, root: string): { readonly scope: 'project' | 'episodes'; readonly snapshot: Snapshot; readonly task: string; readonly sent: string; readonly installed: string }[] {
-	return scopedSnapshots(dramaRecordOf(storage, root).returns());
+export function installedSnapshots(root: string): { readonly scope: 'project' | 'episodes'; readonly snapshot: Snapshot; readonly task: string; readonly sent: string; readonly installed: string }[] {
+	return scopedSnapshots(turnsOf(root));
 }
 
 /** The snapshots of `returns`, in install order, each with its session's scope, its task and its times (installedSnapshots). */
-export function scopedSnapshots(returns: readonly Installed[]): { readonly scope: 'project' | 'episodes'; readonly snapshot: Snapshot; readonly task: string; readonly sent: string; readonly installed: string }[] {
+export function scopedSnapshots(returns: readonly Pick<Turn, 'task' | 'scope' | 'sent' | 'installed' | 'snapshot'>[]): { readonly scope: 'project' | 'episodes'; readonly snapshot: Snapshot; readonly task: string; readonly sent: string; readonly installed: string }[] {
 	return [...returns].sort((a, b) => a.installed.localeCompare(b.installed))
 		.flatMap(r => r.snapshot ? [{ scope: r.scope === 'project' ? 'project' as const : 'episodes' as const, snapshot: r.snapshot, task: r.task, sent: r.sent, installed: r.installed }] : []);
 }
@@ -233,12 +307,14 @@ function versionFolders(root: string, prefix = ''): string[] {
 }
 
 /**
- * Keeps what the folder holds that no return named (4.1, "Archive hashes"): a version folder made outside the client is
+ * Keeps what the folder holds that no return named whose archive this Studio keeps (4.1, "Archive hashes"): a version
+ * folder made outside the client, or installed by another Studio (its turn is in the folder, its archive is not here), is
  * archived once, with system tar, its names sorted and its `reviews/` left out, and a review file is kept by its hash.
  * Each is recorded, and from then on it is held like an installed one.
  */
 async function adoptLoose(root: string, record: DramaRecord, kept: string): Promise<void> {
-	const named = new Set([...record.returns().flatMap(r => [...Object.keys(r.versions), ...Object.keys(r.reviews)]), ...record.adopted().map(a => a.path)]);
+	const here = (folders: Folders, key: (hash: string) => string) => Object.entries(folders).filter(([, hash]) => existsSync(join(kept, key(hash)))).map(([path]) => path);
+	const named = new Set([...record.returns().flatMap(r => [...here(r.versions, versionKey), ...here(r.reviews, fileKey)]), ...record.adopted().map(a => a.path)]);
 	for (const folder of existsSync(root) ? versionFolders(root) : []) {
 		if (!named.has(folder)) {
 			const temp = join(kept, `.pine-adopt-${sha256(folder)}.tar`);

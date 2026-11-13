@@ -11,7 +11,7 @@ import { within } from './placement';
 import { snapshotState, variantRoot } from './project';
 import { check, type Request, type Return, type VersionRef } from './protocol';
 import { fetchKept, fileKey, sha256, stateKey, versionKey, type ArtifactStore } from './taskArtifacts';
-import { scopedSnapshots, type DramaRecord, type Installed } from './taskRun';
+import { scopedSnapshots, tasksOf, type DramaRecord, type Installed } from './taskRun';
 
 /** A version the agent asks the person to choose (4.3, `review`). */
 export type ReviewTarget = VersionRef & { readonly reason: string };
@@ -116,7 +116,7 @@ async function installNow(o: {
 	// Inside an object made in an episodes turn (section 1): the snapshots installed before this return, reconciled as the
 	// readers do (5.3, snapshotState), mark it `episode_made`, and the request holds a version of its asset, by the latest
 	// `variant_of` edges, other than the marked object's own.
-	const state = snapshotState(scopedSnapshots(before), record);
+	const state = snapshotState(scopedSnapshots(before), tasksOf(record, root));
 	const marked = [...state.listed].filter(([, { object }]) => object.episode_made).map(([id]) => id);
 	const edges = { edges: state.edges };
 	const held = Object.keys(request.versions);

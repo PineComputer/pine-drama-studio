@@ -5,7 +5,7 @@ import { registerPineConnection, CONNECTION_COMMAND } from './pineConnection';
 import { mkdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { ChatService, stopAllSummary } from './core/chats';
-import { dramaRecordOf, installedSnapshots, previewVersions } from './core/taskRun';
+import { dramaRecordOf, installedSnapshots, previewVersions, publishKeptTurns, tasksOf } from './core/taskRun';
 import type { SecretVault } from './core/pinePort';
 import { setAsideNotice, Store } from './core/store';
 import { lockProjectWindow, type ProjectWindowLock } from './core/projectWindowLock';
@@ -110,16 +110,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 		};
 		watchPreviews();
 		projectOpened?.();
+		// Turns this profile dealt with before they travelled with the folder go into it once (core/taskRun.ts,
+		// publishKeptTurns), under this window's project lock; the folder's watcher then refreshes the views.
+		void publishKeptTurns(context.globalStorageUri.fsPath, root)
+			.then(written => { if (written) { log(`project: ${written} turns from this profile's records written into ${root}/turns`); } })
+			.catch(error => log(`project: writing this profile's turns into ${root}/turns: ${(error as Error).stack ?? error}`));
 	},
-	// The views read the drama's record under the connection's protocol storage (core/taskRun.ts), known once the Pine
-	// connection is read below: the installed returns' snapshots, the downloaded versions not installed yet, and each
-	// request as sent and return dealt with, for the cards' marks.
-	root => () => protocolStorage ? installedSnapshots(protocolStorage, root) : [],
+	// The project is the folder's (core/taskRun.ts, turnsOf): the installed returns' snapshots and the turns, for the
+	// cards' marks, read the same in any Studio. Only the downloaded versions not installed yet, and this Studio's requests
+	// not dealt with yet, are under the connection's protocol storage, known once the Pine connection is read below.
+	root => () => installedSnapshots(root),
 	root => () => protocolStorage ? previewVersions(protocolStorage, root) : [],
-	root => ({
-		requests: () => protocolStorage ? dramaRecordOf(protocolStorage, root).requests() : [],
-		returns: () => protocolStorage ? dramaRecordOf(protocolStorage, root).returns() : [],
-	}));
+	root => {
+		const tasks = () => tasksOf(protocolStorage ? dramaRecordOf(protocolStorage, root) : undefined, root);
+		return { requests: () => tasks().requests(), returns: () => tasks().returns() };
+	});
 
 	registerProjectCommands(context, output);
 

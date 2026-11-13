@@ -39,8 +39,8 @@ export interface PreviewVersion {
 export type PreviewsOf = () => readonly PreviewVersion[];
 
 /**
- * What the Studio's record of the drama says of its tasks (core/taskRun.ts, DramaRecord): each request as sent, with
- * the Chat that sent it, and each return dealt with, with the problems it named.
+ * The drama's tasks (core/taskRun.ts, tasksOf): each request as sent, with the Chat that sent it when this Studio did
+ * (empty otherwise), and each return dealt with, with the problems it named.
  */
 export interface TasksOf {
 	requests(): readonly { readonly sent: string; readonly chat: string; readonly request: Pick<Request, 'turn' | 'scope' | 'choices' | 'versions'> }[];
@@ -163,7 +163,7 @@ export async function readDrama(root: string, snapshotOf: SnapshotOf, previewsOf
 	const outgoing = (id: string) => {
 		const last = lastRequest(scopeOfId(id));
 		const mine = JSON.stringify(choices?.objects[id] ?? null);
-		return mine !== JSON.stringify(last?.request.choices?.objects[id] ?? null) ? { chat: last?.chat ?? null } : null;
+		return mine !== JSON.stringify(last?.request.choices?.objects[id] ?? null) ? { chat: last?.chat || null } : null;
 	};
 	await Promise.all([...listed].filter(([id]) => !removed.has(id)).map(async ([id, { object, at }]) => {
 		const installed = await readVersions(root, id);

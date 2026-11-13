@@ -1342,8 +1342,7 @@ export class ChatService {
 		const root = this.projectRoot(key);
 		// What the installed snapshots say of each object (core/project.ts, snapshotState): its type sets the review's
 		// kind, and its name the item's title, as the canvas names it. No version history is read for that.
-		const protocol = this.options.protocol;
-		const state = root && protocol ? snapshotState(installedSnapshots(protocol.storage, root)) : undefined;
+		const state = root ? snapshotState(installedSnapshots(root)) : undefined;
 		const named = { objects: new Map([...state?.listed ?? []].map(([id, { object }]) => [id, object])), edges: state?.edges ?? [] };
 		// Each version shows the file its version.json names (doc/protocol.md, 2.1).
 		const items: ReviewItem[] = root ? targets.map(target => {

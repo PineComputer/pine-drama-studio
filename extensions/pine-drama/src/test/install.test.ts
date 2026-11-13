@@ -2,7 +2,7 @@
 // corrupt the person's drama. System tar makes the archives, as the Computer side does.
 import { strict as assert } from 'node:assert';
 import { execFileSync } from 'node:child_process';
-import { existsSync, linkSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, linkSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
@@ -10,7 +10,7 @@ import { readChoices, updateChoices } from '../core/choices';
 import type { Request, Return } from '../core/protocol';
 import { archiveNames, installReturn, InvalidReturn, previewProgress } from '../core/resultImporter';
 import { fileKey, Holders, putAll, sha256, stateKey, versionKey, type ArtifactStore } from '../core/taskArtifacts';
-import { dramaRecordOf, installedSnapshots, previewVersions, requestKeys, requestOf, taskMessage } from '../core/taskRun';
+import { dramaRecordOf, installedSnapshots, previewVersions, publishKeptTurns, requestKeys, requestOf, taskMessage, tasksOf } from '../core/taskRun';
 
 const temp = (name: string) => realpathSync(mkdtempSync(join(tmpdir(), `pds-install-${name}-`)));
 
@@ -338,7 +338,43 @@ test('installed snapshots come in install order, each with its task and when it 
 	await d.install(early, { snapshot: snapshot('2026-11-12T10:02:00Z') });
 	await new Promise(resolve => setTimeout(resolve, 5));
 	await d.install(late, { snapshot: snapshot('2026-11-12T10:03:00Z') });
-	const listed = installedSnapshots(d.storage, d.root);
+	const listed = installedSnapshots(d.root);
 	assert.deepEqual(listed.map(s => [s.task, s.sent]), [['task-0002', '2026-11-12T10:01:00.000Z'], ['task-0001', '2026-11-12T10:00:00.000Z']], 'by install, not by send');
 	assert.ok(listed[0].installed < listed[1].installed);
+});
+
+// The project travels with its folder (issue #68): another Studio profile, with a record that never saw a turn, shows the
+// same snapshots and turns, and its next request names the versions installed.
+test('a turn leaves its record in the folder: another Studio reads the same project from the folder alone', async () => {
+	const d = await drama();
+	const hash = archive(d.store, { 'version.json': version(), 'image-1.png': 'lin' });
+	const snapshot = { observed_at: '2026-11-12T10:00:00Z', objects: { 'assets/characters/lin': { type: 'character' as const, name: 'Lin', segment: null, usable: true, from_add: null } }, edges: [] };
+	await d.install(await d.send('task-0001', '2026-11-12T10:00:00Z'), { versions: { 'assets/characters/lin/v1': hash }, snapshot });
+	const turn = JSON.parse(readFileSync(join(d.root, 'turns', 'task-0001.json'), 'utf8'));
+	assert.deepEqual(Object.keys(turn).sort(), ['installed', 'problems', 'request', 'reviews', 'schema', 'scope', 'sent', 'snapshot', 'task', 'versions'], 'no Chat, private state or notes');
+	const other = temp('other-profile');
+	const elsewhere = dramaRecordOf(other, d.root);
+	assert.deepEqual(installedSnapshots(d.root).map(s => s.snapshot), [snapshot]);
+	assert.deepEqual(elsewhere.returns().map(r => r.versions), [{ 'assets/characters/lin/v1': hash }]);
+	assert.deepEqual(tasksOf(undefined, d.root).requests().map(r => [r.request.turn, r.chat]), [['task-0001', '']]);
+	assert.deepEqual(tasksOf(d.record, d.root).requests().map(r => [r.request.turn, r.chat]), [['task-0001', 'chat-1']]);
+	// Its next request holds the version, archived again where this Studio keeps no copy of the returned archive (Codex).
+	const next = await requestOf(d.root, elsewhere, join(other, 'kept'), 'task-0002', 'project', 'chat-2', null, []);
+	assert.deepEqual(Object.keys(next.versions), ['assets/characters/lin/v1']);
+	assert.ok(requestKeys(next).every(key => existsSync(join(other, 'kept', key))), 'every archive it names can be sent from here');
+	const again = await requestOf(d.root, d.record, join(d.storage, 'kept'), 'task-0003', 'project', 'chat-1', null, []);
+	assert.deepEqual(again.versions, { 'assets/characters/lin/v1': hash }, 'the Studio that installed it names the returned archive');
+});
+
+test('turns a profile dealt with before they travelled with the folder are written into it once, from every record of the profile', async () => {
+	const d = await drama();
+	const snapshot = { observed_at: '2026-11-12T10:00:00Z', objects: {}, edges: [] };
+	await d.install(await d.send('task-0001', '2026-11-12T10:00:00Z'), { snapshot });
+	const profile = temp('profile');
+	cpSync(d.storage, join(profile, 'connections', 'c1', 'protocol'), { recursive: true });
+	rmSync(join(d.root, 'turns'), { recursive: true });
+	assert.deepEqual(installedSnapshots(d.root), [], 'as an earlier Studio left it');
+	assert.equal(await publishKeptTurns(profile, d.root), 1);
+	assert.deepEqual(installedSnapshots(d.root).map(s => [s.task, s.snapshot]), [['task-0001', snapshot]]);
+	assert.equal(await publishKeptTurns(profile, d.root), 0, 'once');
 });
