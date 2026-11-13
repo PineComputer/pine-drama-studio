@@ -76,18 +76,18 @@ test("a version's model and settings come from its saved job and request, in eac
 	};
 	const cases: [unknown, unknown, unknown][] = [
 		[{ kind: 'image', provider: 'openai', model: 'gpt-image-2.5-sunburst' }, { model: 'gpt-image-2.5-sunburst', prompt: 'p', size: '1152x2048', quality: 'high', n: 1 },
-			{ model: 'gpt-image-2.5-sunburst', settings: ['size 1152x2048', 'quality high', 'n 1'] }],
+			{ model: 'gpt-image-2.5-sunburst', settings: ['1152×2048', 'high', '1 image'] }],
 		[{ kind: 'image', provider: 'seedream', model: 'dola-seedream-5-0-pro-260628' }, { size: '1440x2560', watermark: false },
-			{ model: 'dola-seedream-5-0-pro-260628', settings: ['size 1440x2560'] }],
+			{ model: 'dola-seedream-5-0-pro-260628', settings: ['1440×2560'] }],
 		[{ kind: 'video', provider: 'ark', model: 'sd25' }, { content: [], ratio: '9:16', resolution: '480p', duration: 19 },
-			{ model: 'sd25', settings: ['ratio 9:16', 'resolution 480p', 'duration 19'] }],
+			{ model: 'sd25', settings: ['9:16', '480p', '19 s'] }],
 		[{ kind: 'video', provider: 'dashscope', model: 'wan3.0-video' }, { input: {}, parameters: { resolution: '720P', ratio: '9:16', duration: 10, audio: true } },
-			{ model: 'wan3.0-video', settings: ['resolution 720P', 'ratio 9:16', 'duration 10'] }],
+			{ model: 'wan3.0-video', settings: ['720P', '9:16', '10 s'] }],
 		// MuleRouter's body names no model: it is in the task path, and job.json records it.
 		[{ kind: 'video', provider: 'mulerouter', model: 'berry-1.0' }, { prompt: 'p', resolution: '1080p', ratio: '16:9', duration: 5 },
-			{ model: 'berry-1.0', settings: ['resolution 1080p', 'ratio 16:9', 'duration 5'] }],
+			{ model: 'berry-1.0', settings: ['1080p', '16:9', '5 s'] }],
 		// A field the request lacks is left out.
-		[{ kind: 'image', provider: 'openai', model: 'm' }, { size: '1024x1024' }, { model: 'm', settings: ['size 1024x1024'] }],
+		[{ kind: 'image', provider: 'openai', model: 'm' }, { size: '1024x1024' }, { model: 'm', settings: ['1024×1024'] }],
 		// Nothing for: an import (no files), a text call, an unknown provider, no request, a malformed request.
 		[undefined, undefined, null],
 		[{ kind: 'text', provider: 'openai', model: 'gpt-6.1-terra' }, { model: 'gpt-6.1-terra', messages: [] }, null],
@@ -113,9 +113,10 @@ test("a node not drawn yet shows the model and settings its latest prompt record
 	const record = (request: unknown) => ({ by: 'template', text: 't', request });
 	// The latest by number (v10 after v2), and only the fields it states.
 	assert.deepEqual(await plannedWith(object({ v2: record({ model: 'old', aspect: '1:1' }), v10: record({ model: 'openai:gpt-image-2.5-sunburst', aspect: '9:16', images: [] }) })),
-		{ model: 'openai:gpt-image-2.5-sunburst', settings: ['aspect 9:16'] });
+		{ model: 'openai:gpt-image-2.5-sunburst', settings: ['9:16'] });
 	assert.deepEqual(await plannedWith(object({ v1: record({ model: 'm', aspect: '16:9', resolution: '2k', quality: 'high', count: 1 }) })),
-		{ model: 'm', settings: ['aspect 16:9', 'resolution 2k', 'quality high', 'count 1'] });
+		{ model: 'm', settings: ['16:9', '2k', 'high', '1 image'] });
+	assert.deepEqual((await plannedWith(object({ v1: record({ model: 'm', count: 2 }) })))?.settings, ['2 images']);
 	assert.equal(await plannedWith(object({})), null, 'no prompt record');
 	assert.equal(await plannedWith(object({ v1: record({ aspect: '9:16' }) })), null, 'no model');
 	assert.equal(await plannedWith(object({ v1: '{not json' })), null, 'malformed');

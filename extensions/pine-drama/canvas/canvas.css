@@ -62,6 +62,8 @@ button { font: inherit; color: inherit; }
 /* drama-cli's links: thin and quiet; the picked card's own stand out. */
 .react-flow__edge.link path { stroke: var(--vscode-descriptionForeground); stroke-opacity: 0.32; stroke-width: 1; }
 .react-flow__edge.link.lit path { stroke: var(--vscode-focusBorder); stroke-opacity: 0.95; stroke-width: 1.5; }
+/* The assets canvas: a variant drawn from its base, dashed. */
+.react-flow__edge.dashed .react-flow__edge-path { stroke-dasharray: 6 4; }
 
 /* Floating surfaces: one recipe (widget background, border, shadow, 12 px). */
 .bar, .composer, .menu { background: var(--vscode-editorWidget-background); color: var(--vscode-editorWidget-foreground, var(--vscode-foreground)); border: 1px solid var(--vscode-editorWidget-border, var(--vscode-widget-border, var(--vscode-panel-border))); box-shadow: 0 6px 24px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.36)); }

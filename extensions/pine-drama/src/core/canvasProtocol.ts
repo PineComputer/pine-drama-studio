@@ -147,7 +147,7 @@ export interface MadeFrom {
 	readonly stageId: string | null;
 }
 
-/** A version's model and its request's settings, each "<field> <value>" in its provider's own field name. */
+/** A version's model and its request's settings, each as a person reads it ("2048×1152", "high", "1 image", "19 s"). */
 export interface MadeWith {
 	readonly model: string;
 	readonly settings: readonly string[];

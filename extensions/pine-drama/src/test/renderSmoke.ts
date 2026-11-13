@@ -53,8 +53,17 @@ const fileSrc = (rel: string) => `${ORIGIN}/project/${rel.split('/').map(encodeU
 
 async function canvasCase(source: Source, episode: string): Promise<Case> {
 	const message = await lineageMessage({ root: source.root, episode, drama: source.drama, layout: {}, focus: undefined, src: fileSrc });
+	// Every recorded link between two cards on the board is drawn: the person missed them once all were dropped.
+	const board = new Set(message.cards.filter(onBoard).map(c => c.id));
+	const lines = message.links.filter(l => board.has(l.from) && board.has(l.to)).length;
+	const check = async (page: Page): Promise<string[]> => {
+		const edges = page.locator('.react-flow__edge');
+		for (const until = Date.now() + WAIT_MS; Date.now() < until && await edges.count() < lines;) { await new Promise(resolve => setTimeout(resolve, 100)); }
+		const drawn = await edges.count();
+		return lines === 0 ? [`the fixture's ${episode} canvas has no link to draw`] : drawn === lines ? [] : [`${drawn} lines drawn of ${lines} links`];
+	};
 	return { name: `${source.name}: canvas ${episode}`, page: 'canvas', data: { episode }, root: source.root, message,
-		expect: { selector: '.react-flow__node-card', count: message.cards.filter(onBoard).length } };
+		expect: { selector: '.react-flow__node-card', count: message.cards.filter(onBoard).length }, interact: { answer: () => null, check } };
 }
 
 /** The prompt the box shows for an object (episodeCanvas.ts detailReply). */
@@ -65,7 +74,7 @@ function promptOf(source: Source, id: string): CanvasPrompt | null {
 }
 
 /** What the shown version was made with, as madeWith reads it from a saved OpenAI image request. */
-const MADE = { model: 'gpt-image-2.5-sunburst', settings: ['size 1152x2048', 'quality high', 'n 1'] };
+const MADE = { model: 'gpt-image-2.5-sunburst', settings: ['1152×2048', 'high', '1 image'] };
 
 /** What the extension answers a click on a card with (episodeCanvas.ts detailReply): its record, picture strip, prompt and what it was made with. */
 function recordAnswer(source: Source) {

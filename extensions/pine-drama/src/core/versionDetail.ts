@@ -54,11 +54,20 @@ const isRecord = (value: unknown): value is Record<string, unknown> => typeof va
 // A missing or malformed file is an ordinary case here (an import has no request): it shows nothing.
 const readJson = (path: string): Promise<unknown> => readFile(path, 'utf8').then(text => JSON.parse(text) as unknown).catch(() => null);
 
-/** `request`'s scalar `fields`, each "<field> <value>" by the last part of its path; a field it lacks is left out. */
+/** A setting as a person reads it, by its field's name: "2048×1152", "1 image", "19 s"; any other as its value. */
+const LABEL: Readonly<Record<string, (value: string | number) => string>> = {
+	size: value => String(value).replace('x', '×'),
+	n: value => `${value} image${value === 1 ? '' : 's'}`,
+	count: value => `${value} image${value === 1 ? '' : 's'}`,
+	duration: value => `${value} s`,
+};
+
+/** `request`'s scalar `fields`, each as LABEL reads it by the last part of its path; a field it lacks is left out. */
 function settingsOf(request: Record<string, unknown>, fields: readonly string[]): string[] {
 	return fields.flatMap(path => {
 		const value = path.split('.').reduce<unknown>((at, key) => isRecord(at) ? at[key] : undefined, request);
-		return typeof value === 'string' || typeof value === 'number' ? [`${path.split('.').pop()} ${value}`] : [];
+		const label = LABEL[path.split('.').pop()!] ?? String;
+		return typeof value === 'string' || typeof value === 'number' ? [label(value)] : [];
 	});
 }
 

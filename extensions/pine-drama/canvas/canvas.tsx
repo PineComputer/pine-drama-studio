@@ -627,7 +627,8 @@ function Canvas({ message, loaded }: { message: Lineage; loaded: Record<string, 
 	// drama-cli's recorded links: thin and light; the picked card's own links stand out.
 	const edges: Edge[] = useMemo(() => message.links.filter(l => nodes.some(n => n.id === l.from) && nodes.some(n => n.id === l.to)).map(l => ({
 		id: `${l.from}->${l.to}`, source: l.from, target: l.to, selectable: false, focusable: false,
-		className: picked && (l.from === picked || l.to === picked) ? 'link lit' : 'link',
+		// On the assets canvas a link is a variant drawn from its base, dashed.
+		className: `${picked && (l.from === picked || l.to === picked) ? 'link lit' : 'link'}${message.episode === ASSETS_CANVAS ? ' dashed' : ''}`,
 		zIndex: picked && (l.from === picked || l.to === picked) ? 2 : 0,
 	})), [message.links, nodes, picked]);
 
