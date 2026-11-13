@@ -1,0 +1,13 @@
+{
+	"schema": 1,
+	"made_at": "2026-11-12T11:10:00Z",
+	"file": "video.mp4",
+	"inputs": [
+		{
+			"object": "episodes/EP001/keyframe/seg01/shot01",
+			"version": "v1"
+		}
+	],
+	"prompt": "Image 1 is the first frame. Lin turns from the window.",
+	"from_import": null
+}

@@ -1,0 +1,356 @@
+{
+  "path": "/var/lib/sandbox/sessions/fixture/files/drama/rewrite.fountain",
+  "original": "/var/lib/sandbox/sessions/fixture/files/drama/screenplay.md",
+  "rewrite": true,
+  "removed": [
+    "/var/lib/sandbox/sessions/fixture/files/drama/screenplay.md:10: removed: scene1day",
+    "/var/lib/sandbox/sessions/fixture/files/drama/screenplay.md:12: removed: d",
+    "/var/lib/sandbox/sessions/fixture/files/drama/screenplay.md:12: removed: quinn",
+    "/var/lib/sandbox/sessions/fixture/files/drama/screenplay.md:14: removed: anursedropsatray",
+    "/var/lib/sandbox/sessions/fixture/files/drama/screenplay.md:16: removed: scene2night",
+    "/var/lib/sandbox/sessions/fixture/files/drama/screenplay.md:23: removed: scene1day",
+    "/var/lib/sandbox/sessions/fixture/files/drama/screenplay.md:26: removed: iceover",
+    "/var/lib/sandbox/sessions/fixture/files/drama/screenplay.md:26: removed: quinn"
+  ],
+  "added": [
+    "/var/lib/sandbox/sessions/fixture/files/drama/rewrite.fountain:1: added: title",
+    "/var/lib/sandbox/sessions/fixture/files/drama/rewrite.fountain:11: added: a",
+    "/var/lib/sandbox/sessions/fixture/files/drama/rewrite.fountain:11: added: ma",
+    "/var/lib/sandbox/sessions/fixture/files/drama/rewrite.fountain:40: added: mara",
+    "/var/lib/sandbox/sessions/fixture/files/drama/rewrite.fountain:43: added: junthenpickup"
+  ],
+  "not_produced": [
+    "/var/lib/sandbox/sessions/fixture/files/drama/rewrite.fountain:3: not produced: Characters: Mara Quinn, 28-30, an ER doctor, the female lead. Jun Park, 30, the man who left her, the male lead. Ivy Chen, 27, Jun's assistant, supporting."
+  ],
+  "lines": [
+    {
+      "line": 1,
+      "text": "The Last Shift",
+      "to": [
+        1
+      ],
+      "kinds": []
+    },
+    {
+      "line": 3,
+      "text": "Characters:",
+      "to": [
+        3
+      ],
+      "kinds": [
+        "note"
+      ]
+    },
+    {
+      "line": 4,
+      "text": "Mara Quinn, 28-30, an ER doctor, the female lead.",
+      "to": [
+        3
+      ],
+      "kinds": [
+        "note"
+      ]
+    },
+    {
+      "line": 5,
+      "text": "Jun Park, 30, the man who left her, the male lead.",
+      "to": [
+        3
+      ],
+      "kinds": [
+        "note"
+      ]
+    },
+    {
+      "line": 6,
+      "text": "Ivy Chen, 27, Jun's assistant, supporting.",
+      "to": [
+        3
+      ],
+      "kinds": [
+        "note"
+      ]
+    },
+    {
+      "line": 8,
+      "text": "Episode 1",
+      "to": [
+        5
+      ],
+      "kinds": [
+        "section"
+      ]
+    },
+    {
+      "line": 10,
+      "text": "Scene 1. Emergency room, day.",
+      "to": [
+        7
+      ],
+      "kinds": [
+        "scene heading"
+      ]
+    },
+    {
+      "line": 11,
+      "text": "Dusk. Low sun through the blinds as stretchers roll in. Mara meets the first one.",
+      "to": [
+        9
+      ],
+      "kinds": [
+        "action"
+      ]
+    },
+    {
+      "line": 12,
+      "text": "Dr. Quinn (shouting): Bed three, charge the paddles!",
+      "to": [
+        11,
+        12,
+        13
+      ],
+      "kinds": [
+        "dialogue MARA"
+      ]
+    },
+    {
+      "line": 13,
+      "text": "Nurses: On it!",
+      "to": [
+        15,
+        16
+      ],
+      "kinds": [
+        "dialogue NURSES"
+      ]
+    },
+    {
+      "line": 14,
+      "text": "The long tone of a heart monitor. A nurse drops a tray.",
+      "to": [
+        18
+      ],
+      "kinds": [
+        "action"
+      ]
+    },
+    {
+      "line": 16,
+      "text": "Scene 2. Hospital entrance, night.",
+      "to": [
+        20
+      ],
+      "kinds": [
+        "scene heading"
+      ]
+    },
+    {
+      "line": 17,
+      "text": "Rain. Jun waits under an umbrella.",
+      "to": [
+        22
+      ],
+      "kinds": [
+        "action"
+      ]
+    },
+    {
+      "line": 18,
+      "text": "Jun: Mara. I'm back.",
+      "to": [
+        24,
+        25
+      ],
+      "kinds": [
+        "dialogue JUN"
+      ]
+    },
+    {
+      "line": 19,
+      "text": "Mara (cold): It was raining when you left, too.",
+      "to": [
+        27,
+        28,
+        29
+      ],
+      "kinds": [
+        "dialogue MARA"
+      ]
+    },
+    {
+      "line": 21,
+      "text": "Episode 2",
+      "to": [
+        31
+      ],
+      "kinds": [
+        "section"
+      ]
+    },
+    {
+      "line": 23,
+      "text": "Scene 1. Jun's office, day.",
+      "to": [
+        33
+      ],
+      "kinds": [
+        "scene heading"
+      ]
+    },
+    {
+      "line": 24,
+      "text": "Jun stares at a missed call on his phone. Ivy waits by the door.",
+      "to": [
+        35
+      ],
+      "kinds": [
+        "action"
+      ]
+    },
+    {
+      "line": 25,
+      "text": "Ivy: Mr. Park, she still won't answer.",
+      "to": [
+        37,
+        38
+      ],
+      "kinds": [
+        "dialogue IVY"
+      ]
+    },
+    {
+      "line": 26,
+      "text": "Quinn (voice over): Stop calling me.",
+      "to": [
+        40,
+        41
+      ],
+      "kinds": [
+        "dialogue MARA"
+      ]
+    }
+  ],
+  "ready": true,
+  "problems": [],
+  "summary": {
+    "episodes": 2,
+    "scenes": 3,
+    "dialogue": 7,
+    "speakers": {
+      "MARA": 3,
+      "NURSES": 1,
+      "JUN": 2,
+      "IVY": 1
+    }
+  },
+  "file_lines": [
+    {
+      "line": 1,
+      "kind": "titleentry"
+    },
+    {
+      "line": 3,
+      "kind": "note"
+    },
+    {
+      "line": 5,
+      "kind": "section"
+    },
+    {
+      "line": 7,
+      "kind": "heading"
+    },
+    {
+      "line": 9,
+      "kind": "action"
+    },
+    {
+      "line": 11,
+      "kind": "character"
+    },
+    {
+      "line": 12,
+      "kind": "parenthetical"
+    },
+    {
+      "line": 13,
+      "kind": "dialogue"
+    },
+    {
+      "line": 15,
+      "kind": "character"
+    },
+    {
+      "line": 16,
+      "kind": "dialogue"
+    },
+    {
+      "line": 18,
+      "kind": "action"
+    },
+    {
+      "line": 20,
+      "kind": "heading"
+    },
+    {
+      "line": 22,
+      "kind": "action"
+    },
+    {
+      "line": 24,
+      "kind": "character"
+    },
+    {
+      "line": 25,
+      "kind": "dialogue"
+    },
+    {
+      "line": 27,
+      "kind": "character"
+    },
+    {
+      "line": 28,
+      "kind": "parenthetical"
+    },
+    {
+      "line": 29,
+      "kind": "dialogue"
+    },
+    {
+      "line": 31,
+      "kind": "section"
+    },
+    {
+      "line": 33,
+      "kind": "heading"
+    },
+    {
+      "line": 35,
+      "kind": "action"
+    },
+    {
+      "line": 37,
+      "kind": "character"
+    },
+    {
+      "line": 38,
+      "kind": "dialogue"
+    },
+    {
+      "line": 40,
+      "kind": "character"
+    },
+    {
+      "line": 41,
+      "kind": "dialogue"
+    },
+    {
+      "line": 43,
+      "kind": "character"
+    },
+    {
+      "line": 44,
+      "kind": "dialogue"
+    }
+  ]
+}

@@ -1,0 +1,91 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Pine Drama Studio Authors <authors@example.invalid>
+Date: Wed, 11 Nov 2026 19:05:07 -0800
+Subject: [PATCH 31/31] pine(L2): Release Notes in the update tooltip opens the
+ Studio's GitHub Release
+
+
+diff --git a/src/vs/workbench/contrib/pine/browser/pine.contribution.ts b/src/vs/workbench/contrib/pine/browser/pine.contribution.ts
+index 8522dca0065..b62f6abb28b 100644
+--- a/src/vs/workbench/contrib/pine/browser/pine.contribution.ts
++++ b/src/vs/workbench/contrib/pine/browser/pine.contribution.ts
+@@ -4,6 +4,7 @@
+ 
+ import './pineProjectChat.js';
+ import './pineWorkingMark.js';
++import './pineReleaseNotes.js';
+ import { Disposable } from '../../../../base/common/lifecycle.js';
+ import { Extensions as ConfigurationExtensions, IConfigurationRegistry } from '../../../../platform/configuration/common/configurationRegistry.js';
+ import { Registry } from '../../../../platform/registry/common/platform.js';
+diff --git a/src/vs/workbench/contrib/pine/browser/pineReleaseNotes.ts b/src/vs/workbench/contrib/pine/browser/pineReleaseNotes.ts
+new file mode 100644
+index 00000000000..875f5110689
+--- /dev/null
++++ b/src/vs/workbench/contrib/pine/browser/pineReleaseNotes.ts
+@@ -0,0 +1,25 @@
++/*---------------------------------------------------------------------------------------------
++ *  Pine Drama Studio release notes (layer 2): the update tooltip's Release Notes opens the Studio's GitHub Release.
++ *--------------------------------------------------------------------------------------------*/
++
++// Upstream's update tooltip and post-update widget run `update.showCurrentReleaseNotes` with the update's
++// productVersion (updateTooltip.ts, the Release Notes button; postUpdateWidget.ts). Upstream registers that command
++// only when product.json has `releaseNotesUrl`, and its editor then fetches VS Code's notes for the Code-OSS version
++// (update.contribution.ts ShowReleaseNotesAction, releaseNotesEditor.ts). The Studio sets no `releaseNotesUrl`, so this
++// command opens the Studio's own release: `pineReleasesUrl` in product.json, the tag `v<version>` when the version is
++// the Studio's (the feed's productVersion), else the release list.
++
++import { CommandsRegistry } from '../../../../platform/commands/common/commands.js';
++import { IOpenerService } from '../../../../platform/opener/common/opener.js';
++import { IProductService } from '../../../../platform/product/common/productService.js';
++import product from '../../../../platform/product/common/product.js';
++import { ShowCurrentReleaseNotesActionId } from '../../update/common/update.js';
++import { pineReleaseNotesUrl } from '../common/pineReleaseNotes.js';
++
++const releasesUrl = (product as { pineReleasesUrl?: string }).pineReleasesUrl;
++if (releasesUrl && !product.releaseNotesUrl) {
++	CommandsRegistry.registerCommand(ShowCurrentReleaseNotesActionId, async (accessor, version?: string) => {
++		const productService = accessor.get(IProductService);
++		await accessor.get(IOpenerService).open(pineReleaseNotesUrl(releasesUrl, productService.version, version), { openExternal: true });
++	});
++}
+diff --git a/src/vs/workbench/contrib/pine/common/pineReleaseNotes.ts b/src/vs/workbench/contrib/pine/common/pineReleaseNotes.ts
+new file mode 100644
+index 00000000000..1453d22ba49
+--- /dev/null
++++ b/src/vs/workbench/contrib/pine/common/pineReleaseNotes.ts
+@@ -0,0 +1,9 @@
++/*---------------------------------------------------------------------------------------------
++ *  Pine Drama Studio release notes (layer 2): which page a version's notes are on.
++ *--------------------------------------------------------------------------------------------*/
++
++/** The tag `v<version>` for a Studio version (the update feed's productVersion); the release list for Code-OSS's own. */
++export function pineReleaseNotesUrl(releasesUrl: string, codeOssVersion: string, version: string | undefined): string {
++	const base = releasesUrl.replace(/\/+$/, '');
++	return version && version !== codeOssVersion ? `${base}/tag/v${encodeURIComponent(version)}` : base;
++}
+diff --git a/src/vs/workbench/contrib/pine/test/common/pineReleaseNotes.test.ts b/src/vs/workbench/contrib/pine/test/common/pineReleaseNotes.test.ts
+new file mode 100644
+index 00000000000..02785f4f1ca
+--- /dev/null
++++ b/src/vs/workbench/contrib/pine/test/common/pineReleaseNotes.test.ts
+@@ -0,0 +1,20 @@
++/*---------------------------------------------------------------------------------------------
++ *  Pine Drama Studio release notes regression: a Studio version opens its tag, Code-OSS's version the list.
++ *--------------------------------------------------------------------------------------------*/
++import assert from 'assert';
++import { pineReleaseNotesUrl } from '../../common/pineReleaseNotes.js';
++import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
++
++suite('Pine release notes', () => {
++	ensureNoDisposablesAreLeakedInTestSuite();
++	const releases = 'https://github.com/PineComputer/pine-drama-studio/releases/';
++
++	test('the update tooltip\'s version (the Studio\'s) opens its release tag', () => {
++		assert.strictEqual(pineReleaseNotesUrl(releases, '1.145.0', '0.2.0'), 'https://github.com/PineComputer/pine-drama-studio/releases/tag/v0.2.0');
++	});
++
++	test('Code-OSS\'s own version, or none, opens the release list', () => {
++		assert.strictEqual(pineReleaseNotesUrl(releases, '1.145.0', '1.145.0'), 'https://github.com/PineComputer/pine-drama-studio/releases');
++		assert.strictEqual(pineReleaseNotesUrl(releases, '1.145.0', undefined), 'https://github.com/PineComputer/pine-drama-studio/releases');
++	});
++});

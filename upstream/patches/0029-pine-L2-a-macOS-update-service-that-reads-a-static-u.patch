@@ -1,0 +1,301 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Pine Drama Studio Authors <authors@example.invalid>
+Date: Wed, 11 Nov 2026 19:05:06 -0800
+Subject: [PATCH 29/31] pine(L2): a macOS update service that reads a static
+ update feed on GitHub
+
+Upstream's client treats only 204 as up to date (abstractUpdateService.ts doIsLatestVersion), which a static host
+cannot answer. PineDarwinUpdateService reads <updateUrl>/<quality>/<asset>.json, compares the published commit with
+the running one, and hands the feed to Squirrel only when they differ; the decision is electron-free
+(common/pine/pineUpdateFeed.ts) and tested with npm run test-node.
+
+diff --git a/src/vs/platform/update/common/pine/pineUpdateFeed.ts b/src/vs/platform/update/common/pine/pineUpdateFeed.ts
+new file mode 100644
+index 00000000000..604414c72bc
+--- /dev/null
++++ b/src/vs/platform/update/common/pine/pineUpdateFeed.ts
+@@ -0,0 +1,103 @@
++/*---------------------------------------------------------------------------------------------
++ *  Pine Drama Studio update feed (layer 2): the decision, without electron.
++ *--------------------------------------------------------------------------------------------*/
++
++// The Studio's update feed: one static JSON file per quality and asset, kept on GitHub (registered by the touchpoint
++// in `app.ts`). Upstream's client asks a server by commit and treats only 204 as "up to date"
++// (abstractUpdateService.ts `doIsLatestVersion`); a static host cannot answer 204, so the client reads the file and
++// compares commits itself, as VSCodium's client does with its versions repository (VSCodium patch
++// 11-update-use-github-release.patch). The file holds the fields upstream's update server answers with, so Squirrel
++// reads it unchanged once an update is due (Squirrel.Mac README, "Update Server JSON Format").
++// No electron import: this module is the decision, tested with `npm run test-node`; the electron-main service wires it.
++
++import { raceTimeout } from '../../../../base/common/async.js';
++import { Idle, IUpdate, State, UpdateType } from '../update.js';
++
++/** The published release, as the release step writes it (scripts/release-update.sh). */
++export interface IPineUpdateFeed extends IUpdate {
++	/** The release's zip; Squirrel downloads it, following GitHub's redirect to the asset. */
++	readonly url: string;
++	/** The release's product.json commit. */
++	readonly version: string;
++	/** The Studio's version, shown as "Latest Version". */
++	readonly productVersion: string;
++}
++
++/** `<updateUrl>/<quality>/<assetId>.json`, e.g. `…/updates/stable/darwin-arm64.json`. */
++export function pineUpdateFeedUrl(updateUrl: string, quality: string, assetId: string): string {
++	return `${updateUrl.replace(/\/+$/, '')}/${encodeURIComponent(quality)}/${encodeURIComponent(assetId)}.json`;
++}
++
++/** The feed as the file states it, or an error that says what is wrong with it. */
++export function parsePineUpdateFeed(value: unknown): IPineUpdateFeed {
++	if (!value || typeof value !== 'object') {
++		throw new Error('the update feed is not a JSON object');
++	}
++	const feed = value as Record<string, unknown>;
++	for (const key of ['url', 'version', 'productVersion'] as const) {
++		if (typeof feed[key] !== 'string' || !feed[key]) {
++			throw new Error(`the update feed has no ${key}`);
++		}
++	}
++	let url: URL;
++	try {
++		url = new URL(feed.url as string);
++	} catch {
++		throw new Error(`the update feed's url is not a URL: ${feed.url}`);
++	}
++	if (url.protocol !== 'https:') {
++		throw new Error(`the update feed's url is not https: ${feed.url}`);
++	}
++	return value as IPineUpdateFeed;
++}
++
++/** What one read of the feed decides for a build at `commit`. */
++export type PineUpdateDecision =
++	| { readonly kind: 'latest' }
++	| { readonly kind: 'update'; readonly feed: IPineUpdateFeed }
++	| { readonly kind: 'unreadable'; readonly error: Error };
++
++/**
++ * How long a read of the feed may take, request and body together. A check waits in CheckingForUpdates for it, and the
++ * hourly check does nothing while one is in progress (abstractUpdateService.ts `checkForUpdates`), so a read without a
++ * limit could stop all later checks; the request service stops honouring cancellation once headers arrive
++ * (requestService.ts), so the limit races the whole read rather than cancelling the request alone.
++ */
++export const PINE_FEED_TIMEOUT_MS = 30_000;
++
++/**
++ * The published commit is the latest; every other commit, older or newer, is offered the published one, as upstream's
++ * server does by commit (the feed is the one published release, so every other commit is offered it). A read that
++ * fails, or does not finish within `timeoutMs`, is unreadable; `onTimeout` lets the caller cancel the request.
++ */
++export async function decidePineUpdate(read: () => Promise<unknown>, commit: string, timeoutMs: number, onTimeout?: () => void): Promise<PineUpdateDecision> {
++	let feed: IPineUpdateFeed;
++	try {
++		const answered = await raceTimeout(read().then(value => ({ value })), timeoutMs, onTimeout);
++		if (!answered) {
++			throw new Error(`the update feed did not answer within ${timeoutMs} ms`);
++		}
++		feed = parsePineUpdateFeed(answered.value);
++	} catch (error) {
++		return { kind: 'unreadable', error: error instanceof Error ? error : new Error(String(error)) };
++	}
++	return feed.version === commit ? { kind: 'latest' } : { kind: 'update', feed };
++}
++
++/**
++ * What a check does with a decision: hand an update to Squirrel ('download'), or go Idle as upstream does when there is
++ * none (onUpdateNotAvailable: "no updates" only for an explicit check) or when the check fails (onError: the message
++ * only for an explicit check).
++ */
++export function pineCheckOutcome(decision: PineUpdateDecision, explicit: boolean): 'download' | Idle {
++	switch (decision.kind) {
++		case 'update': return 'download';
++		case 'latest': return State.Idle(UpdateType.Archive, undefined, explicit || undefined);
++		case 'unreadable': return State.Idle(UpdateType.Archive, explicit ? decision.error.message : undefined);
++	}
++}
++
++/** `doIsLatestVersion`'s answer: true or false from the feed, undefined when it cannot be read (no overwrite then). */
++export function pineIsLatest(decision: PineUpdateDecision): boolean | undefined {
++	return decision.kind === 'unreadable' ? undefined : decision.kind === 'latest';
++}
+diff --git a/src/vs/platform/update/electron-main/pine/pineUpdateService.darwin.ts b/src/vs/platform/update/electron-main/pine/pineUpdateService.darwin.ts
+new file mode 100644
+index 00000000000..b52fcb8688e
+--- /dev/null
++++ b/src/vs/platform/update/electron-main/pine/pineUpdateService.darwin.ts
+@@ -0,0 +1,88 @@
++/*---------------------------------------------------------------------------------------------
++ *  Pine Drama Studio macOS updates (layer 2): upstream's Squirrel updater on a static feed on GitHub.
++ *--------------------------------------------------------------------------------------------*/
++
++// Registered in place of DarwinUpdateService by one line in app.ts (the eleventh touchpoint). Upstream asks a
++// server by commit and treats only 204 as "up to date" (abstractUpdateService.ts `doIsLatestVersion`), every 5 minutes
++// in Ready and again before a restart; a static file cannot answer 204, so a 404 for the latest commit would make the
++// client throw away its own downloaded update. Here the client reads the feed (common/pine/pineUpdateFeed.ts) and calls
++// Squirrel only when the published commit is not this build's; Squirrel then reads the same file, which carries the
++// fields of upstream's update reply, and downloads its zip. Everything else is upstream's: the state machine, the
++// metered-connection path, Restart to Update, install on quit.
++
++import * as electron from 'electron';
++import { CancellationToken, CancellationTokenSource } from '../../../../base/common/cancellation.js';
++import { asJson } from '../../../request/common/request.js';
++import { State, StateType } from '../../common/update.js';
++import { decidePineUpdate, PINE_FEED_TIMEOUT_MS, pineCheckOutcome, pineIsLatest, pineUpdateFeedUrl, PineUpdateDecision } from '../../common/pine/pineUpdateFeed.js';
++import { getUpdateRequestHeaders, IUpdateURLOptions } from '../abstractUpdateService.js';
++import { DarwinUpdateService } from '../updateService.darwin.js';
++
++export class PineDarwinUpdateService extends DarwinUpdateService {
++
++	private feedUrl(quality: string): string {
++		// The asset id upstream's buildUpdateFeedUrl uses (updateService.darwin.ts).
++		const assetId = this.productService.darwinUniversalAssetId ?? (process.arch === 'x64' ? 'darwin' : 'darwin-arm64');
++		return pineUpdateFeedUrl(this.productService.updateUrl!, quality, assetId);
++	}
++
++	/** One read of the feed for `commit`, limited to PINE_FEED_TIMEOUT_MS, request and body together; on the limit the request is cancelled too. */
++	private async decide(quality: string, commit: string, token: CancellationToken): Promise<PineUpdateDecision> {
++		const cts = new CancellationTokenSource(token);
++		try {
++			const read = async () => asJson(await this.requestService.request({ url: this.feedUrl(quality), headers: getUpdateRequestHeaders(this.productService.version), callSite: 'pineUpdateService.readFeed' }, cts.token));
++			const decision = await decidePineUpdate(read, commit, PINE_FEED_TIMEOUT_MS, () => cts.cancel());
++			if (decision.kind === 'unreadable') {
++				this.logService.error('update#pine - could not read the update feed:', decision.error.message);
++			}
++			return decision;
++		} finally {
++			cts.dispose();
++		}
++	}
++
++	/** Squirrel's feed is the static file itself; the commit is not part of it. */
++	protected override buildUpdateFeedUrl(quality: string, _commit: string, _options?: IUpdateURLOptions): string | undefined {
++		const url = this.feedUrl(quality);
++		try {
++			electron.autoUpdater.setFeedURL({ url, headers: getUpdateRequestHeaders(this.productService.version) });
++		} catch (e) {
++			// application is very likely not signed (upstream's comment, updateService.darwin.ts)
++			this.logService.error('Failed to set update feed URL', e);
++			return undefined;
++		}
++		return url;
++	}
++
++	protected override doCheckForUpdates(explicit: boolean, pendingCommit?: string): void {
++		if (!this.quality) {
++			return;
++		}
++		// An overwrite: checkForOverwriteUpdates has already read the feed (doIsLatestVersion) and found a newer release.
++		if (pendingCommit !== undefined) {
++			super.doCheckForUpdates(explicit, pendingCommit);
++			return;
++		}
++		this.setState(State.CheckingForUpdates(explicit));
++		void this.decide(this.quality, this.productService.commit!, CancellationToken.None).then(decision => {
++			// A state change meanwhile (updates turned off, another check) wins.
++			if (this.state.type !== StateType.CheckingForUpdates) {
++				return;
++			}
++			const outcome = pineCheckOutcome(decision, explicit);
++			if (outcome === 'download') {
++				this.logService.info('update#pine - the published release differs from this build; handing the feed to Squirrel');
++				super.doCheckForUpdates(explicit);
++			} else {
++				this.setState(outcome);
++			}
++		});
++	}
++
++	protected override async doIsLatestVersion(commit?: string, token: CancellationToken = CancellationToken.None): Promise<boolean | undefined> {
++		if (!this.quality || this.configurationService.getValue<string>('update.mode') === 'none') {
++			return undefined;
++		}
++		return pineIsLatest(await this.decide(this.quality, commit ?? this.productService.commit!, token));
++	}
++}
+diff --git a/src/vs/platform/update/test/common/pine/pineUpdateFeed.test.ts b/src/vs/platform/update/test/common/pine/pineUpdateFeed.test.ts
+new file mode 100644
+index 00000000000..1a34d5518f2
+--- /dev/null
++++ b/src/vs/platform/update/test/common/pine/pineUpdateFeed.test.ts
+@@ -0,0 +1,81 @@
++/*---------------------------------------------------------------------------------------------
++ *  Pine Drama Studio update feed regression: up to date stays idle, a newer release is handed to Squirrel, an
++ *  unreadable feed goes idle with its error, and an installed release is never offered again.
++ *--------------------------------------------------------------------------------------------*/
++import assert from 'assert';
++import { StateType, UpdateType } from '../../../common/update.js';
++import { decidePineUpdate, pineCheckOutcome, pineIsLatest, pineUpdateFeedUrl } from '../../../common/pine/pineUpdateFeed.js';
++import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
++
++const RUNNING = 'a'.repeat(40);
++const PUBLISHED = 'b'.repeat(40);
++const FEED = {
++	url: 'https://github.com/PineComputer/pine-drama-studio/releases/download/v0.2.0/Pine-Drama-Studio-darwin-arm64-0.2.0.zip',
++	name: '0.2.0', notes: PUBLISHED, version: PUBLISHED, productVersion: '0.2.0', pub_date: '2026-11-12T00:00:00Z', timestamp: 1794441600000,
++};
++const read = (value: unknown) => () => Promise.resolve(value);
++const LIMIT = 1000;
++
++suite('Pine update feed', () => {
++	ensureNoDisposablesAreLeakedInTestSuite();
++
++	test('the feed file is <updateUrl>/<quality>/<asset>.json', () => {
++		assert.strictEqual(
++			pineUpdateFeedUrl('https://raw.githubusercontent.com/PineComputer/pine-drama-studio/main/updates/', 'stable', 'darwin-arm64'),
++			'https://raw.githubusercontent.com/PineComputer/pine-drama-studio/main/updates/stable/darwin-arm64.json');
++	});
++
++	test('up to date: idle, "no updates" only for an explicit check, and Squirrel is not called', async () => {
++		const decision = await decidePineUpdate(read({ ...FEED, version: RUNNING, notes: RUNNING }), RUNNING, LIMIT);
++		assert.deepStrictEqual(decision, { kind: 'latest' });
++		assert.deepStrictEqual(pineCheckOutcome(decision, false), { type: StateType.Idle, updateType: UpdateType.Archive, error: undefined, notAvailable: undefined });
++		const explicit = pineCheckOutcome(decision, true);
++		assert.ok(explicit !== 'download' && explicit.notAvailable === true && explicit.error === undefined);
++		assert.strictEqual(pineIsLatest(decision), true);
++	});
++
++	test('a different published commit: the feed goes to Squirrel', async () => {
++		const decision = await decidePineUpdate(read(FEED), RUNNING, LIMIT);
++		assert.strictEqual(decision.kind, 'update');
++		assert.strictEqual(decision.kind === 'update' && decision.feed.url, FEED.url);
++		assert.strictEqual(pineCheckOutcome(decision, false), 'download');
++		assert.strictEqual(pineIsLatest(decision), false);
++	});
++
++	test('an unreadable feed: idle with its error (shown only for an explicit check), and no overwrite', async () => {
++		const cases: [string, () => Promise<unknown>][] = [
++			['the request fails', () => Promise.reject(new Error('Server returned 404'))],
++			['not JSON', () => Promise.reject(new SyntaxError('Unexpected token < in JSON'))],
++			['no content', read(null)],
++			['no version', read({ ...FEED, version: undefined })],
++			['no url', read({ ...FEED, url: '' })],
++			['not https', read({ ...FEED, url: 'http://example.com/a.zip' })],
++		];
++		for (const [name, reader] of cases) {
++			const decision = await decidePineUpdate(reader, RUNNING, LIMIT);
++			assert.strictEqual(decision.kind, 'unreadable', name);
++			const quiet = pineCheckOutcome(decision, false);
++			assert.ok(quiet !== 'download' && quiet.type === StateType.Idle && quiet.error === undefined, name);
++			const shown = pineCheckOutcome(decision, true);
++			assert.ok(shown !== 'download' && shown.type === StateType.Idle && !!shown.error, name);
++			assert.strictEqual(pineIsLatest(decision), undefined, name);
++		}
++	});
++
++	test('a read that does not finish in time (request or body) is unreadable, and the request is told to cancel', async () => {
++		let cancelled = 0;
++		const decision = await decidePineUpdate(() => new Promise<unknown>(() => { }), RUNNING, 10, () => cancelled++);
++		assert.strictEqual(decision.kind, 'unreadable');
++		assert.match(decision.kind === 'unreadable' ? decision.error.message : '', /did not answer within 10 ms/);
++		assert.strictEqual(cancelled, 1);
++		const quiet = pineCheckOutcome(decision, false);
++		assert.ok(quiet !== 'download' && quiet.type === StateType.Idle, 'the check leaves CheckingForUpdates');
++	});
++
++	test('never a loop: the downloaded release is the latest in Ready, and once installed is not offered again', async () => {
++		// Ready: upstream asks every 5 minutes and before Restart with the downloaded update's commit (its notes).
++		assert.strictEqual(pineIsLatest(await decidePineUpdate(read(FEED), FEED.notes, LIMIT)), true);
++		// After the restart the build runs at the published commit.
++		assert.deepStrictEqual(await decidePineUpdate(read(FEED), PUBLISHED, LIMIT), { kind: 'latest' });
++	});
++});

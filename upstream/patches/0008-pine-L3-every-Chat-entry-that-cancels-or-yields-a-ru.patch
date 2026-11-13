@@ -1,0 +1,67 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Pine Drama Studio Authors <authors@example.invalid>
+Date: Tue, 3 Nov 2026 12:37:46 -0800
+Subject: [PATCH 08/31] pine(L3): every Chat entry that cancels or yields a
+ running request follows chat.requestCancellation.enabled
+
+Steer with Message (its precondition, so its Enter and Alt+Enter keybindings too), Send Immediately on a queued
+message, and the queue picker's Stop and Send and Steer entries and its Alt primary all cancel or make the running
+request yield. With the setting off they are not offered, and the picker's primary button queues, Alt or not. One
+generic condition, the same as Cancel's; the product turns it off.
+
+diff --git a/src/vs/workbench/contrib/chat/browser/actions/chatQueueActions.ts b/src/vs/workbench/contrib/chat/browser/actions/chatQueueActions.ts
+index 55f970ff7cc..25db8f0e592 100644
+--- a/src/vs/workbench/contrib/chat/browser/actions/chatQueueActions.ts
++++ b/src/vs/workbench/contrib/chat/browser/actions/chatQueueActions.ts
+@@ -125,7 +125,7 @@ export class ChatSteerWithMessageAction extends Action2 {
+ 			icon: Codicon.newLine,
+ 			f1: false,
+ 			category: CHAT_CATEGORY,
+-			precondition: ContextKeyExpr.and(ChatContextKeys.inputHasText, ChatContextKeys.transcriptProgressActive.negate(), ChatContextKeys.inputBlocked.negate()),
++			precondition: ContextKeyExpr.and(ChatContextKeys.inputHasText, ChatContextKeys.transcriptProgressActive.negate(), ChatContextKeys.inputBlocked.negate(), ContextKeyExpr.has('config.chat.requestCancellation.enabled') /* pine: steering yields the running request */),
+ 			keybinding: [{
+ 				when: ContextKeyExpr.and(
+ 					ChatContextKeys.inChatInput,
+@@ -317,7 +317,8 @@ export class ChatSendPendingImmediatelyAction extends Action2 {
+ 				order: 3,
+ 				when: ContextKeyExpr.and(
+ 					ChatContextKeys.isRequest,
+-					ChatContextKeys.isPendingRequest
++					ChatContextKeys.isPendingRequest,
++					ContextKeyExpr.has('config.chat.requestCancellation.enabled'), // pine: it cancels the running request first
+ 				)
+ 			}]
+ 		});
+diff --git a/src/vs/workbench/contrib/chat/browser/widget/input/chatQueuePickerActionItem.ts b/src/vs/workbench/contrib/chat/browser/widget/input/chatQueuePickerActionItem.ts
+index 1a65bfd269d..b2f0e4526e2 100644
+--- a/src/vs/workbench/contrib/chat/browser/widget/input/chatQueuePickerActionItem.ts
++++ b/src/vs/workbench/contrib/chat/browser/widget/input/chatQueuePickerActionItem.ts
+@@ -107,11 +107,19 @@ export class ChatQueuePickerActionItem extends BaseActionViewItem {
+ 		}));
+ 	}
+ 
++	/** pine: whether a running request may be cancelled or made to yield (chat.requestCancellation.enabled). */
++	private _canCancel(): boolean {
++		return this.configurationService.getValue<boolean>('chat.requestCancellation.enabled') !== false;
++	}
++
+ 	private _isSteerDefault(): boolean {
+ 		return this.configurationService.getValue<string>(ChatConfiguration.RequestQueueingDefaultAction) === 'steer';
+ 	}
+ 
+ 	private _isEffectiveSteer(): boolean {
++		if (!this._canCancel()) {
++			return false; // pine: Alt or not, the primary button queues when a running request cannot be cancelled
++		}
+ 		const isSteerDefault = this._isSteerDefault();
+ 		return this._altKeyPressed ? !isSteerDefault : isSteerDefault;
+ 	}
+@@ -263,7 +271,7 @@ export class ChatQueuePickerActionItem extends BaseActionViewItem {
+ 			}
+ 		} : undefined;
+ 
+-		return coalesce([sendAction, queueAction, steerAction, askInSideChatAction]);
++		return coalesce([this._canCancel() ? sendAction : undefined, queueAction, this._canCancel() ? steerAction : undefined, askInSideChatAction]);
+ 	}
+ 
+ 	/**

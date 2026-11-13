@@ -1,0 +1,37 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Pine Drama Studio Authors <authors@example.invalid>
+Date: Wed, 4 Nov 2026 20:59:36 -0800
+Subject: [PATCH 11/31] pine(L2): define project entries for native Welcome
+
+
+diff --git a/src/vs/workbench/contrib/pine/browser/pineWelcome.ts b/src/vs/workbench/contrib/pine/browser/pineWelcome.ts
+new file mode 100644
+index 00000000000..34f08210687
+--- /dev/null
++++ b/src/vs/workbench/contrib/pine/browser/pineWelcome.ts
+@@ -0,0 +1,25 @@
++/*---------------------------------------------------------------------------------------------
++ * Pine Drama Studio's entry policy for the native Welcome editor. No renderer or recent-history copy.
++ *--------------------------------------------------------------------------------------------*/
++import product from '../../../../platform/product/common/product.js';
++import { Codicon } from '../../../../base/common/codicons.js';
++import { localize } from '../../../../nls.js';
++import type { BuiltinGettingStartedStartEntry } from '../../welcomeGettingStarted/common/gettingStartedContent.js';
++
++export const isPineWelcome = (product as { pineShipsNoCopilot?: boolean }).pineShipsNoCopilot === true;
++export const pineWelcomeSubtitle = localize('pine.welcome.subtitle', 'Your next scene starts here.');
++
++// Existing extension commands own native prompts, validation and read-only opening. These entries authorize no work.
++export const pineWelcomeStartEntries: BuiltinGettingStartedStartEntry[] = [{
++	id: 'pine.newProject',
++	title: localize('pine.welcome.newProject', 'New Project…'),
++	description: localize('pine.welcome.newProject.description', 'Create and open a dedicated project folder.'),
++	icon: Codicon.add,
++	content: { type: 'startEntry', command: 'command:pineDrama.newProject' },
++}, {
++	id: 'pine.openProject',
++	title: localize('pine.welcome.openProject', 'Open Project…'),
++	description: localize('pine.welcome.openProject.description', 'Inspect an existing project without starting a Computer.'),
++	icon: Codicon.folderOpened,
++	content: { type: 'startEntry', command: 'command:pineDrama.openProject' },
++}];

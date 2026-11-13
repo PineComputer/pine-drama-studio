@@ -1,0 +1,226 @@
+# drama-cli project configuration. Models are 'provider:model'; see 'drama-cli models'.
+created_at: 2026-11-01T18:03:03-0800
+project: /var/lib/sandbox/sessions/fixture/files/drama
+inputs:
+  screenplay: /var/lib/sandbox/sessions/fixture/files/drama/screenplay.md
+  brief: /var/lib/sandbox/sessions/fixture/files/drama/brief.md
+budget_usd: 1000
+preset: en-us-live-sfw
+screenplay_language: en
+character_reference_mode: asset_library
+defaults:
+  resolution: 480p
+  ratio: '9:16'
+  character_aspect: '16:9'
+  wavespeed_resolution: 2k
+  seedream_sizes:
+    '16:9': 2560x1440
+    '9:16': 1440x2560
+    '1:1': 2048x2048
+    '4:3': 2304x1728
+    '3:4': 1728x2304
+    '21:9': 3136x1344
+  openai_image_sizes:
+    '16:9': 2048x1152
+    '9:16': 1152x2048
+    '1:1': 1536x1536
+    '4:3': 1792x1344
+    '3:4': 1344x1792
+    '27:32': 1728x2048
+    '27:16': 2160x1280
+    '9:8': 1728x1536
+    27:64: 864x2048
+    '16:15': 2048x1920
+    '2:1': 2048x1024
+    '3:2': 2064x1376
+    '9:4': 2160x960
+    '3:5': 1248x2080
+    '4:5': 1664x2080
+    '9:20': 1008x2240
+    '8:9': 1920x2160
+    '32:27': 2048x1728
+    '2:3': 1376x2064
+    '21:9': 2128x912
+    '7:3': 2128x912
+    '7:6': 2128x1824
+    '14:9': 2240x1440
+    '7:4': 2128x1216
+    '7:5': 2128x1520
+  openai_image_quality: high
+  gemini_image_size: 2K
+  gemini_image_thinking_level: medium
+  gemini_image_safety_settings:
+    harassment:
+      threshold: 'off'
+      method: probability
+    hate_speech:
+      threshold: 'off'
+      method: probability
+    sexually_explicit:
+      threshold: 'off'
+      method: probability
+    dangerous_content:
+      threshold: 'off'
+      method: probability
+    jailbreak:
+      threshold: 'off'
+      method: probability
+  character_face_aspect: '1:1'
+  multi_panel_storyboard_size: 2K
+  max_new_versions: 2
+  max_failed_attempts: 3
+  video_references: motion-or-keyframes
+  asset_moderation_strategy: Default
+  min_character_age: 0
+models:
+  bible: anthropic:claude-opus-5-5
+  breakdown: anthropic:claude-opus-5-5
+  understand_image: anthropic:claude-opus-5-5
+  understand_video: anthropic:claude-opus-5-5
+  character: openai:gpt-image-2.5-sunburst
+  scene: openai:gpt-image-2.5-sunburst
+  prop: openai:gpt-image-2.5-sunburst
+  multi_panel_storyboard: openai:gpt-image-2.5-sunburst
+  video: ark:sd25
+  asr_align: deepgram:nova-3
+content_policy_fallbacks:
+  character:
+  - seedream:dola-seedream-5-0-pro-260628
+  scene:
+  - seedream:dola-seedream-5-0-pro-260628
+  prop:
+  - seedream:dola-seedream-5-0-pro-260628
+  multi_panel_storyboard:
+  - seedream:dola-seedream-5-0-pro-260628
+reasoning:
+  bible: medium
+  breakdown: medium
+  understand_image: medium
+  understand_video: medium
+max_tokens:
+  bible: 64000
+  breakdown: 64000
+  understand_image: 16000
+  understand_video: 16000
+max_range_lines:
+  bible: 160
+# Used only when the stage's model is gemini (D108).
+safety_settings:
+  bible:
+    harassment:
+      threshold: 'off'
+      method: probability
+    hate_speech:
+      threshold: 'off'
+      method: probability
+    sexually_explicit:
+      threshold: 'off'
+      method: probability
+    dangerous_content:
+      threshold: 'off'
+      method: probability
+    jailbreak:
+      threshold: 'off'
+      method: probability
+  breakdown:
+    harassment:
+      threshold: 'off'
+      method: probability
+    hate_speech:
+      threshold: 'off'
+      method: probability
+    sexually_explicit:
+      threshold: 'off'
+      method: probability
+    dangerous_content:
+      threshold: 'off'
+      method: probability
+    jailbreak:
+      threshold: 'off'
+      method: probability
+shoot:
+  max_new_takes: 3
+edit:
+  crf: 10
+  preset: medium
+  audio_bitrate: 192k
+understand:
+  policy:
+    image-cast:
+      layout: error
+      gender: error
+      age: warn
+      hair: warn
+      build: warn
+      garments: warn
+      signature_colour: warn
+      identity: warn
+      anatomy: warn
+      text: warn
+      continuity: warn
+      look_detail: warn
+    image-scenes:
+      people: error
+      setting: warn
+      period: warn
+      furnishings: warn
+      continuity: warn
+      geometry: warn
+      duplicate_object: warn
+      text: warn
+      light: warn
+    image-blocking:
+      characters: warn
+      missing_speaker: error
+      extras: warn
+      position: warn
+      identity_swap: error
+      background: warn
+      look_detail: warn
+      anatomy: warn
+      text: warn
+    image-props:
+      people: error
+      text: error
+      geometry: warn
+      duplicate_object: warn
+    image-multi-panel-storyboard:
+      count: error
+      characters: warn
+      missing_speaker: error
+      extras: warn
+      identity_swap: error
+      action: warn
+      story_prop: warn
+      continuity: warn
+      text: warn
+      size: warn
+      angle: warn
+      position_axis: warn
+      background: warn
+      look_detail: warn
+      light: warn
+      progression: warn
+    video-shoot:
+      characters: warn
+      extras: warn
+      identity_swap: warn
+      action: warn
+      story_prop: warn
+      speech: warn
+      count: warn
+      size: warn
+      angle: warn
+      continuity: warn
+      deformation: warn
+      text: warn
+      lipsync: warn
+      voice: warn
+      sound: warn
+      frozen: warn
+      light: warn
+      background: warn
+      look_detail: warn
+asset:
+  url:
+    via: cloudflare_quick_tunnel

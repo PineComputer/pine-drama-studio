@@ -1,0 +1,134 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Pine Drama Studio Authors <authors@example.invalid>
+Date: Sat, 31 Oct 2026 17:25:01 -0700
+Subject: [PATCH 01/31] pine(L3): trim workbench contributions to what the
+ extension API and chat need
+
+Comment out the views and features of debug, SCM, tasks, merge editor,
+remote, remote tunnel, surveys, the welcome page and its walkthroughs,
+and the notebook REPL. Update stays: the Studio updates itself (app.ts). Keep their services where the
+extension host's main-thread API, chat, notebooks or editor signals use
+them: debug.service.contribution is imported directly; scm.service,
+quickDiff, testing, interactive, tasks' taskService, issue and
+extensionHostDebugService stay. Found by removing them one at a time
+and starting the Studio after each.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+diff --git a/src/vs/workbench/workbench.common.main.ts b/src/vs/workbench/workbench.common.main.ts
+index 8de8a781d04..4bff31a2ae7 100644
+--- a/src/vs/workbench/workbench.common.main.ts
++++ b/src/vs/workbench/workbench.common.main.ts
+@@ -245,7 +245,7 @@ import './contrib/imageCarousel/browser/imageCarousel.contribution.js';
+ import './contrib/interactive/browser/interactive.contribution.js';
+ 
+ // repl
+-import './contrib/replNotebook/browser/repl.contribution.js';
++// pine(L3) trim: import './contrib/replNotebook/browser/repl.contribution.js';
+ 
+ // Testing
+ import './contrib/testing/browser/testing.contribution.js';
+@@ -283,17 +283,18 @@ import './contrib/git/browser/git.contributions.js';
+ import './contrib/github/browser/githubLinkPresentation.contribution.js';
+ 
+ // SCM
+-import './contrib/scm/browser/scm.contribution.js';
++// pine(L3) trim: import './contrib/scm/browser/scm.contribution.js';
+ import './contrib/scm/browser/quickDiff.contribution.js';
+ import './contrib/scm/browser/scm.service.contribution.js';
+ 
+ // Debug
+-import './contrib/debug/browser/debug.contribution.js';
+-import './contrib/debug/browser/debugEditorContribution.js';
+-import './contrib/debug/browser/breakpointEditorContribution.js';
+-import './contrib/debug/browser/callStackEditorContribution.js';
+-import './contrib/debug/browser/repl.js';
+-import './contrib/debug/browser/debugViewlet.js';
++// pine(L3) trim: import './contrib/debug/browser/debug.contribution.js';
++import './contrib/debug/browser/debug.service.contribution.js'; // pine(L3): the debug service without its views; chat, notebooks and editor signals use it
++// pine(L3) trim: import './contrib/debug/browser/debugEditorContribution.js';
++// pine(L3) trim: import './contrib/debug/browser/breakpointEditorContribution.js';
++// pine(L3) trim: import './contrib/debug/browser/callStackEditorContribution.js';
++// pine(L3) trim: import './contrib/debug/browser/repl.js';
++// pine(L3) trim: import './contrib/debug/browser/debugViewlet.js';
+ 
+ // Markers
+ import './contrib/markers/browser/markers.contribution.js';
+@@ -302,7 +303,7 @@ import './contrib/markers/browser/markers.contribution.js';
+ import './contrib/processExplorer/browser/processExplorer.contribution.js';
+ 
+ // Merge Editor
+-import './contrib/mergeEditor/browser/mergeEditor.contribution.js';
++// pine(L3) trim: import './contrib/mergeEditor/browser/mergeEditor.contribution.js';
+ 
+ // Multi Diff Editor
+ import './contrib/multiDiffEditor/browser/multiDiffEditor.contribution.js';
+@@ -349,11 +350,11 @@ import './contrib/relauncher/browser/relauncher.contribution.js';
+ import './contrib/modernUI/browser/modernUI.contribution.js';
+ 
+ // Tasks
+-import './contrib/tasks/browser/task.contribution.js';
++// pine(L3) trim: import './contrib/tasks/browser/task.contribution.js';
+ 
+ // Remote
+-import './contrib/remote/common/remote.contribution.js';
+-import './contrib/remote/browser/remote.contribution.js';
++// pine(L3) trim: import './contrib/remote/common/remote.contribution.js';
++// pine(L3) trim: import './contrib/remote/browser/remote.contribution.js';
+ 
+ // Emmet
+ import './contrib/emmet/browser/emmet.contribution.js';
+@@ -389,13 +390,13 @@ import './contrib/themes/browser/themes.contribution.js';
+ import './contrib/update/browser/update.contribution.js';
+ 
+ // Surveys
+-import './contrib/surveys/browser/nps.contribution.js';
+-import './contrib/surveys/browser/languageSurveys.contribution.js';
++// pine(L3) trim: import './contrib/surveys/browser/nps.contribution.js';
++// pine(L3) trim: import './contrib/surveys/browser/languageSurveys.contribution.js';
+ 
+ // Welcome
+-import './contrib/welcomeGettingStarted/browser/gettingStarted.contribution.js';
++// pine(L3) trim: import './contrib/welcomeGettingStarted/browser/gettingStarted.contribution.js';
+ import './contrib/welcomeAgentSessions/browser/agentSessionsWelcome.contribution.js';
+-import './contrib/welcomeWalkthrough/browser/walkThrough.contribution.js';
++// pine(L3) trim: import './contrib/welcomeWalkthrough/browser/walkThrough.contribution.js';
+ import './contrib/welcomeViews/common/viewsWelcome.contribution.js';
+ import './contrib/welcomeViews/common/newFile.contribution.js';
+ 
+diff --git a/src/vs/workbench/workbench.desktop.main.ts b/src/vs/workbench/workbench.desktop.main.ts
+index 63b42074071..36930ad5bd2 100644
+--- a/src/vs/workbench/workbench.desktop.main.ts
++++ b/src/vs/workbench/workbench.desktop.main.ts
+@@ -141,13 +141,13 @@ import './contrib/extensions/electron-browser/devtoolsExtensionHost.contribution
+ import './contrib/issue/electron-browser/issue.contribution.js';
+ 
+ // Surveys
+-import './contrib/surveys/browser/survey.contribution.js';
++// pine(L3) trim: import './contrib/surveys/browser/survey.contribution.js';
+ 
+ // Process Explorer
+ import './contrib/processExplorer/electron-browser/processExplorer.contribution.js';
+ 
+ // Remote
+-import './contrib/remote/electron-browser/remote.contribution.js';
++// pine(L3) trim: import './contrib/remote/electron-browser/remote.contribution.js';
+ 
+ // Terminal
+ import './contrib/terminal/electron-browser/terminal.contribution.js';
+@@ -184,13 +184,13 @@ import './contrib/splash/electron-browser/splash.contribution.js';
+ import './contrib/localHistory/electron-browser/localHistory.contribution.js';
+ 
+ // Merge Editor
+-import './contrib/mergeEditor/electron-browser/mergeEditor.contribution.js';
++// pine(L3) trim: import './contrib/mergeEditor/electron-browser/mergeEditor.contribution.js';
+ 
+ // Multi Diff Editor
+ import './contrib/multiDiffEditor/browser/multiDiffEditor.contribution.js';
+ 
+ // Remote Tunnel
+-import './contrib/remoteTunnel/electron-browser/remoteTunnel.contribution.js';
++// pine(L3) trim: import './contrib/remoteTunnel/electron-browser/remoteTunnel.contribution.js';
+ 
+ // Chat
+ import './contrib/chat/electron-browser/chat.contribution.js';

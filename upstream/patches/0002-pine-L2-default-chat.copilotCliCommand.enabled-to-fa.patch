@@ -1,0 +1,46 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Pine Drama Studio Authors <authors@example.invalid>
+Date: Mon, 2 Nov 2026 15:26:54 -0800
+Subject: [PATCH 02/31] pine(L2): default chat.copilotCliCommand.enabled to
+ false
+
+The Studio ships no GitHub Copilot CLI, so the install-in-PATH command is
+offered without the Copilot variant. An application-scoped setting, which
+an extension's configurationDefaults cannot set. Registered by one import
+in workbench.common.main.ts (already a touchpoint).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+diff --git a/src/vs/workbench/contrib/pine/browser/pine.contribution.ts b/src/vs/workbench/contrib/pine/browser/pine.contribution.ts
+new file mode 100644
+index 00000000000..4035ed19cec
+--- /dev/null
++++ b/src/vs/workbench/contrib/pine/browser/pine.contribution.ts
+@@ -0,0 +1,15 @@
++/*---------------------------------------------------------------------------------------------
++ *  Pine Drama Studio: workbench defaults the extension API cannot set (layer 2).
++ *--------------------------------------------------------------------------------------------*/
++
++import { Extensions as ConfigurationExtensions, IConfigurationRegistry } from '../../../../platform/configuration/common/configurationRegistry.js';
++import { Registry } from '../../../../platform/registry/common/platform.js';
++import { ChatConfiguration } from '../../chat/common/constants.js';
++
++// The Studio ships no GitHub Copilot CLI, so the Command Palette's "Shell Command: Install '<app>' and optionally
++// 'copilot' commands in PATH" (terminalInstallActions.ts, registerInstallShellScriptWithCopilotMenu) is shown without the
++// Copilot variant. The setting is application-scoped, which an extension's configurationDefaults cannot set
++// (configurationExtensionPoint.ts), hence a registry default here.
++Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).registerDefaultConfigurations([{
++	overrides: { [ChatConfiguration.CopilotCliCommandEnabled]: false },
++}]);
+diff --git a/src/vs/workbench/workbench.common.main.ts b/src/vs/workbench/workbench.common.main.ts
+index 4bff31a2ae7..c4570ddc49c 100644
+--- a/src/vs/workbench/workbench.common.main.ts
++++ b/src/vs/workbench/workbench.common.main.ts
+@@ -489,4 +489,7 @@ import './contrib/editTelemetry/browser/editTelemetry.contribution.js';
+ // Opener
+ import './contrib/opener/browser/opener.contribution.js';
+ 
++// Pine Drama Studio (pine-drama-studio, layer 2)
++import './contrib/pine/browser/pine.contribution.js';
++
+ //#endregion

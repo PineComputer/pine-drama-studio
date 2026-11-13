@@ -1,0 +1,80 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Pine Drama Studio Authors <authors@example.invalid>
+Date: Fri, 6 Nov 2026 20:10:36 -0800
+Subject: [PATCH 25/31] pine(L2): name the Review lock after Code-OSS's input
+ block: blockChatInputWhileReviewWaits
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+diff --git a/src/vs/workbench/contrib/pine/browser/pineReview.ts b/src/vs/workbench/contrib/pine/browser/pineReview.ts
+index 159e5f5efe2..ccac2c82a4b 100644
+--- a/src/vs/workbench/contrib/pine/browser/pineReview.ts
++++ b/src/vs/workbench/contrib/pine/browser/pineReview.ts
+@@ -1,5 +1,5 @@
+ /*---------------------------------------------------------------------------------------------
+- * Pine review gating uses the native composer and read-only banner; it never clears a draft.
++ * Chat input blocked while a Review waits uses the native composer and read-only banner; it never clears a draft.
+  * The banner only reveals the review card; the card alone submits.
+  *--------------------------------------------------------------------------------------------*/
+ import { Emitter } from '../../../../base/common/event.js';
+@@ -8,22 +8,22 @@ import { CommandsRegistry, ICommandService } from '../../../../platform/commands
+ import { IChatWidget } from '../../chat/browser/chat.js';
+ import { ChatWidget, IChatWidgetContrib } from '../../chat/browser/widget/chatWidget.js';
+ 
+-interface ReviewGate { resource: string; reviewId: string }
+-const gates = new Map<string, ReviewGate>();
++interface BlockedChat { resource: string; reviewId: string }
++const blockedChats = new Map<string, BlockedChat>();
+ const changed = new Emitter<void>();
+ 
+-CommandsRegistry.registerCommand('pine.workbench.setReviewGates', (_accessor, values: ReviewGate[]) => {
++CommandsRegistry.registerCommand('pine.workbench.blockChatInputWhileReviewWaits', (_accessor, values: BlockedChat[]) => {
+ 	if (!Array.isArray(values) || values.some(v => typeof v.resource !== 'string' || !v.resource.startsWith('pine-computer:')
+-		|| typeof v.reviewId !== 'string')) { throw new Error('Invalid Pine review gate.'); }
+-	gates.clear();
+-	for (const value of values) { gates.set(value.resource, value); }
++		|| typeof v.reviewId !== 'string')) { throw new Error('Invalid Pine blocked Chat.'); }
++	blockedChats.clear();
++	for (const value of values) { blockedChats.set(value.resource, value); }
+ 	changed.fire();
+ });
+ 
+-class PineReviewGate extends Disposable implements IChatWidgetContrib {
+-	readonly id = 'pine.reviewGate';
++class PineChatInputBlockedWhileReviewWaits extends Disposable implements IChatWidgetContrib {
++	readonly id = 'pine.chatInputBlockedWhileReviewWaits';
+ 	private readonly modelListener = this._register(new MutableDisposable());
+-	private gated = false;
++	private blocked = false;
+ 	private disposed = false;
+ 	private queued = false;
+ 	constructor(private readonly widget: IChatWidget, @ICommandService private readonly commands: ICommandService) {
+@@ -43,16 +43,16 @@ class PineReviewGate extends Disposable implements IChatWidgetContrib {
+ 			this.queued = false;
+ 			if (this.disposed) { return; }
+ 			const model = this.widget.viewModel?.model;
+-			const gate = model && gates.get(model.sessionResource.toString());
++			const blockedChat = model && blockedChats.get(model.sessionResource.toString());
+ 			// Pine's provider has no managed-policy override. Respect authoritative model read-only state.
+-			if (gate && !model?.isReadOnly.get()) {
+-				this.gated = true;
++			if (blockedChat && !model?.isReadOnly.get()) {
++				this.blocked = true;
+ 				(this.widget as ChatWidget).setReadOnly(true, false, { kind: 'live', message: 'Review before continuing',
+ 					action: { label: 'Review items', run: async () => {
+-						await this.commands.executeCommand('pineDrama.review.openMessage', gate.resource, gate.reviewId);
++						await this.commands.executeCommand('pineDrama.review.openMessage', blockedChat.resource, blockedChat.reviewId);
+ 					} } });
+-			} else if (this.gated) {
+-				this.gated = false;
++			} else if (this.blocked) {
++				this.blocked = false;
+ 				(this.widget as ChatWidget).setReadOnly(model?.isReadOnly.get() ?? false, model?.isInputBlocked.get() ?? false);
+ 			}
+ 		});
+@@ -60,4 +60,4 @@ class PineReviewGate extends Disposable implements IChatWidgetContrib {
+ 	override dispose(): void { this.disposed = true; super.dispose(); }
+ }
+ 
+-ChatWidget.CONTRIBS.push(PineReviewGate);
++ChatWidget.CONTRIBS.push(PineChatInputBlockedWhileReviewWaits);

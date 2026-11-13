@@ -1,0 +1,76 @@
+{
+	"observed_at": "2026-11-12T10:06:00Z",
+	"objects": {
+		"episodes/EP001": {
+			"type": "episode",
+			"name": "EP001 The Interview",
+			"segment": null,
+			"usable": true,
+			"from_add": null
+		},
+		"assets/characters/lin": {
+			"type": "character",
+			"name": "Lin",
+			"segment": null,
+			"usable": true,
+			"prompt": "Lin, 30, grey wool coat",
+			"description": "A reporter, calm under pressure.",
+			"from_add": null
+		},
+		"assets/scenes/office": {
+			"type": "scene",
+			"name": "Office",
+			"segment": null,
+			"usable": true,
+			"prompt": "",
+			"description": "An open-plan newsroom.",
+			"from_add": null
+		},
+		"assets/props/umbrella": {
+			"type": "prop",
+			"name": "Umbrella",
+			"segment": null,
+			"usable": false,
+			"why": "The umbrella's picture waits for your choice.",
+			"prompt": "A black umbrella with a bent rib, studio light",
+			"description": "A black umbrella with a bent rib.",
+			"from_add": "add-0001-umbrella"
+		},
+		"assets/characters/lin/variants/rain": {
+			"type": "variant",
+			"name": "In the rain",
+			"segment": null,
+			"usable": true,
+			"prompt": "Lin, soaked, in the same grey coat",
+			"description": "Lin after the storm.",
+			"from_add": null
+		},
+		"assets/scenes/street": {
+			"type": "scene",
+			"name": "Street",
+			"segment": null,
+			"usable": false,
+			"why": "Not drawn yet.",
+			"prompt": "A wet street at night",
+			"description": "The street outside the newsroom.",
+			"from_add": null
+		}
+	},
+	"edges": [
+		{
+			"from": "assets/characters/lin/variants/rain",
+			"to": "assets/characters/lin",
+			"kind": "variant_of"
+		},
+		{
+			"from": "assets/characters/lin",
+			"to": "episodes/EP001",
+			"kind": "appears_in"
+		},
+		{
+			"from": "episodes/EP001",
+			"to": "assets/props/umbrella",
+			"kind": "needs"
+		}
+	]
+}

@@ -1,0 +1,512 @@
+{
+	"sections": [
+		"Text",
+		"Characters",
+		"Locations",
+		"Props",
+		"EP001 seg01",
+		"EP001 seg02",
+		"EP001 seg03",
+		"EP001 cut"
+	],
+	"cards": [
+		{
+			"id": "assets/characters/cassie",
+			"kind": "look",
+			"label": "cassie",
+			"section": "Characters",
+			"column": 1,
+			"version": "v1",
+			"accepted": "v1",
+			"segment": null,
+			"file": "assets/characters/cassie/v1/image-1.jpg",
+			"media": "image",
+			"src": "assets/characters/cassie/v1/image-1.jpg",
+			"missing": false,
+			"notUsable": null,
+			"appearsIn": null,
+			"name": null
+		},
+		{
+			"id": "assets/characters/george",
+			"kind": "look",
+			"label": "george",
+			"section": "Characters",
+			"column": 1,
+			"version": "v1",
+			"accepted": "v1",
+			"segment": null,
+			"file": "assets/characters/george/v1/image-1.jpg",
+			"media": "image",
+			"src": "assets/characters/george/v1/image-1.jpg",
+			"missing": false,
+			"notUsable": null,
+			"appearsIn": null,
+			"name": null
+		},
+		{
+			"id": "assets/characters/lauren",
+			"kind": "look",
+			"label": "lauren",
+			"section": "Characters",
+			"column": 1,
+			"version": "v1",
+			"accepted": "v1",
+			"segment": null,
+			"file": "assets/characters/lauren/v1/image-1.jpg",
+			"media": "image",
+			"src": "assets/characters/lauren/v1/image-1.jpg",
+			"missing": false,
+			"notUsable": null,
+			"appearsIn": null,
+			"name": null
+		},
+		{
+			"id": "assets/characters/natalie",
+			"kind": "look",
+			"label": "natalie",
+			"section": "Characters",
+			"column": 1,
+			"version": "v1",
+			"accepted": "v1",
+			"segment": null,
+			"file": "assets/characters/natalie/v1/image-1.jpg",
+			"media": "image",
+			"src": "assets/characters/natalie/v1/image-1.jpg",
+			"missing": false,
+			"notUsable": null,
+			"appearsIn": null,
+			"name": null
+		},
+		{
+			"id": "assets/props/hospital_statement",
+			"kind": "prop",
+			"label": "hospital_statement",
+			"section": "Props",
+			"column": 1,
+			"version": "v3",
+			"accepted": "v3",
+			"segment": null,
+			"file": "assets/props/hospital_statement/v3/image-1.jpg",
+			"media": "image",
+			"src": "assets/props/hospital_statement/v3/image-1.jpg",
+			"missing": false,
+			"notUsable": null,
+			"appearsIn": null,
+			"name": null
+		},
+		{
+			"id": "assets/scenes/mansion_living_room",
+			"kind": "plate",
+			"label": "mansion_living_room",
+			"section": "Locations",
+			"column": 1,
+			"version": "v4",
+			"accepted": "v4",
+			"segment": null,
+			"file": "assets/scenes/mansion_living_room/v4/image-1.jpg",
+			"media": "image",
+			"src": "assets/scenes/mansion_living_room/v4/image-1.jpg",
+			"missing": false,
+			"notUsable": null,
+			"appearsIn": null,
+			"name": null
+		},
+		{
+			"id": "episodes/EP001/breakdown",
+			"kind": "breakdown",
+			"label": "EP001 breakdown",
+			"section": "Text",
+			"column": 2,
+			"version": "v2",
+			"accepted": "v2",
+			"segment": null,
+			"file": "episodes/EP001/breakdown/v2/breakdown.md",
+			"media": "text",
+			"src": "episodes/EP001/breakdown/v2/breakdown.md",
+			"missing": false,
+			"notUsable": null,
+			"appearsIn": null,
+			"name": null
+		},
+		{
+			"id": "episodes/EP001/edit",
+			"kind": "cut",
+			"label": "EP001 cut",
+			"section": "EP001 cut",
+			"column": 7,
+			"version": "v1",
+			"accepted": null,
+			"segment": null,
+			"file": "episodes/EP001/edit/v1/cut.mp4",
+			"media": "video",
+			"src": "episodes/EP001/edit/v1/cut.mp4",
+			"missing": false,
+			"notUsable": null,
+			"appearsIn": null,
+			"name": null
+		},
+		{
+			"id": "episodes/EP001/keyframe/seg01/shot01",
+			"kind": "keyframe",
+			"label": "EP001 seg01 shot 01 keyframe",
+			"section": "EP001 seg01",
+			"column": 3,
+			"version": "v1",
+			"accepted": "v1",
+			"segment": "seg01",
+			"file": "episodes/EP001/keyframe/seg01/shot01/v1/image-1.jpg",
+			"media": "image",
+			"src": "episodes/EP001/keyframe/seg01/shot01/v1/image-1.jpg",
+			"missing": false,
+			"notUsable": null,
+			"appearsIn": null,
+			"name": null
+		},
+		{
+			"id": "episodes/EP001/multi_panel_storyboard/seg01/line-art",
+			"kind": "storyboard",
+			"label": "EP001 seg01 line-art",
+			"section": "EP001 seg01",
+			"column": 4,
+			"version": "v4",
+			"accepted": "v4",
+			"segment": "seg01",
+			"file": "episodes/EP001/multi_panel_storyboard/seg01/line-art/v4/image-1.jpg",
+			"media": "image",
+			"src": "episodes/EP001/multi_panel_storyboard/seg01/line-art/v4/image-1.jpg",
+			"missing": false,
+			"notUsable": null,
+			"appearsIn": null,
+			"name": null
+		},
+		{
+			"id": "episodes/EP001/multi_panel_storyboard/seg02/line-art",
+			"kind": "storyboard",
+			"label": "EP001 seg02 line-art",
+			"section": "EP001 seg02",
+			"column": 4,
+			"version": "v7",
+			"accepted": "v7",
+			"segment": "seg02",
+			"file": "episodes/EP001/multi_panel_storyboard/seg02/line-art/v7/image-1.jpg",
+			"media": "image",
+			"src": "episodes/EP001/multi_panel_storyboard/seg02/line-art/v7/image-1.jpg",
+			"missing": false,
+			"notUsable": null,
+			"appearsIn": null,
+			"name": null
+		},
+		{
+			"id": "episodes/EP001/multi_panel_storyboard/seg03/line-art",
+			"kind": "storyboard",
+			"label": "EP001 seg03 line-art",
+			"section": "EP001 seg03",
+			"column": 4,
+			"version": "v2",
+			"accepted": "v2",
+			"segment": "seg03",
+			"file": "episodes/EP001/multi_panel_storyboard/seg03/line-art/v2/image-1.jpg",
+			"media": "image",
+			"src": "episodes/EP001/multi_panel_storyboard/seg03/line-art/v2/image-1.jpg",
+			"missing": false,
+			"notUsable": null,
+			"appearsIn": null,
+			"name": null
+		},
+		{
+			"id": "episodes/EP001/segments/seg01",
+			"kind": "take",
+			"label": "EP001 seg01 take",
+			"section": "EP001 seg01",
+			"column": 6,
+			"version": "t02",
+			"accepted": "t02",
+			"segment": "seg01",
+			"file": "episodes/EP001/segments/seg01/t02/video.mp4",
+			"media": "video",
+			"src": "episodes/EP001/segments/seg01/t02/video.mp4",
+			"missing": false,
+			"notUsable": null,
+			"appearsIn": null,
+			"name": null
+		},
+		{
+			"id": "episodes/EP001/segments/seg02",
+			"kind": "take",
+			"label": "EP001 seg02 take",
+			"section": "EP001 seg02",
+			"column": 6,
+			"version": "t02",
+			"accepted": null,
+			"segment": "seg02",
+			"file": "episodes/EP001/segments/seg02/t02/video.mp4",
+			"media": "video",
+			"src": "episodes/EP001/segments/seg02/t02/video.mp4",
+			"missing": false,
+			"notUsable": null,
+			"appearsIn": null,
+			"name": null
+		},
+		{
+			"id": "episodes/EP001/segments/seg03",
+			"kind": "take",
+			"label": "EP001 seg03 take",
+			"section": "EP001 seg03",
+			"column": 6,
+			"version": "t01",
+			"accepted": "t01",
+			"segment": "seg03",
+			"file": "episodes/EP001/segments/seg03/t01/video.mp4",
+			"media": "video",
+			"src": "episodes/EP001/segments/seg03/t01/video.mp4",
+			"missing": false,
+			"notUsable": null,
+			"appearsIn": null,
+			"name": null
+		},
+		{
+			"id": "episodes/EP001/video_prompts",
+			"kind": "video_prompts",
+			"label": "EP001 video prompts",
+			"section": "Text",
+			"column": 5,
+			"version": "v4",
+			"accepted": null,
+			"segment": null,
+			"file": "episodes/EP001/video_prompts/v4/prompts.md",
+			"media": "text",
+			"src": "episodes/EP001/video_prompts/v4/prompts.md",
+			"missing": false,
+			"notUsable": null,
+			"appearsIn": null,
+			"name": null
+		}
+	],
+	"links": [
+		{
+			"from": "episodes/EP001/segments/seg01",
+			"to": "episodes/EP001/edit"
+		},
+		{
+			"from": "episodes/EP001/segments/seg02",
+			"to": "episodes/EP001/edit"
+		},
+		{
+			"from": "episodes/EP001/segments/seg03",
+			"to": "episodes/EP001/edit"
+		},
+		{
+			"from": "assets/scenes/mansion_living_room",
+			"to": "episodes/EP001/keyframe/seg01/shot01"
+		},
+		{
+			"from": "assets/characters/natalie",
+			"to": "episodes/EP001/keyframe/seg01/shot01"
+		},
+		{
+			"from": "assets/characters/george",
+			"to": "episodes/EP001/keyframe/seg01/shot01"
+		},
+		{
+			"from": "assets/characters/lauren",
+			"to": "episodes/EP001/keyframe/seg01/shot01"
+		},
+		{
+			"from": "assets/characters/natalie",
+			"to": "episodes/EP001/multi_panel_storyboard/seg01/line-art"
+		},
+		{
+			"from": "assets/characters/george",
+			"to": "episodes/EP001/multi_panel_storyboard/seg01/line-art"
+		},
+		{
+			"from": "assets/characters/lauren",
+			"to": "episodes/EP001/multi_panel_storyboard/seg01/line-art"
+		},
+		{
+			"from": "assets/scenes/mansion_living_room",
+			"to": "episodes/EP001/multi_panel_storyboard/seg01/line-art"
+		},
+		{
+			"from": "assets/props/hospital_statement",
+			"to": "episodes/EP001/multi_panel_storyboard/seg01/line-art"
+		},
+		{
+			"from": "assets/characters/natalie",
+			"to": "episodes/EP001/multi_panel_storyboard/seg02/line-art"
+		},
+		{
+			"from": "assets/characters/george",
+			"to": "episodes/EP001/multi_panel_storyboard/seg02/line-art"
+		},
+		{
+			"from": "assets/characters/lauren",
+			"to": "episodes/EP001/multi_panel_storyboard/seg02/line-art"
+		},
+		{
+			"from": "assets/characters/cassie",
+			"to": "episodes/EP001/multi_panel_storyboard/seg02/line-art"
+		},
+		{
+			"from": "assets/scenes/mansion_living_room",
+			"to": "episodes/EP001/multi_panel_storyboard/seg02/line-art"
+		},
+		{
+			"from": "assets/props/hospital_statement",
+			"to": "episodes/EP001/multi_panel_storyboard/seg02/line-art"
+		},
+		{
+			"from": "assets/characters/natalie",
+			"to": "episodes/EP001/multi_panel_storyboard/seg03/line-art"
+		},
+		{
+			"from": "assets/characters/cassie",
+			"to": "episodes/EP001/multi_panel_storyboard/seg03/line-art"
+		},
+		{
+			"from": "assets/characters/george",
+			"to": "episodes/EP001/multi_panel_storyboard/seg03/line-art"
+		},
+		{
+			"from": "assets/characters/lauren",
+			"to": "episodes/EP001/multi_panel_storyboard/seg03/line-art"
+		},
+		{
+			"from": "assets/scenes/mansion_living_room",
+			"to": "episodes/EP001/multi_panel_storyboard/seg03/line-art"
+		},
+		{
+			"from": "assets/props/hospital_statement",
+			"to": "episodes/EP001/multi_panel_storyboard/seg03/line-art"
+		},
+		{
+			"from": "episodes/EP001/multi_panel_storyboard/seg01/line-art",
+			"to": "episodes/EP001/segments/seg01"
+		},
+		{
+			"from": "assets/scenes/mansion_living_room",
+			"to": "episodes/EP001/segments/seg01"
+		},
+		{
+			"from": "assets/props/hospital_statement",
+			"to": "episodes/EP001/segments/seg01"
+		},
+		{
+			"from": "assets/characters/natalie",
+			"to": "episodes/EP001/segments/seg01"
+		},
+		{
+			"from": "assets/characters/george",
+			"to": "episodes/EP001/segments/seg01"
+		},
+		{
+			"from": "assets/characters/lauren",
+			"to": "episodes/EP001/segments/seg01"
+		},
+		{
+			"from": "episodes/EP001/keyframe/seg01/shot01",
+			"to": "episodes/EP001/segments/seg01"
+		},
+		{
+			"from": "episodes/EP001/multi_panel_storyboard/seg02/line-art",
+			"to": "episodes/EP001/segments/seg02"
+		},
+		{
+			"from": "assets/scenes/mansion_living_room",
+			"to": "episodes/EP001/segments/seg02"
+		},
+		{
+			"from": "assets/props/hospital_statement",
+			"to": "episodes/EP001/segments/seg02"
+		},
+		{
+			"from": "assets/characters/natalie",
+			"to": "episodes/EP001/segments/seg02"
+		},
+		{
+			"from": "assets/characters/george",
+			"to": "episodes/EP001/segments/seg02"
+		},
+		{
+			"from": "assets/characters/lauren",
+			"to": "episodes/EP001/segments/seg02"
+		},
+		{
+			"from": "assets/characters/cassie",
+			"to": "episodes/EP001/segments/seg02"
+		},
+		{
+			"from": "episodes/EP001/segments/seg01",
+			"to": "episodes/EP001/segments/seg02"
+		},
+		{
+			"from": "episodes/EP001/multi_panel_storyboard/seg03/line-art",
+			"to": "episodes/EP001/segments/seg03"
+		},
+		{
+			"from": "assets/scenes/mansion_living_room",
+			"to": "episodes/EP001/segments/seg03"
+		},
+		{
+			"from": "assets/props/hospital_statement",
+			"to": "episodes/EP001/segments/seg03"
+		},
+		{
+			"from": "assets/characters/natalie",
+			"to": "episodes/EP001/segments/seg03"
+		},
+		{
+			"from": "assets/characters/cassie",
+			"to": "episodes/EP001/segments/seg03"
+		},
+		{
+			"from": "assets/characters/george",
+			"to": "episodes/EP001/segments/seg03"
+		},
+		{
+			"from": "assets/characters/lauren",
+			"to": "episodes/EP001/segments/seg03"
+		},
+		{
+			"from": "episodes/EP001/segments/seg02",
+			"to": "episodes/EP001/segments/seg03"
+		},
+		{
+			"from": "episodes/EP001/multi_panel_storyboard/seg01/line-art",
+			"to": "episodes/EP001/video_prompts"
+		},
+		{
+			"from": "assets/scenes/mansion_living_room",
+			"to": "episodes/EP001/video_prompts"
+		},
+		{
+			"from": "assets/props/hospital_statement",
+			"to": "episodes/EP001/video_prompts"
+		},
+		{
+			"from": "assets/characters/natalie",
+			"to": "episodes/EP001/video_prompts"
+		},
+		{
+			"from": "assets/characters/george",
+			"to": "episodes/EP001/video_prompts"
+		},
+		{
+			"from": "assets/characters/lauren",
+			"to": "episodes/EP001/video_prompts"
+		},
+		{
+			"from": "episodes/EP001/multi_panel_storyboard/seg02/line-art",
+			"to": "episodes/EP001/video_prompts"
+		},
+		{
+			"from": "assets/characters/cassie",
+			"to": "episodes/EP001/video_prompts"
+		},
+		{
+			"from": "episodes/EP001/multi_panel_storyboard/seg03/line-art",
+			"to": "episodes/EP001/video_prompts"
+		}
+	]
+}

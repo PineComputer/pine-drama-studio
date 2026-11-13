@@ -1,0 +1,38 @@
+{
+  "builder": {
+    "git_commit": "475241fcb9759f83583494502d51b1ec21b6f72a",
+    "git_dirty": false,
+    "id": "drama-cli",
+    "preset": {
+      "name": "en-us-live-sfw",
+      "sha256": "a02f21f156311563a0ff2c14263101a4f7832547cc32e710ddc5feb4f3b5ad84"
+    },
+    "version": "0.1.0"
+  },
+  "created_at": "2026-11-01T18:03:16-0800",
+  "dependencies": [],
+  "kind": "screenplay",
+  "metadata": {
+    "screenplay_language": "en"
+  },
+  "outputs": [
+    {
+      "path": "screenplay/v1/screenplay.fountain",
+      "sha256": "1778431ca8f40bb146389f9be5c6228f2c02edb98e308d72dc66648e4015ffcb"
+    },
+    {
+      "path": "screenplay/v1/original.txt",
+      "sha256": "2f0982a7bd2118b07ea8e1c23c7859b516a87b7d71674ea6aa562a67fc10cc94"
+    },
+    {
+      "path": "screenplay/v1/validate.json",
+      "sha256": "e3587a58d6a62186378030c8a70bc831ecf2214cb87a37c8cb95f67cac626e5d"
+    },
+    {
+      "path": "screenplay/v1/review.md",
+      "sha256": "a88341fb06020340ba118f79581bcabe5467836732a020105c93f19351e3337f"
+    }
+  ],
+  "record_type": "artifact",
+  "schema_version": 1
+}

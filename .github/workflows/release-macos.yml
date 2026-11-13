@@ -1,0 +1,152 @@
+name: release-macos
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing version tag on main, for example v0.1.5'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-macos-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: macos-15
+    timeout-minutes: 120
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
+      GH_REPO: ${{ github.repository }}
+      APPLE_TEAM_ID: 54XHW83JW7
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_SIGNING_IDENTITY: 'Developer ID Application: 19Pine Corp. (54XHW83JW7)'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Require a main commit and an unpublished version tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          echo "VSCODE_DIR=$RUNNER_TEMP/vscode" >> "$GITHUB_ENV"
+          echo "SIGNING_KEYCHAIN=$RUNNER_TEMP/pine-release.keychain-db" >> "$GITHUB_ENV"
+          test "$(uname -m)" = arm64
+          git check-ref-format "refs/tags/$TAG"
+          test "$(git rev-parse HEAD)" = "$(git rev-parse "$TAG^{commit}")"
+          git merge-base --is-ancestor HEAD origin/main
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo 'This tag already has a release. Use a new version; existing releases are never overwritten.' >&2
+            exit 1
+          fi
+
+      - name: Require release credentials
+        env:
+          APPLE_SIGNING_CERTIFICATE_P12_BASE64: ${{ secrets.APPLE_SIGNING_CERTIFICATE_P12_BASE64 }}
+          APPLE_SIGNING_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_SIGNING_CERTIFICATE_PASSWORD }}
+          APPLE_NOTARY_APP_PASSWORD: ${{ secrets.APPLE_NOTARY_APP_PASSWORD }}
+        run: |
+          set -euo pipefail
+          for name in APPLE_SIGNING_CERTIFICATE_P12_BASE64 APPLE_SIGNING_CERTIFICATE_PASSWORD APPLE_NOTARY_APP_PASSWORD; do
+            if [ -z "${!name}" ]; then
+              echo "Missing GitHub Actions secret: $name (see doc/releasing.md)" >&2
+              exit 1
+            fi
+          done
+
+      - name: Prepare pinned Code-OSS and the patch series
+        run: |
+          set -euo pipefail
+          source upstream/vscode.lock
+          git init "$VSCODE_DIR"
+          git -C "$VSCODE_DIR" remote add origin "$repository"
+          git -C "$VSCODE_DIR" fetch --depth=1 origin "$base"
+          git -C "$VSCODE_DIR" checkout --detach FETCH_HEAD
+          git -C "$VSCODE_DIR" config user.name pine-release
+          git -C "$VSCODE_DIR" config user.email pine-release@localhost
+          scripts/upstream-setup.sh
+          scripts/upstream-check.sh
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: ${{ runner.temp }}/vscode/.nvmrc
+
+      - name: Install test dependencies
+        run: |
+          npm ci --prefix extensions/pine-drama
+
+      - name: Build and test (offline, no paid calls)
+        run: |
+          npm test --prefix extensions/pine-drama
+          node --test scripts/test/*.test.mjs
+
+      - name: Install Code-OSS build dependencies
+        working-directory: ${{ runner.temp }}/vscode
+        run: |
+          npm ci
+          npm run electron
+
+      - name: Package the minified arm64 app
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NODE_OPTIONS: --max-old-space-size=6144
+        run: scripts/package-macos.sh --min
+
+      - name: Import signing identity and notarization credentials
+        env:
+          APPLE_SIGNING_CERTIFICATE_P12_BASE64: ${{ secrets.APPLE_SIGNING_CERTIFICATE_P12_BASE64 }}
+          APPLE_SIGNING_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_SIGNING_CERTIFICATE_PASSWORD }}
+          APPLE_NOTARY_APP_PASSWORD: ${{ secrets.APPLE_NOTARY_APP_PASSWORD }}
+        run: |
+          set -euo pipefail
+          umask 077
+          certificate="$RUNNER_TEMP/pine-release.p12"
+          intermediate="$RUNNER_TEMP/DeveloperIDG2CA.cer"
+          trap 'rm -f "$certificate" "$intermediate"' EXIT
+          printf '%s' "$APPLE_SIGNING_CERTIFICATE_P12_BASE64" | base64 --decode > "$certificate"
+          keychain_password=$(openssl rand -hex 32)
+          echo "::add-mask::$keychain_password"
+          security create-keychain -p "$keychain_password" "$SIGNING_KEYCHAIN"
+          security set-keychain-settings -lut 7200 "$SIGNING_KEYCHAIN"
+          security unlock-keychain -p "$keychain_password" "$SIGNING_KEYCHAIN"
+          security import "$certificate" -k "$SIGNING_KEYCHAIN" -P "$APPLE_SIGNING_CERTIFICATE_PASSWORD" -T /usr/bin/codesign >/dev/null
+          curl --fail --location --silent --show-error https://www.apple.com/certificateauthority/DeveloperIDG2CA.cer -o "$intermediate"
+          printf '%s  %s\n' f16cd3c54c7f83cea4bf1a3e6a0819c8aaa8e4a1528fd144715f350643d2df3a "$intermediate" | shasum -a 256 -c -
+          security import "$intermediate" -k "$SIGNING_KEYCHAIN" >/dev/null
+          security list-keychains -d user -s "$SIGNING_KEYCHAIN" "$HOME/Library/Keychains/login.keychain-db"
+          security set-key-partition-list -S apple-tool:,apple: -k "$keychain_password" "$SIGNING_KEYCHAIN" >/dev/null
+          xcrun notarytool store-credentials pine-release --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_NOTARY_APP_PASSWORD" --keychain "$SIGNING_KEYCHAIN"
+
+      - name: Sign, notarize, staple and verify the app and DMG
+        run: |
+          node scripts/release-macos.mjs --input dist/latest --output dist/release \
+            --vscode "$VSCODE_DIR" --tag "$TAG" --identity "$APPLE_SIGNING_IDENTITY" \
+            --profile pine-release --keychain "$SIGNING_KEYCHAIN"
+
+      - name: Publish the verified DMG
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          (cd dist/release && shasum -a 256 -c SHA256SUMS)
+          gh release create "$TAG" --verify-tag --draft --title "Pine Drama Studio ${TAG#v} · Signed and notarized for macOS" \
+            --generate-notes --notes "Signed and notarized for Apple silicon Macs. Open the DMG, drag Pine Drama Studio to Applications, and connect with your Pine project key through Accounts → Pine Computer…. See doc/install.md and doc/releasing.md in the tagged source for installation and verification." \
+            dist/release/*.dmg dist/release/SHA256SUMS dist/release/build-info.json
+          gh release edit "$TAG" --draft=false --latest
+
+      - name: Remove temporary signing material
+        if: always()
+        run: |
+          if [ -f "$SIGNING_KEYCHAIN" ]; then security delete-keychain "$SIGNING_KEYCHAIN"; fi
+          rm -f "$RUNNER_TEMP/pine-release.p12" "$RUNNER_TEMP/DeveloperIDG2CA.cer"

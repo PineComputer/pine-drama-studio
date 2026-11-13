@@ -1,0 +1,76 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Pine Drama Studio Authors <authors@example.invalid>
+Date: Wed, 4 Nov 2026 20:59:36 -0800
+Subject: [PATCH 12/31] pine(L3): restore native Welcome with Pine entry policy
+
+
+diff --git a/src/vs/workbench/contrib/welcomeGettingStarted/browser/gettingStarted.ts b/src/vs/workbench/contrib/welcomeGettingStarted/browser/gettingStarted.ts
+index 105ad03c1d4..636674fd7dd 100644
+--- a/src/vs/workbench/contrib/welcomeGettingStarted/browser/gettingStarted.ts
++++ b/src/vs/workbench/contrib/welcomeGettingStarted/browser/gettingStarted.ts
+@@ -79,6 +79,8 @@ import { AccessibleViewAction } from '../../accessibility/browser/accessibleView
+ import { KeybindingLabel } from '../../../../base/browser/ui/keybindingLabel/keybindingLabel.js';
+ import { ScrollbarVisibility } from '../../../../base/common/scrollable.js';
+ 
++import { isPineWelcome, pineWelcomeStartEntries, pineWelcomeSubtitle } from '../../pine/browser/pineWelcome.js';
++
+ const SLIDE_TRANSITION_TIME_MS = 250;
+ const configurationKey = 'workbench.startupEditor';
+ 
+@@ -95,7 +97,7 @@ export interface IWelcomePageStartEntry {
+ 	when: ContextKeyExpression;
+ }
+ 
+-const parsedStartEntries: IWelcomePageStartEntry[] = startEntries.map((e, i) => ({
++const parsedStartEntries: IWelcomePageStartEntry[] = (isPineWelcome ? pineWelcomeStartEntries : startEntries).map((e, i) => ({
+ 	command: e.content.command,
+ 	description: e.description,
+ 	icon: { type: 'icon', icon: e.icon },
+@@ -941,7 +943,7 @@ export class GettingStartedPage extends EditorPane {
+ 
+ 		const header = $('.header', {},
+ 			$('h1.product-name.caption', {}, this.productService.nameLong),
+-			$('p.subtitle.description', {}, localize({ key: 'gettingStarted.editingEvolved', comment: ['Shown as subtitle on the Welcome page.'] }, "Editing evolved"))
++			$('p.subtitle.description', {}, isPineWelcome ? pineWelcomeSubtitle : localize({ key: 'gettingStarted.editingEvolved', comment: ['Shown as subtitle on the Welcome page.'] }, "Editing evolved"))
+ 		);
+ 
+ 		const leftColumn = $('.categories-column.categories-column-left', {},);
+@@ -966,7 +968,7 @@ export class GettingStartedPage extends EditorPane {
+ 			this.defaultAccountService,
+ 		);
+ 		this.categoriesSlideDisposables.add(agentsBanner.disposables);
+-		footerChildren.push(agentsBanner.element);
++		if (!isPineWelcome) { footerChildren.push(agentsBanner.element); } // Pine keeps one Chat home in the secondary sidebar.
+ 		footerChildren.push($('p.showOnStartup', {},
+ 			showOnStartupCheckbox.domNode,
+ 			showOnStartupLabel,
+@@ -974,11 +976,11 @@ export class GettingStartedPage extends EditorPane {
+ 
+ 		const footer = $('.footer', {}, ...footerChildren);
+ 		const categoriesContainer = $('.gettingStartedCategoriesContainer', {}, header, leftColumn, rightColumn, footer,);
+-		const graphic = derived(reader => agentsBanner.visible.read(reader) ? agentsWindowGraphic.shownDesign.read(reader) : undefined);
++		const graphic = derived(reader => !isPineWelcome && agentsBanner.visible.read(reader) ? agentsWindowGraphic.shownDesign.read(reader) : undefined);
+ 		const layoutAgentsWindowGraphic = () => this.fitAgentsWindowGraphic(categoriesContainer, graphic.get() !== undefined);
+ 
+ 		const layoutLists = () => {
+-			if (gettingStartedList.itemCount) {
++			if (!isPineWelcome && gettingStartedList.itemCount) {
+ 				this.container.classList.remove('noWalkthroughs');
+ 				reset(rightColumn, gettingStartedList.getDomElement());
+ 			}
+diff --git a/src/vs/workbench/workbench.common.main.ts b/src/vs/workbench/workbench.common.main.ts
+index c4570ddc49c..16c4ab1fe11 100644
+--- a/src/vs/workbench/workbench.common.main.ts
++++ b/src/vs/workbench/workbench.common.main.ts
+@@ -394,9 +394,9 @@ import './contrib/update/browser/update.contribution.js';
+ // pine(L3) trim: import './contrib/surveys/browser/languageSurveys.contribution.js';
+ 
+ // Welcome
+-// pine(L3) trim: import './contrib/welcomeGettingStarted/browser/gettingStarted.contribution.js';
++import './contrib/welcomeGettingStarted/browser/gettingStarted.contribution.js'; // pine: reuse native Welcome and Recent
+ import './contrib/welcomeAgentSessions/browser/agentSessionsWelcome.contribution.js';
+-// pine(L3) trim: import './contrib/welcomeWalkthrough/browser/walkThrough.contribution.js';
++import './contrib/welcomeWalkthrough/browser/walkThrough.contribution.js'; // native Welcome renderer dependencies
+ import './contrib/welcomeViews/common/viewsWelcome.contribution.js';
+ import './contrib/welcomeViews/common/newFile.contribution.js';
+ 

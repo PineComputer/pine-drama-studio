@@ -1,0 +1,59 @@
+/* Galleries and detail pages (D17), on the workbench's colours only, with the canvas's type scale and corners. */
+html, body { margin: 0; padding: 0; background: var(--vscode-editor-background); color: var(--vscode-foreground); font-family: var(--vscode-font-family); font-size: 12px; }
+button { font: inherit; color: inherit; }
+.page { padding: 20px 24px 32px; max-width: 1600px; }
+h1 { margin: 0; font-size: 18px; font-weight: 600; }
+.muted { color: var(--vscode-descriptionForeground); }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 16px; }
+.tile { display: flex; flex-direction: column; gap: 4px; padding: 0; border: 0; background: transparent; text-align: left; cursor: pointer; }
+.tile:disabled { cursor: default; }
+.thumb { height: 180px; border-radius: 8px; overflow: hidden; display: flex; align-items: center; justify-content: center; background: var(--vscode-editorWidget-background); outline: 1px solid color-mix(in srgb, var(--vscode-panel-border) 80%, transparent); outline-offset: -1px; transition: outline-color 120ms ease; }
+.thumb img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.thumb .codicon { font-size: 20px; color: var(--vscode-descriptionForeground); }
+.tile:not(:disabled):hover .thumb { outline-color: var(--vscode-focusBorder); }
+.tile:focus-visible { outline: none; }
+.tile:focus-visible .thumb { outline: 2px solid var(--vscode-focusBorder); outline-offset: -2px; }
+.name { margin-top: 4px; display: flex; align-items: center; gap: 4px; font-size: 13px; font-weight: 600; }
+.name .codicon { font-size: 12px; color: var(--vscode-descriptionForeground); }
+.tile:disabled .thumb { opacity: 0.6; }
+/* A picture read while its turn ran (right-region.md, section 5): dashed, so it never reads as a version. */
+/* An asset grid (Pippit's): dense portrait cards, about five across, the picture cropped to fill; the picture's
+   shape follows its kind: a character portrait, a scene landscape, a prop square. */
+.grid.assets { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+.grid.assets .card { position: relative; padding: 6px 6px 10px; border-radius: 10px; background: var(--vscode-editorWidget-background); }
+.grid.assets .thumb { height: auto; aspect-ratio: 3 / 4; background: color-mix(in srgb, var(--vscode-foreground) 6%, transparent); outline: none; }
+.grid.assets.scenes .thumb { aspect-ratio: 4 / 3; }
+.grid.assets.props .thumb { aspect-ratio: 1; }
+.grid.assets .tile:not(:disabled):hover .thumb { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
+.grid.assets .tile:disabled .thumb { opacity: 1; }
+.grid.assets .name { padding: 0 4px; font-weight: 500; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; display: block; }
+.thumb .codicon.kind { font-size: 32px; opacity: 0.7; }
+.thumb .codicon.create { font-size: 20px; width: 40px; height: 40px; line-height: 40px; text-align: center; border-radius: 50%; border: 1px dashed var(--vscode-descriptionForeground); }
+.visuals { padding: 0 4px; font-size: 11px; color: var(--vscode-descriptionForeground); }
+/* Some of its pictures still to be set: the accent, as Pippit's orange line. */
+.visuals.needed { color: var(--vscode-editorWarning-foreground); }
+.grid.assets .action-line { padding: 0 4px; }
+/* The card's ⋯ menu (C1 actions): over the picture's corner, shown on hover or while open, as Pippit's. */
+.card-menu { position: absolute; top: 12px; right: 12px; }
+.card-menu .more { width: 26px; height: 26px; padding: 0; border: 0; border-radius: 50%; cursor: pointer; opacity: 0; color: var(--vscode-foreground); background: var(--vscode-editorWidget-background); }
+.card:hover .card-menu .more, .card-menu .more[aria-expanded="true"], .card-menu .more:focus-visible { opacity: 1; }
+.card-menu .menu { position: absolute; right: 0; top: 30px; z-index: 1; display: flex; flex-direction: column; min-width: 160px; padding: 4px 0; border-radius: 4px;
+	background: var(--vscode-menu-background); color: var(--vscode-menu-foreground); border: 1px solid var(--vscode-menu-border, var(--vscode-widget-border, transparent)); box-shadow: 0 2px 8px var(--vscode-widget-shadow); }
+.card-menu .menu button { padding: 4px 12px; border: 0; background: transparent; text-align: left; cursor: pointer; }
+.card-menu .menu button:hover, .card-menu .menu button:focus-visible { outline: none; color: var(--vscode-menu-selectionForeground); background: var(--vscode-menu-selectionBackground); }
+.action-line { font-size: 11px; white-space: pre-wrap; word-break: break-word; }
+.action-line.error { color: var(--vscode-errorForeground); }
+.card { position: relative; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.card.dropping .thumb { outline: 2px dashed var(--vscode-focusBorder); outline-offset: -2px; }
+.card.draft { gap: 6px; }
+.draft-name, .draft-text { font: inherit; color: var(--vscode-input-foreground); background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border, transparent); border-radius: 4px; padding: 4px 6px; box-sizing: border-box; width: 100%; }
+.draft-name { font-weight: 500; }
+.draft-text { resize: vertical; line-height: 1.4; }
+.draft-name:focus, .draft-text:focus { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
+.draft-actions { display: flex; gap: 6px; }
+.draft-actions button { font-size: 11px; padding: 2px 10px; border: 0; border-radius: 2px; cursor: pointer; color: var(--vscode-button-secondaryForeground); background: var(--vscode-button-secondaryBackground); }
+.draft-actions button.primary { color: var(--vscode-button-foreground); background: var(--vscode-button-background); }
+.draft-actions button:disabled { opacity: 0.5; cursor: default; }
+
+/* A card's outgoing mark (design.md 15.2): in its corner, over the picture. */
+.card .mark { position: absolute; top: 6px; right: 6px; padding: 2px; border-radius: 4px; background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); }

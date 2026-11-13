@@ -1,0 +1,77 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Pine Drama Studio Authors <authors@example.invalid>
+Date: Sat, 7 Nov 2026 13:35:26 -0800
+Subject: [PATCH 28/31] pine(L2): test that Send to New Chat follows
+ chat.sendToNewChat.enabled
+
+The setting is registered on by default; with it off, the keybinding's when and the Send button's alternative do not
+match a chat input with text.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+diff --git a/src/vs/workbench/contrib/pine/test/browser/pineSendToNewChat.test.ts b/src/vs/workbench/contrib/pine/test/browser/pineSendToNewChat.test.ts
+new file mode 100644
+index 00000000000..464f9438d22
+--- /dev/null
++++ b/src/vs/workbench/contrib/pine/test/browser/pineSendToNewChat.test.ts
+@@ -0,0 +1,60 @@
++/*---------------------------------------------------------------------------------------------
++ *  Copyright (c) Microsoft Corporation. All rights reserved.
++ *  Licensed under the MIT License. See License.txt in the project root for license information.
++ *--------------------------------------------------------------------------------------------*/
++import assert from 'assert';
++import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
++import { MenuId, MenuRegistry, isIMenuItem } from '../../../../../platform/actions/common/actions.js';
++import { Extensions as ConfigurationExtensions, IConfigurationRegistry } from '../../../../../platform/configuration/common/configurationRegistry.js';
++import { ContextKeyExpression, IContext } from '../../../../../platform/contextkey/common/contextkey.js';
++import { KeybindingsRegistry } from '../../../../../platform/keybinding/common/keybindingsRegistry.js';
++import { Registry } from '../../../../../platform/registry/common/platform.js';
++import { ChatContextKeys } from '../../../chat/common/actions/chatContextKeys.js';
++import { ChatSubmitAction, registerChatExecuteActions } from '../../../chat/browser/actions/chatExecuteActions.js';
++import '../../browser/pine.contribution.js';
++
++// Send to New Chat sent the person's reply to a waiting session into a new session and a new
++// Computer. With chat.sendToNewChat.enabled off, neither its keybinding nor the Send button's alternative offers it.
++const SEND_TO_NEW_CHAT = 'workbench.action.chat.sendToNewChat';
++
++suite('Pine Send to New Chat', () => {
++	const store = ensureNoDisposablesAreLeakedInTestSuite();
++
++	/** A chat input with text, as when the person has typed a reply; the setting as given. */
++	const context = (enabled: boolean): IContext => {
++		const values: Record<string, unknown> = {
++			[ChatContextKeys.inChatInput.key]: true,
++			[ChatContextKeys.inputHasText.key]: true,
++			'config.chat.sendToNewChat.enabled': enabled,
++		};
++		return { getValue: <T>(key: string) => values[key] as T };
++	};
++	const matches = (expr: ContextKeyExpression | null | undefined, enabled: boolean) => !expr || expr.evaluate(context(enabled));
++
++	test('the setting is registered, on by default as upstream behaves', () => {
++		const property = Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).getConfigurationProperties()['chat.sendToNewChat.enabled'];
++		assert.strictEqual(property?.default, true);
++	});
++
++	test('its keybinding (Ctrl/Cmd+Shift+Enter) follows the setting', () => {
++		store.add(registerChatExecuteActions());
++		const rules = KeybindingsRegistry.getDefaultKeybindings().filter(rule => rule.command === SEND_TO_NEW_CHAT);
++		assert.ok(rules.length > 0, 'Send to New Chat has a keybinding');
++		for (const rule of rules) {
++			assert.strictEqual(matches(rule.when, true), true, 'on: the keybinding works in a chat input with text');
++			assert.strictEqual(matches(rule.when, false), false, 'off: the keybinding does nothing');
++		}
++	});
++
++	test('the Send button offers it as its alternative only while the setting is on', () => {
++		store.add(registerChatExecuteActions());
++		const alternatives = MenuRegistry.getMenuItems(MenuId.ChatExecute).filter(isIMenuItem).filter(item => item.alt?.id === SEND_TO_NEW_CHAT);
++		assert.ok(alternatives.some(item => item.command.id === ChatSubmitAction.ID), 'Send has Send to New Chat as its alternative');
++		for (const item of alternatives) {
++			// MenuItemAction.enabled: the alternative's own precondition, which is all the view item consults before
++			// showing it on Alt, or on Shift with the pointer over the button (menuEntryActionViewItem.ts, updateAltState).
++			assert.strictEqual(matches(item.alt!.precondition, true), true, `on: ${item.command.id} offers it`);
++			assert.strictEqual(matches(item.alt!.precondition, false), false, `off: ${item.command.id} stays Send`);
++		}
++	});
++});

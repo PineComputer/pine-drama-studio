@@ -1,0 +1,51 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Pine Drama Studio Authors <authors@example.invalid>
+Date: Wed, 4 Nov 2026 21:16:26 -0800
+Subject: [PATCH 13/31] pine(L2): identify durable Pine execution for window
+ navigation
+
+
+diff --git a/src/vs/workbench/contrib/pine/common/pineSessionLifecycle.ts b/src/vs/workbench/contrib/pine/common/pineSessionLifecycle.ts
+new file mode 100644
+index 00000000000..ff56320b637
+--- /dev/null
++++ b/src/vs/workbench/contrib/pine/common/pineSessionLifecycle.ts
+@@ -0,0 +1,8 @@
++/*---------------------------------------------------------------------------------------------
++ * Pine sessions execute remotely; closing their local view does not cancel the run.
++ *--------------------------------------------------------------------------------------------*/
++
++/** Keep provider identity honest: Pine is not an alias for the built-in Cloud/agent-host providers. */
++export function continuesOnPineComputer(providerType: string): boolean {
++	return providerType === 'pine-computer';
++}
+diff --git a/src/vs/workbench/contrib/pine/test/electron-browser/pineSessionLifecycle.test.ts b/src/vs/workbench/contrib/pine/test/electron-browser/pineSessionLifecycle.test.ts
+new file mode 100644
+index 00000000000..b9ce6d02d13
+--- /dev/null
++++ b/src/vs/workbench/contrib/pine/test/electron-browser/pineSessionLifecycle.test.ts
+@@ -0,0 +1,24 @@
++/*---------------------------------------------------------------------------------------------
++ *  Copyright (c) Microsoft Corporation. All rights reserved.
++ *  Licensed under the MIT License. See License.txt in the project root for license information.
++ *--------------------------------------------------------------------------------------------*/
++import assert from 'assert';
++import { ShutdownReason } from '../../../../services/lifecycle/common/lifecycle.js';
++import { AgentSessionStatus } from '../../../chat/browser/agentSessions/agentSessionsModel.js';
++import { shouldWarnForSessionShutdown } from '../../../chat/electron-browser/chatLifecycle.js';
++import { continuesOnPineComputer } from '../../common/pineSessionLifecycle.js';
++
++suite('Pine remote session lifecycle', () => {
++	test('workspace navigation/reload/close/quit never claim to cancel a Pine run', () => {
++		for (const reason of [ShutdownReason.LOAD, ShutdownReason.RELOAD, ShutdownReason.CLOSE, ShutdownReason.QUIT]) {
++			for (const status of [AgentSessionStatus.InProgress, AgentSessionStatus.NeedsInput]) {
++				assert.strictEqual(shouldWarnForSessionShutdown({ providerType: 'pine-computer', status, isArchived: () => false }, reason), false);
++			}
++		}
++	});
++
++	test('other extension providers retain native warnings and are never reclassified as Pine', () => {
++		assert.strictEqual(continuesOnPineComputer('other-extension'), false);
++		assert.strictEqual(shouldWarnForSessionShutdown({ providerType: 'other-extension', status: AgentSessionStatus.InProgress, isArchived: () => false }, ShutdownReason.LOAD), true);
++	});
++});

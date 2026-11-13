@@ -1,0 +1,28 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Pine Drama Studio Authors <authors@example.invalid>
+Date: Wed, 4 Nov 2026 21:16:26 -0800
+Subject: [PATCH 14/31] pine(L3): keep navigation from claiming to stop remote
+ Pine work
+
+
+diff --git a/src/vs/workbench/contrib/chat/electron-browser/chatLifecycle.ts b/src/vs/workbench/contrib/chat/electron-browser/chatLifecycle.ts
+index 102a8afd6c3..a94013bfff9 100644
+--- a/src/vs/workbench/contrib/chat/electron-browser/chatLifecycle.ts
++++ b/src/vs/workbench/contrib/chat/electron-browser/chatLifecycle.ts
+@@ -3,6 +3,7 @@
+  *  Licensed under the MIT License. See License.txt in the project root for license information.
+  *--------------------------------------------------------------------------------------------*/
+ 
++import { continuesOnPineComputer } from '../../pine/common/pineSessionLifecycle.js';
+ import { ShutdownReason } from '../../../services/lifecycle/common/lifecycle.js';
+ import { isMacintosh } from '../../../../base/common/platform.js';
+ import { localize } from '../../../../nls.js';
+@@ -47,7 +48,7 @@ export function shouldWarnForInFlightSessionShutdown(sessionTypes: readonly stri
+ }
+ 
+ export function shouldWarnForSessionShutdown(session: ShutdownWarningSession, reason: ShutdownReason): boolean {
+-	if (!isSessionInProgressStatus(session.status) || session.providerType === AgentSessionProviders.Cloud || session.isArchived()) {
++	if (!isSessionInProgressStatus(session.status) || session.providerType === AgentSessionProviders.Cloud || continuesOnPineComputer(session.providerType) || session.isArchived()) {
+ 		return false;
+ 	}
+ 

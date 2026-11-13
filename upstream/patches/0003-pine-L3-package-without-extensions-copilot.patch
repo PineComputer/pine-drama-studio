@@ -1,0 +1,25 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Pine Drama Studio Authors <authors@example.invalid>
+Date: Mon, 2 Nov 2026 15:34:47 -0800
+Subject: [PATCH 03/31] pine(L3): package without extensions/copilot
+
+At this pin, a local package build strips @github/copilot from the
+packaged extensions (build/.moduleignore) and then requires its SDK to
+prepare the Copilot ripgrep shim, so it fails; CI builds get Copilot as a
+VSIX instead. Pine Drama Studio ships no Copilot: when the product has no
+extensions/copilot, the shim step has nothing to prepare and returns.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+diff --git a/build/gulpfile.vscode.ts b/build/gulpfile.vscode.ts
+index 0256e9eabef..f89333e453d 100644
+--- a/build/gulpfile.vscode.ts
++++ b/build/gulpfile.vscode.ts
+@@ -566,6 +566,7 @@ function prepareCopilotRipgrepShimTask(platform: string, arch: string, destinati
+ 		const appNodeModulesDir = path.join(appBase, 'node_modules.asar.unpacked');
+ 
+ 		const builtInCopilotExtensionDir = path.join(appBase, 'extensions', 'copilot');
++		if (!fs.existsSync(builtInCopilotExtensionDir)) { return; } // pine: a product built without extensions/copilot ships no Copilot
+ 		prepareBuiltInCopilotRipgrepShim(platform, arch, builtInCopilotExtensionDir, appNodeModulesDir);
+ 	};
+ }

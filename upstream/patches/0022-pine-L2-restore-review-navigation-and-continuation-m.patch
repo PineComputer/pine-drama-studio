@@ -1,0 +1,70 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Pine Drama Studio Authors <authors@example.invalid>
+Date: Thu, 5 Nov 2026 02:34:30 -0800
+Subject: [PATCH 22/31] pine(L2): restore review navigation and continuation
+ model routing
+
+
+diff --git a/src/vs/workbench/contrib/pine/browser/pineProjectChat.ts b/src/vs/workbench/contrib/pine/browser/pineProjectChat.ts
+index 6c7f25b8a31..1125244a453 100644
+--- a/src/vs/workbench/contrib/pine/browser/pineProjectChat.ts
++++ b/src/vs/workbench/contrib/pine/browser/pineProjectChat.ts
+@@ -15,22 +15,43 @@ import type { ChatViewPane } from '../../chat/browser/widgetHosts/viewPane/chatV
+ import { ChatViewPaneTarget, IChatWidgetService } from '../../chat/browser/chat.js';
+ import { isResponseVM } from '../../chat/common/model/chatViewModel.js';
+ import './pineReview.js';
++import { ILanguageModelsService } from '../../chat/common/languageModels.js';
+ 
+ export const prepareProjectChatCommand = 'pine.workbench.prepareProjectChat';
+ 
+ // Durable review identity is trusted response metadata, not a rendered row index or Computer id.
+-CommandsRegistry.registerCommand('pine.workbench.revealReview', async (accessor, resource: string, reviewId: string) => {
++CommandsRegistry.registerCommand('pine.workbench.revealReview', async (accessor, resource: string, reviewId: string, cardToken?: string) => {
+ 	const uri = URI.parse(resource);
+ 	if (uri.scheme !== 'pine-computer' || typeof reviewId !== 'string' || !reviewId) {
+ 		throw new Error('Invalid Pine review destination.');
+ 	}
+ 	const widget = await accessor.get(IChatWidgetService).openSession(uri, ChatViewPaneTarget);
+-	const message = widget?.viewModel?.getItems().find(item => isResponseVM(item) && item.result?.metadata?.pineReviewId === reviewId);
++	// Contributed history drops result metadata (extHostChatSessions.convertResponseTurn), but preserves the card fence.
++	const marker = typeof cardToken === 'string' && cardToken ? JSON.stringify({ version: 1, token: cardToken }) : undefined;
++	const message = widget?.viewModel?.getItems().find(item => isResponseVM(item) && (
++		item.result?.metadata?.pineReviewId === reviewId ||
++		(marker && item.response.value.some(part => part.kind === 'markdownContent' && part.content.value.includes(marker)))
++	));
+ 	if (!widget || !message) { throw new Error('The review message is unavailable in this conversation. Reload its history and retry.'); }
+ 	widget.reveal(message);
+ 	widget.focus(message);
+ });
+ 
++// Review continuation uses the provider's only routing model, including restored sessions with no input model.
++CommandsRegistry.registerCommand('pine.workbench.openReviewChat', async (accessor, resource: string) => {
++	const uri = URI.parse(resource);
++	if (uri.scheme !== 'pine-computer') { throw new Error('Invalid Pine conversation.'); }
++	const widgets = accessor.get(IChatWidgetService);
++	const models = accessor.get(ILanguageModelsService);
++	const identifiers = await models.selectLanguageModels({ vendor: 'pine' });
++	const identifier = identifiers.find(id => models.lookupLanguageModel(id)?.targetChatSessionType === 'pine-computer');
++	const metadata = identifier && models.lookupLanguageModel(identifier);
++	if (!identifier || !metadata) { throw new Error('Pine chat routing is unavailable. Reload the window and retry continuation.'); }
++	const widget = await widgets.openSession(uri, ChatViewPaneTarget);
++	if (!widget) { throw new Error('The Pine conversation could not be opened.'); }
++	widget.input.setCurrentLanguageModel({ identifier, metadata });
++});
++
+ // Wait for the real native restore, including extension-provider history, before choosing a default.
+ // This command restores/selects native UI state only; it creates no conversation and dispatches no request.
+ CommandsRegistry.registerCommand(prepareProjectChatCommand, async (accessor, mainResource: string) => {
+diff --git a/src/vs/workbench/contrib/pine/browser/pineReview.ts b/src/vs/workbench/contrib/pine/browser/pineReview.ts
+index 17684dbec06..6bf6e794d13 100644
+--- a/src/vs/workbench/contrib/pine/browser/pineReview.ts
++++ b/src/vs/workbench/contrib/pine/browser/pineReview.ts
+@@ -48,7 +48,7 @@ class PineReviewGate extends Disposable implements IChatWidgetContrib {
+ 				this.gated = true;
+ 				(this.widget as ChatWidget).setReadOnly(true, false, { kind: 'live', message: 'Review before continuing',
+ 					action: { label: gate.ready ? 'Submit and continue' : 'Review items', run: async () => {
+-						await this.commands.executeCommand(gate.ready ? 'pineDrama.review.submit' : 'pine.workbench.revealReview', gate.resource, gate.reviewId);
++						await this.commands.executeCommand(gate.ready ? 'pineDrama.review.submit' : 'pineDrama.review.openMessage', gate.resource, gate.reviewId);
+ 					} } });
+ 			} else if (this.gated) {
+ 				this.gated = false;

@@ -1,0 +1,33 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Pine Drama Studio Authors <authors@example.invalid>
+Date: Tue, 3 Nov 2026 12:22:35 -0800
+Subject: [PATCH 06/31] pine(L2): register chat.requestCancellation.enabled
+
+A generic setting, default true, for whether Chat offers to cancel a running request. The Studio's extension sets it
+false: its chats cannot be cancelled in v1, and the product ships no other chat.
+
+diff --git a/src/vs/workbench/contrib/pine/browser/pine.contribution.ts b/src/vs/workbench/contrib/pine/browser/pine.contribution.ts
+index 5d4d7d98088..227fc940ec7 100644
+--- a/src/vs/workbench/contrib/pine/browser/pine.contribution.ts
++++ b/src/vs/workbench/contrib/pine/browser/pine.contribution.ts
+@@ -23,6 +23,20 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
+ 	},
+ }]);
+ 
++// Whether Chat offers to cancel a running request (Stop and its keybinding, chatExecuteActions.ts CancelAction). A product
++// whose chats cannot be cancelled turns it off; the Studio's extension does, and the product has
++// no other chat (pineShipsNoCopilot), so it is off for every chat there.
++Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).registerConfiguration({
++	id: 'chat',
++	properties: {
++		'chat.requestCancellation.enabled': {
++			type: 'boolean',
++			default: true,
++			description: 'Controls whether a running chat request can be cancelled from Chat (Stop and its keybinding).',
++		},
++	},
++});
++
+ /**
+  * The Studio ships no GitHub Copilot, so Copilot's status bar entry (chatStatusEntry.ts, 'chat.statusBarEntry': its
+  * sign-in and quota dashboard) is hidden, as the person's own "Hide" on the entry would hide it. No setting removes the

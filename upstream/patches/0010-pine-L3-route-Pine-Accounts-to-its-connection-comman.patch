@@ -1,0 +1,29 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Pine Drama Studio Authors <authors@example.invalid>
+Date: Wed, 4 Nov 2026 20:01:33 -0800
+Subject: [PATCH 10/31] pine(L3): route Pine Accounts to its connection command
+
+
+diff --git a/src/vs/workbench/browser/parts/globalCompositeBar.ts b/src/vs/workbench/browser/parts/globalCompositeBar.ts
+index d0f5bd1bd21..4cffb6e28fa 100644
+--- a/src/vs/workbench/browser/parts/globalCompositeBar.ts
++++ b/src/vs/workbench/browser/parts/globalCompositeBar.ts
+@@ -4,6 +4,7 @@
+  *--------------------------------------------------------------------------------------------*/
+ 
+ import './media/globalCompositeBar.css';
++import { pineAccountActions } from '../../contrib/pine/browser/pineAccounts.js';
+ import { localize } from '../../../nls.js';
+ import { ActionBar, ActionsOrientation } from '../../../base/browser/ui/actionbar/actionbar.js';
+ import { ACCOUNTS_ACTIVITY_ID, ACCOUNTS_SHARED_SIGN_IN_GROUP, GLOBAL_ACTIVITY_ID } from '../../common/activity.js';
+@@ -457,6 +458,10 @@ export class AccountsActivityActionViewItem extends AbstractGlobalActivityAction
+ 	//#region overrides
+ 
+ 	protected override async resolveMainMenuActions(accountsMenu: IMenu, disposables: DisposableStore): Promise<IAction[]> {
++		// Pine ships project-key access, not upstream's Copilot/account/model services (pine-connection.md).
++		if ((this.productService as { pineShipsNoCopilot?: boolean }).pineShipsNoCopilot) {
++			return pineAccountActions(this.commandService).map(action => disposables.add(action));
++		}
+ 		await super.resolveMainMenuActions(accountsMenu, disposables);
+ 
+ 		const providers = this.authenticationService.getProviderIds().filter(p => !p.startsWith(INTERNAL_AUTH_PROVIDER_PREFIX));

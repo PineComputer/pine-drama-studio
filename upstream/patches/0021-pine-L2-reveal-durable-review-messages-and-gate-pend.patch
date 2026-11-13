@@ -1,0 +1,105 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Pine Drama Studio Authors <authors@example.invalid>
+Date: Thu, 5 Nov 2026 01:48:39 -0800
+Subject: [PATCH 21/31] pine(L2): reveal durable review messages and gate
+ pending review input
+
+
+diff --git a/src/vs/workbench/contrib/pine/browser/pineProjectChat.ts b/src/vs/workbench/contrib/pine/browser/pineProjectChat.ts
+index fd47666bcc1..6c7f25b8a31 100644
+--- a/src/vs/workbench/contrib/pine/browser/pineProjectChat.ts
++++ b/src/vs/workbench/contrib/pine/browser/pineProjectChat.ts
+@@ -12,9 +12,25 @@ import { IViewsService } from '../../../services/views/common/viewsService.js';
+ import { ChatViewId } from '../../chat/browser/chat.js';
+ import { isUntitledChatSession } from '../../chat/common/model/chatUri.js';
+ import type { ChatViewPane } from '../../chat/browser/widgetHosts/viewPane/chatViewPane.js';
++import { ChatViewPaneTarget, IChatWidgetService } from '../../chat/browser/chat.js';
++import { isResponseVM } from '../../chat/common/model/chatViewModel.js';
++import './pineReview.js';
+ 
+ export const prepareProjectChatCommand = 'pine.workbench.prepareProjectChat';
+ 
++// Durable review identity is trusted response metadata, not a rendered row index or Computer id.
++CommandsRegistry.registerCommand('pine.workbench.revealReview', async (accessor, resource: string, reviewId: string) => {
++	const uri = URI.parse(resource);
++	if (uri.scheme !== 'pine-computer' || typeof reviewId !== 'string' || !reviewId) {
++		throw new Error('Invalid Pine review destination.');
++	}
++	const widget = await accessor.get(IChatWidgetService).openSession(uri, ChatViewPaneTarget);
++	const message = widget?.viewModel?.getItems().find(item => isResponseVM(item) && item.result?.metadata?.pineReviewId === reviewId);
++	if (!widget || !message) { throw new Error('The review message is unavailable in this conversation. Reload its history and retry.'); }
++	widget.reveal(message);
++	widget.focus(message);
++});
++
+ // Wait for the real native restore, including extension-provider history, before choosing a default.
+ // This command restores/selects native UI state only; it creates no conversation and dispatches no request.
+ CommandsRegistry.registerCommand(prepareProjectChatCommand, async (accessor, mainResource: string) => {
+diff --git a/src/vs/workbench/contrib/pine/browser/pineReview.ts b/src/vs/workbench/contrib/pine/browser/pineReview.ts
+new file mode 100644
+index 00000000000..17684dbec06
+--- /dev/null
++++ b/src/vs/workbench/contrib/pine/browser/pineReview.ts
+@@ -0,0 +1,62 @@
++/*---------------------------------------------------------------------------------------------
++ * Pine review gating uses the native composer and read-only banner; it never clears a draft.
++ *--------------------------------------------------------------------------------------------*/
++import { Emitter } from '../../../../base/common/event.js';
++import { Disposable, MutableDisposable } from '../../../../base/common/lifecycle.js';
++import { CommandsRegistry, ICommandService } from '../../../../platform/commands/common/commands.js';
++import { IChatWidget } from '../../chat/browser/chat.js';
++import { ChatWidget, IChatWidgetContrib } from '../../chat/browser/widget/chatWidget.js';
++
++interface ReviewGate { resource: string; reviewId: string; ready: boolean }
++const gates = new Map<string, ReviewGate>();
++const changed = new Emitter<void>();
++
++CommandsRegistry.registerCommand('pine.workbench.setReviewGates', (_accessor, values: ReviewGate[]) => {
++	if (!Array.isArray(values) || values.some(v => typeof v.resource !== 'string' || !v.resource.startsWith('pine-computer:')
++		|| typeof v.reviewId !== 'string' || typeof v.ready !== 'boolean')) { throw new Error('Invalid Pine review gate.'); }
++	gates.clear();
++	for (const value of values) { gates.set(value.resource, value); }
++	changed.fire();
++});
++
++class PineReviewGate extends Disposable implements IChatWidgetContrib {
++	readonly id = 'pine.reviewGate';
++	private readonly modelListener = this._register(new MutableDisposable());
++	private gated = false;
++	private disposed = false;
++	private queued = false;
++	constructor(private readonly widget: IChatWidget, @ICommandService private readonly commands: ICommandService) {
++		super();
++		const bind = () => {
++			this.modelListener.value = widget.viewModel?.model.onDidChange(() => this.schedule());
++			this.schedule();
++		};
++		this._register(widget.onDidChangeViewModel(bind));
++		this._register(changed.event(() => this.schedule()));
++		bind();
++	}
++	private schedule(): void {
++		if (this.queued) { return; }
++		this.queued = true;
++		queueMicrotask(() => {
++			this.queued = false;
++			if (this.disposed) { return; }
++			const model = this.widget.viewModel?.model;
++			const gate = model && gates.get(model.sessionResource.toString());
++			// Pine's provider has no managed-policy override. Respect authoritative model read-only state.
++			if (gate && !model?.isReadOnly.get()) {
++				this.gated = true;
++				(this.widget as ChatWidget).setReadOnly(true, false, { kind: 'live', message: 'Review before continuing',
++					action: { label: gate.ready ? 'Submit and continue' : 'Review items', run: async () => {
++						await this.commands.executeCommand(gate.ready ? 'pineDrama.review.submit' : 'pine.workbench.revealReview', gate.resource, gate.reviewId);
++					} } });
++			} else if (this.gated) {
++				this.gated = false;
++				(this.widget as ChatWidget).setReadOnly(model?.isReadOnly.get() ?? false, model?.isInputBlocked.get() ?? false);
++			}
++		});
++	}
++	override dispose(): void { this.disposed = true; super.dispose(); }
++}
++
++ChatWidget.CONTRIBS.push(PineReviewGate);

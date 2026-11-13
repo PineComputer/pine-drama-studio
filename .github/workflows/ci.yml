@@ -1,0 +1,43 @@
+name: ci
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+# A newer push to a pull request's branch supersedes the run before it. Each run on main has a group of its own, so it
+# is never cancelled.
+concurrency:
+  group: ci-${{ github.event_name == 'pull_request' && github.head_ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+# Actions are pinned by commit; the comment names the release.
+jobs:
+  # The check a branch rule can require is named "extension". Offline: no network after npm ci, no paid calls.
+  extension:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    defaults:
+      run:
+        working-directory: extensions/pine-drama
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # Node 24 is the major of Code-OSS's .nvmrc (24.22.1) and of the extension's @types/node (^24).
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: extensions/pine-drama/package-lock.json
+      - run: npm ci
+      # PyYAML for the task helper's tests: on a Computer, python3 is drama-cli's runtime and has it (PineSandbox
+      # 90585028b sandboxes/pine-cua-browser/Dockerfile:513-518); resources/pine-task.py reads drama-cli's config with it.
+      # The runner image ships python3-yaml (apt said "already the newest version (6.0.3-1build1)" on ubuntu-26.04, run
+      # 42013024694), so this only checks it; an image without it fails here instead of skipping the helper tests.
+      - run: python3 -c 'import yaml'
+      - name: Build and test (offline, no paid calls)
+        run: npm test
+      - name: Release safety tests (offline, no signing credentials)
+        run: node --test ../../scripts/test/*.test.mjs

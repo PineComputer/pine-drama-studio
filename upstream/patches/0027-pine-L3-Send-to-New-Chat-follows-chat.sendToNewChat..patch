@@ -1,0 +1,51 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Pine Drama Studio Authors <authors@example.invalid>
+Date: Sat, 7 Nov 2026 13:33:53 -0800
+Subject: [PATCH 27/31] pine(L3): Send to New Chat follows
+ chat.sendToNewChat.enabled
+
+SendToNewChatAction's precondition, so its keybinding (Ctrl/Cmd+Shift+Enter) too, and the Send button's alternative
+on both submit actions follow the setting. The alternative needs its own precondition: a menu item's alt is built from
+the menu entry's own command literal (menuService.ts, MenuItemAction), so the action's precondition does not reach it,
+and the view item offers it while Alt is held, or Shift with the pointer over the button (menuEntryActionViewItem.ts,
+updateAltState). With the setting off the button stays Send. An extension cannot remove a keybinding or a menu
+alternative.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+diff --git a/src/vs/workbench/contrib/chat/browser/actions/chatExecuteActions.ts b/src/vs/workbench/contrib/chat/browser/actions/chatExecuteActions.ts
+index f97e8888c7c..82f83dd7897 100644
+--- a/src/vs/workbench/contrib/chat/browser/actions/chatExecuteActions.ts
++++ b/src/vs/workbench/contrib/chat/browser/actions/chatExecuteActions.ts
+@@ -236,7 +236,8 @@ export class ChatSubmitAction extends SubmitAction {
+ 					alt: {
+ 						id: 'workbench.action.chat.sendToNewChat',
+ 						title: localize2('chat.newChat.label', "Send to New Chat"),
+-						icon: Codicon.plus
++						icon: Codicon.plus,
++						precondition: ContextKeyExpr.has('config.chat.sendToNewChat.enabled'), // pine: see contrib/pine/browser/pine.contribution.ts
+ 					}
+ 				}, {
+ 					id: MenuId.ChatEditorInlineExecute,
+@@ -779,7 +780,8 @@ export class ChatEditingSessionSubmitAction extends SubmitAction {
+ 					alt: {
+ 						id: 'workbench.action.chat.sendToNewChat',
+ 						title: localize2('chat.newChat.label', "Send to New Chat"),
+-						icon: Codicon.plus
++						icon: Codicon.plus,
++						precondition: ContextKeyExpr.has('config.chat.sendToNewChat.enabled'), // pine: see contrib/pine/browser/pine.contribution.ts
+ 					}
+ 				}]
+ 		});
+@@ -869,7 +871,10 @@ export class ChatSubmitWithCodebaseAction extends Action2 {
+ 
+ class SendToNewChatAction extends Action2 {
+ 	constructor() {
+-		const precondition = ChatContextKeys.inputHasText;
++		const precondition = ContextKeyExpr.and(
++			ChatContextKeys.inputHasText,
++			ContextKeyExpr.has('config.chat.sendToNewChat.enabled'), // pine: see contrib/pine/browser/pine.contribution.ts
++		);
+ 
+ 		super({
+ 			id: 'workbench.action.chat.sendToNewChat',

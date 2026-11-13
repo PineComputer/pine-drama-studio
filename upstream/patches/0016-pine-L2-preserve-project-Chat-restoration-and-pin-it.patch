@@ -1,0 +1,104 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Pine Drama Studio Authors <authors@example.invalid>
+Date: Wed, 4 Nov 2026 21:24:28 -0800
+Subject: [PATCH 16/31] pine(L2): preserve project Chat restoration and pin its
+ primary home
+
+
+diff --git a/src/vs/workbench/contrib/pine/browser/pine.contribution.ts b/src/vs/workbench/contrib/pine/browser/pine.contribution.ts
+index a767c674a61..49d9da25061 100644
+--- a/src/vs/workbench/contrib/pine/browser/pine.contribution.ts
++++ b/src/vs/workbench/contrib/pine/browser/pine.contribution.ts
+@@ -2,6 +2,7 @@
+  *  Pine Drama Studio: workbench defaults the extension API cannot set (layer 2).
+  *--------------------------------------------------------------------------------------------*/
+ 
++import './pineProjectChat.js';
+ import { Disposable } from '../../../../base/common/lifecycle.js';
+ import { Extensions as ConfigurationExtensions, IConfigurationRegistry } from '../../../../platform/configuration/common/configurationRegistry.js';
+ import { Registry } from '../../../../platform/registry/common/platform.js';
+diff --git a/src/vs/workbench/contrib/pine/browser/pineProjectChat.ts b/src/vs/workbench/contrib/pine/browser/pineProjectChat.ts
+new file mode 100644
+index 00000000000..e092963fc98
+--- /dev/null
++++ b/src/vs/workbench/contrib/pine/browser/pineProjectChat.ts
+@@ -0,0 +1,25 @@
++/*---------------------------------------------------------------------------------------------
++ * Native Chat restoration bridge for Pine. Private extension API exposes local-provider sessions only.
++ *--------------------------------------------------------------------------------------------*/
++import { URI } from '../../../../base/common/uri.js';
++import { IAgentSessionsService } from '../../chat/browser/agentSessions/agentSessionsService.js';
++import { CommandsRegistry } from '../../../../platform/commands/common/commands.js';
++import { IViewsService } from '../../../services/views/common/viewsService.js';
++import { ChatViewId } from '../../chat/browser/chat.js';
++import type { ChatViewPane } from '../../chat/browser/widgetHosts/viewPane/chatViewPane.js';
++
++export const prepareProjectChatCommand = 'pine.workbench.prepareProjectChat';
++
++// Wait for the real native restore, including extension-provider history, before choosing a default.
++// This command restores/selects native UI state only; it creates no conversation and dispatches no request.
++CommandsRegistry.registerCommand(prepareProjectChatCommand, async (accessor, mainResource: string) => {
++	const views = accessor.get(IViewsService);
++	const sessions = accessor.get(IAgentSessionsService);
++	const view = await views.openView<ChatViewPane>(ChatViewId, false);
++	if (!view) { return undefined; }
++	await view.whenSessionRestored();
++	// The primary uses native pin state/grouping, never invented activity times or a duplicate home button.
++	await sessions.model.resolve('pine-computer');
++	sessions.getSession(URI.parse(mainResource))?.setPinned(true);
++	return view.widget?.viewModel?.sessionResource.toString();
++});
+diff --git a/src/vs/workbench/contrib/pine/test/browser/pineProjectChat.test.ts b/src/vs/workbench/contrib/pine/test/browser/pineProjectChat.test.ts
+new file mode 100644
+index 00000000000..2486f1658b5
+--- /dev/null
++++ b/src/vs/workbench/contrib/pine/test/browser/pineProjectChat.test.ts
+@@ -0,0 +1,48 @@
++/*---------------------------------------------------------------------------------------------
++ *  Copyright (c) Microsoft Corporation. All rights reserved.
++ *  Licensed under the MIT License. See License.txt in the project root for license information.
++ *--------------------------------------------------------------------------------------------*/
++import assert from 'assert';
++import { CommandsRegistry } from '../../../../../platform/commands/common/commands.js';
++import { TestInstantiationService } from '../../../../../platform/instantiation/test/common/instantiationServiceMock.js';
++import { upcastPartial } from '../../../../../base/test/common/mock.js';
++import { URI } from '../../../../../base/common/uri.js';
++import { IViewsService } from '../../../../services/views/common/viewsService.js';
++import { IAgentSessionsService } from '../../../chat/browser/agentSessions/agentSessionsService.js';
++import type { IAgentSession } from '../../../chat/browser/agentSessions/agentSessionsModel.js';
++import type { ChatViewPane } from '../../../chat/browser/widgetHosts/viewPane/chatViewPane.js';
++import type { ChatWidget } from '../../../chat/browser/widget/chatWidget.js';
++import { ChatViewId } from '../../../chat/browser/chat.js';
++import { prepareProjectChatCommand } from '../../browser/pineProjectChat.js';
++import { pineWelcomeStartEntries } from '../../browser/pineWelcome.js';
++
++suite('Pine project entry', () => {
++	test('Welcome dispatches the two existing project commands without replacing native Recent', () => {
++		assert.deepStrictEqual(pineWelcomeStartEntries.map(entry => entry.content.command), ['command:pineDrama.newProject', 'command:pineDrama.openProject']);
++	});
++
++	test('native restoration preserves extension-provider episodes before pinning the main home', async () => {
++		const service = new TestInstantiationService();
++		const calls: string[] = [];
++		let resolveRestore!: () => void;
++		const restored = new Promise<void>(resolve => { resolveRestore = resolve; });
++		const view = upcastPartial<ChatViewPane>({
++			whenSessionRestored: async () => { calls.push('restore'); await restored; },
++			widget: upcastPartial<ChatWidget>({ viewModel: upcastPartial<NonNullable<ChatWidget['viewModel']>>({ sessionResource: URI.parse('pine-computer:/episode') }) }),
++		});
++		service.stub(IViewsService, upcastPartial<IViewsService>({
++			openView: async <T>(id: string, focus?: boolean) => { assert.strictEqual(id, ChatViewId); assert.strictEqual(focus, false); calls.push('open'); return view as T; },
++		}));
++		service.stub(IAgentSessionsService, upcastPartial<IAgentSessionsService>({
++			model: upcastPartial<IAgentSessionsService['model']>({ resolve: async provider => { assert.strictEqual(provider, 'pine-computer'); calls.push('list'); } }),
++			getSession: resource => { assert.strictEqual(resource.toString(), 'pine-computer:/main'); return upcastPartial<IAgentSession>({ setPinned: value => { assert.strictEqual(value, true); calls.push('pin'); } }); },
++		}));
++		try {
++			const selected = service.invokeFunction(accessor => CommandsRegistry.getCommand(prepareProjectChatCommand)!.handler(accessor, 'pine-computer:/main'));
++			await Promise.resolve(); assert.deepStrictEqual(calls, ['open', 'restore']);
++			resolveRestore();
++			assert.strictEqual(await selected, 'pine-computer:/episode');
++			assert.deepStrictEqual(calls, ['open', 'restore', 'list', 'pin']);
++		} finally { service.dispose(); }
++	});
++});

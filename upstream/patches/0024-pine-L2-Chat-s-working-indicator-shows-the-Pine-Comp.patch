@@ -1,0 +1,333 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Pine Drama Studio Authors <authors@example.invalid>
+Date: Thu, 5 Nov 2026 20:14:19 -0800
+Subject: [PATCH 24/31] pine(L2): Chat's working indicator shows the Pine
+ Computer mark with upstream's rhythm
+
+Sets upstream's chat.persistentProgress to its No Icon value, which keeps the indicator's place and neither shows nor draws the VS Code mark, and draws the Pine Computer mark there: a sprite of upstream's own frame function (getChatWorkingLogoDrawFrame) at its atlas frame count over its draw duration, both imported, played with steps() only while the indicator is active, seen (an IntersectionObserver and the document's visibility, as upstream's observeVisibility) and motion is on.
+
+diff --git a/src/vs/workbench/contrib/pine/browser/pine.contribution.ts b/src/vs/workbench/contrib/pine/browser/pine.contribution.ts
+index 49d9da25061..df5e0a0d4ba 100644
+--- a/src/vs/workbench/contrib/pine/browser/pine.contribution.ts
++++ b/src/vs/workbench/contrib/pine/browser/pine.contribution.ts
+@@ -3,6 +3,7 @@
+  *--------------------------------------------------------------------------------------------*/
+ 
+ import './pineProjectChat.js';
++import './pineWorkingMark.js';
+ import { Disposable } from '../../../../base/common/lifecycle.js';
+ import { Extensions as ConfigurationExtensions, IConfigurationRegistry } from '../../../../platform/configuration/common/configurationRegistry.js';
+ import { Registry } from '../../../../platform/registry/common/platform.js';
+diff --git a/src/vs/workbench/contrib/pine/browser/pineWorkingMark.ts b/src/vs/workbench/contrib/pine/browser/pineWorkingMark.ts
+new file mode 100644
+index 00000000000..d3acee9051d
+--- /dev/null
++++ b/src/vs/workbench/contrib/pine/browser/pineWorkingMark.ts
+@@ -0,0 +1,185 @@
++/*---------------------------------------------------------------------------------------------
++ *  Pine Drama Studio: Chat's working indicator shows the Pine Computer mark, drawn with upstream's own rhythm
++ *  (layer 2).
++ *--------------------------------------------------------------------------------------------*/
++
++import { addDisposableListener, isHTMLElement, onDidRegisterWindow } from '../../../../base/browser/dom.js';
++import { mainWindow, type CodeWindow } from '../../../../base/browser/window.js';
++import { Event } from '../../../../base/common/event.js';
++import { Disposable, DisposableStore, toDisposable } from '../../../../base/common/lifecycle.js';
++import { Extensions as ConfigurationExtensions, IConfigurationRegistry } from '../../../../platform/configuration/common/configurationRegistry.js';
++import { Registry } from '../../../../platform/registry/common/platform.js';
++import { registerThemingParticipant } from '../../../../platform/theme/common/themeService.js';
++import { ChatConfiguration, ChatProgressAnimation } from '../../chat/common/constants.js';
++import { chatWorkingLogoAtlasFrameCount } from '../../chat/browser/widget/chatWorkingLogoAtlas.js';
++import { chatWorkingLogoDrawDuration, getChatWorkingLogoDrawFrame } from '../../chat/browser/widget/chatWorkingLogoDraw.js';
++import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
++
++// Upstream's working indicator draws the VS Code mark along a ribbon: tied with an ease-out cubic over 40% of a 2667 ms
++// cycle, held whole to 55%, untied from its start with an ease-in cubic to 95%, then a brief rest
++// (chatWorkingLogoDraw.ts, getChatWorkingLogoDrawFrame), played from a 320-frame atlas (chatWorkingLogoAtlas.ts). Its
++// "Draw (Monochrome, No Icon)" setting keeps the indicator's place in the row and hides the VS Code mark, without
++// drawing it (chatWorkingLogo.ts, isDrawAnimation; chatWorkingLogo.css, .chat-working-logo-no-icon). The Studio sets
++// that, and draws its own mark in the place it keeps: the same frames of upstream's frame function at the same count,
++// over a ribbon through the Pine Computer mark.
++
++/** Pixels of one frame: the Pine Computer mark's own 16 by 16 grid. */
++const SIZE = 16;
++/**
++ * The Pine Computer mark (lit): four corner brackets and a lit dot. The same shapes as the Studio extension's
++ * media/pine-computer-lit.svg, a copy of brand/system/mark/favicon-lit.svg (pine-computer-narrative).
++ */
++const BRACKETS = 'M0 0h5v2H2v3H0zM11 0h5v5h-2V2h-3zM0 11h2v3h3v2H0zM14 11h2v5h-5v-2h3z';
++const DOT = { cx: 8, cy: 8, r: 3.25 };
++/** The lit dot's colour in the mark. */
++export const PINE_WORKING_MARK_LIT = '#2fd892';
++/**
++ * The ribbon the mark is drawn along, as upstream's runs through the VS Code mark's bands: clockwise down the centre line
++ * of the brackets from the top-left one (the gaps between them show nothing), then into the dot and once round it. Its
++ * width covers each bracket (2 wide) and the dot (r 3.25 from a 1.625 circle); outside the mark it shows nothing.
++ */
++const RIBBON = 'M1 5V1H15V15H1V11L6.375 8A1.625 1.625 0 1 1 9.625 8A1.625 1.625 0 1 1 6.375 8';
++const RIBBON_WIDTH = 3.5;
++
++/** The part of the ribbon frame `index` shows, as fractions of its length: upstream's tail and head for the same frame. */
++export function pineWorkingMarkFrame(index: number): { readonly tail: number; readonly head: number } {
++	// The whole ribbon is what upstream holds assembled, mid-cycle.
++	const length = getChatWorkingLogoDrawFrame(0.5).head;
++	const frame = getChatWorkingLogoDrawFrame(index / chatWorkingLogoAtlasFrameCount);
++	return { tail: frame.tail / length, head: frame.head / length };
++}
++
++const round = (value: number) => Number(value.toFixed(5));
++
++/**
++ * The frames side by side, the brackets in the first row and the dot in the second, each the ribbon's shown part clipped
++ * to that part of the mark. Used as a mask, so each row takes its own colour.
++ */
++export function pineWorkingMarkSprite(): string {
++	const frames: string[] = [];
++	for (let index = 0; index < chatWorkingLogoAtlasFrameCount; index++) {
++		const { tail, head } = pineWorkingMarkFrame(index);
++		if (head <= tail) {
++			continue;
++		}
++		const shown = `stroke-dasharray="${round(head - tail)} 2" stroke-dashoffset="${round(-tail)}"`;
++		frames.push(`<g transform="translate(${index * SIZE} 0)" clip-path="url(#b)"><use href="#r" ${shown}/></g>`);
++		frames.push(`<g transform="translate(${index * SIZE} ${SIZE})" clip-path="url(#d)"><use href="#r" ${shown}/></g>`);
++	}
++	const width = chatWorkingLogoAtlasFrameCount * SIZE;
++	return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${2 * SIZE}" viewBox="0 0 ${width} ${2 * SIZE}">`
++		+ `<defs><path id="r" d="${RIBBON}" pathLength="1" fill="none" stroke="#000" stroke-width="${RIBBON_WIDTH}"/>`
++		+ `<clipPath id="b"><path d="${BRACKETS}"/></clipPath><clipPath id="d"><circle cx="${DOT.cx}" cy="${DOT.cy}" r="${DOT.r}"/></clipPath></defs>`
++		+ frames.join('') + '</svg>';
++}
++
++/** On a mark not known to be seen: it stands still, and plays again from its first frame once seen. */
++export const PINE_WORKING_MARK_UNSEEN = 'pine-working-mark-unseen';
++const UNSEEN = PINE_WORKING_MARK_UNSEEN;
++/** On a window's root while its document is hidden: no mark there plays, and each starts again when it is shown. */
++export const PINE_WORKING_MARK_DOCUMENT_HIDDEN = 'pine-working-mark-document-hidden';
++const ANIMATIONS = new Set(['pine-working-mark-brackets', 'pine-working-mark-dot']);
++
++/** The mask position that shows frame `index`: the sprite is `count` frames wide and the element one. */
++function framePosition(index: number): string {
++	return `${round(100 * index / (chatWorkingLogoAtlasFrameCount - 1))}%`;
++}
++
++/**
++ * The rules that draw the mark. Still, it shows the frame upstream shows still, the mark whole (renderDrawFrame(0.5)).
++ * It moves only while the indicator is active, seen (PineWorkingMarkVisibility) and motion is not reduced: the workbench marks each window
++ * `.monaco-enable-motion` or `.monaco-reduce-motion` from the same accessibility service upstream asks
++ * (accessibilityService.ts, updateContainerClasses; chatWorkingLogo.ts, isMotionReduced), and fixtures that freeze
++ * motion with `.disable-animations` stay still, as upstream's do.
++ */
++export function pineWorkingMarkCss(): string {
++	const count = chatWorkingLogoAtlasFrameCount;
++	const mark = '.chat-working-logo.chat-working-logo-no-icon';
++	const sprite = `url("data:image/svg+xml,${encodeURIComponent(pineWorkingMarkSprite())}")`;
++	const still = framePosition(count / 2);
++	// steps(count, end) from frame 0 to one frame past the last shows frames 0 to count - 1, one per step, as upstream's
++	// atlas keyframes do (getChatWorkingLogoAtlasKeyframes: steps(1, end) per frame).
++	const past = `${round(100 * count / (count - 1))}%`;
++	return [
++		// The class comes with the monochrome one (chatWorkingLogo.ts, setAnimation), whose grayscale would grey the lit dot.
++		`${mark} { filter: none; }`,
++		`${mark}::before, ${mark}::after { content: ''; position: absolute; inset: 0; visibility: visible; mask-image: ${sprite}; mask-repeat: no-repeat; mask-size: ${count * 100}% 200%; }`,
++		`${mark}::before { background-color: var(--vscode-icon-foreground); mask-position: ${still} 0%; }`,
++		`${mark}::after { background-color: ${PINE_WORKING_MARK_LIT}; mask-position: ${still} 100%; }`,
++		`@keyframes pine-working-mark-brackets { from { mask-position: 0% 0%; } to { mask-position: ${past} 0%; } }`,
++		`@keyframes pine-working-mark-dot { from { mask-position: 0% 100%; } to { mask-position: ${past} 100%; } }`,
++		`.monaco-enable-motion ${mark}.chat-working-logo-active::before { animation: pine-working-mark-brackets ${chatWorkingLogoDrawDuration}ms steps(${count}, end) infinite; }`,
++		`.monaco-enable-motion ${mark}.chat-working-logo-active::after { animation: pine-working-mark-dot ${chatWorkingLogoDrawDuration}ms steps(${count}, end) infinite; }`,
++		`.disable-animations ${mark}.chat-working-logo-active::before, .disable-animations ${mark}.chat-working-logo-active::after { animation: none; }`,
++		`.monaco-enable-motion ${mark}.chat-working-logo-active.${UNSEEN}::before, .monaco-enable-motion ${mark}.chat-working-logo-active.${UNSEEN}::after, .${PINE_WORKING_MARK_DOCUMENT_HIDDEN} ${mark}.chat-working-logo-active::before, .${PINE_WORKING_MARK_DOCUMENT_HIDDEN} ${mark}.chat-working-logo-active::after { animation: none; }`,
++	].join('\n');
++}
++
++/**
++ * Plays a mark only while it is seen, by the signal upstream's own mark plays by (chatWorkingLogo.ts, observeVisibility,
++ * and restartDrawAnimation): its element intersects the viewport (an IntersectionObserver, which counts clipping by a
++ * scrolled ancestor) and its document is not hidden. Like upstream's, a mark counts as unseen until the observer first
++ * says otherwise, and starts from its first frame when it becomes seen. A mark is observed from its own animation's start,
++ * which bubbles to the document, and is let go when that animation is cancelled (the row is no longer active) or the
++ * observer finds it detached; nothing scans the DOM.
++ */
++export class PineWorkingMarkVisibility extends Disposable implements IWorkbenchContribution {
++	static readonly ID = 'workbench.contrib.pineWorkingMarkVisibility';
++
++	constructor() {
++		super();
++		this._register(Event.runAndSubscribe(onDidRegisterWindow, ({ window, disposables }) => this.observe(window, disposables), { window: mainWindow, disposables: this._store }));
++	}
++
++	private observe(targetWindow: CodeWindow, disposables: DisposableStore): void {
++		const observer = new targetWindow.IntersectionObserver((entries: IntersectionObserverEntry[]) => {
++			for (const entry of entries) {
++				// Detached, or out of view and no longer active: nothing to play, so it is let go (and observed again from its
++				// next start), which keeps no removed row alive.
++				if (!entry.target.isConnected || (!entry.isIntersecting && !entry.target.classList.contains('chat-working-logo-active'))) {
++					forget(entry.target);
++					continue;
++				}
++				entry.target.classList.toggle(UNSEEN, !entry.isIntersecting);
++			}
++		});
++		const observed = new WeakSet<Element>();
++		const forget = (element: Element) => {
++			observer.unobserve(element);
++			observed.delete(element);
++			element.classList.remove(UNSEEN);
++		};
++		disposables.add(toDisposable(() => observer.disconnect()));
++		disposables.add(addDisposableListener(targetWindow.document, 'animationstart', (event: AnimationEvent) => {
++			const element = event.target;
++			if (ANIMATIONS.has(event.animationName) && isHTMLElement(element) && !observed.has(element)) {
++				observed.add(element);
++				element.classList.add(UNSEEN);
++				observer.observe(element);
++			}
++		}));
++		disposables.add(addDisposableListener(targetWindow.document, 'animationcancel', (event: AnimationEvent) => {
++			const element = event.target;
++			// Cancelled because the row is no longer active; the unseen class's own cancel keeps the observation.
++			if (ANIMATIONS.has(event.animationName) && isHTMLElement(element) && !element.classList.contains('chat-working-logo-active')) {
++				forget(element);
++			}
++		}));
++		const root = targetWindow.document.documentElement;
++		const hidden = () => root.classList.toggle(PINE_WORKING_MARK_DOCUMENT_HIDDEN, targetWindow.document.hidden);
++		hidden();
++		disposables.add(addDisposableListener(targetWindow.document, 'visibilitychange', hidden));
++		disposables.add(toDisposable(() => root.classList.remove(PINE_WORKING_MARK_DOCUMENT_HIDDEN)));
++	}
++}
++
++registerWorkbenchContribution2(PineWorkingMarkVisibility.ID, PineWorkingMarkVisibility, WorkbenchPhase.AfterRestored);
++
++// Upstream's own setting, its "No Icon" value: the indicator keeps its place and Draw's text, and the VS Code mark is
++// neither shown nor drawn. A person who chooses another value gets upstream's mark.
++Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).registerDefaultConfigurations([{
++	overrides: { [ChatConfiguration.PersistentProgress]: ChatProgressAnimation.DrawMonochromeNoIcon },
++}]);
++
++let css: string | undefined;
++registerThemingParticipant((_theme, collector) => collector.addRule(css ??= pineWorkingMarkCss()));
+diff --git a/src/vs/workbench/contrib/pine/test/browser/pineWorkingMark.test.ts b/src/vs/workbench/contrib/pine/test/browser/pineWorkingMark.test.ts
+new file mode 100644
+index 00000000000..73d0e318d8a
+--- /dev/null
++++ b/src/vs/workbench/contrib/pine/test/browser/pineWorkingMark.test.ts
+@@ -0,0 +1,116 @@
++/*---------------------------------------------------------------------------------------------
++ *  Copyright (c) Microsoft Corporation. All rights reserved.
++ *  Licensed under the MIT License. See License.txt in the project root for license information.
++ *--------------------------------------------------------------------------------------------*/
++import assert from 'assert';
++import { $, append, getActiveWindow } from '../../../../../base/browser/dom.js';
++import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
++import { Extensions as ConfigurationExtensions, IConfigurationRegistry } from '../../../../../platform/configuration/common/configurationRegistry.js';
++import { Registry } from '../../../../../platform/registry/common/platform.js';
++import { ChatConfiguration, ChatProgressAnimation } from '../../../chat/common/constants.js';
++import { chatWorkingLogoAtlasFrameCount } from '../../../chat/browser/widget/chatWorkingLogoAtlas.js';
++import { chatWorkingLogoDrawDuration } from '../../../chat/browser/widget/chatWorkingLogoDraw.js';
++import { PINE_WORKING_MARK_DOCUMENT_HIDDEN, PINE_WORKING_MARK_LIT, PINE_WORKING_MARK_UNSEEN, PineWorkingMarkVisibility, pineWorkingMarkCss, pineWorkingMarkFrame, pineWorkingMarkSprite } from '../../browser/pineWorkingMark.js';
++
++suite('Pine working mark', () => {
++	const store = ensureNoDisposablesAreLeakedInTestSuite();
++	/** Long enough for an animation to start and the intersection observer to report (each at the next frame). */
++	const settle = () => new Promise(resolve => setTimeout(resolve, 100));
++
++	test('the product hides the VS Code mark with upstream\'s own No Icon setting', () => {
++		const defaults = Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).getConfigurationDefaultsOverrides();
++		assert.strictEqual(defaults.get(ChatConfiguration.PersistentProgress)?.value, ChatProgressAnimation.DrawMonochromeNoIcon);
++	});
++
++	test('the frames keep upstream\'s rhythm: tied with an ease-out cubic, held, untied with an ease-in cubic, at rest', () => {
++		const at = (progress: number) => pineWorkingMarkFrame(Math.round(progress * chatWorkingLogoAtlasFrameCount));
++		const close = (actual: number, expected: number) => assert.ok(Math.abs(actual - expected) < 1e-9, `${actual} is not ${expected}`);
++		assert.strictEqual(chatWorkingLogoAtlasFrameCount, 320);
++		assert.strictEqual(chatWorkingLogoDrawDuration, 2667);
++		assert.deepStrictEqual(at(0), { tail: 0, head: 0 }, 'it starts from nothing');
++		close(at(0.2).head, 1 - 0.5 ** 3); // half the tie: easeOutCubic(0.5)
++		assert.strictEqual(at(0.2).tail, 0);
++		assert.deepStrictEqual(at(0.4), { tail: 0, head: 1 }, 'tied');
++		assert.deepStrictEqual(at(0.5), { tail: 0, head: 1 }, 'held');
++		close(at(0.75).tail, 0.5 ** 3); // half the untie: easeInCubic(0.5)
++		assert.strictEqual(at(0.75).head, 1);
++		assert.deepStrictEqual(at(0.95), { tail: 1, head: 1 }, 'at rest');
++	});
++
++	test('the sprite has one frame for each frame that shows anything, in both rows', () => {
++		let shown = 0;
++		for (let index = 0; index < chatWorkingLogoAtlasFrameCount; index++) {
++			const { tail, head } = pineWorkingMarkFrame(index);
++			shown += head > tail ? 1 : 0;
++		}
++		const sprite = pineWorkingMarkSprite();
++		assert.strictEqual(sprite.match(/clip-path="url\(#b\)"/g)?.length, shown);
++		assert.strictEqual(sprite.match(/clip-path="url\(#d\)"/g)?.length, shown);
++		assert.ok(sprite.includes(`width="${chatWorkingLogoAtlasFrameCount * 16}"`));
++	});
++
++	test('the mark moves only while active, seen and with motion on, at upstream\'s duration, and is still and whole otherwise', async () => {
++		const targetWindow = getActiveWindow();
++		const style = append(targetWindow.document.head, $('style'));
++		style.textContent = pineWorkingMarkCss();
++		// In the viewport whatever the test page holds, so being seen is decided by the rows themselves.
++		const root = append(targetWindow.document.body, $('div'));
++		root.style.cssText = 'position: fixed; top: 0; left: 0; width: 400px;';
++		store.add(new PineWorkingMarkVisibility());
++		try {
++			const logo = (container: string, active: boolean, parent: HTMLElement = root) => {
++				const holder = append(parent, $(`div.${container}`));
++				return append(holder, $(`span.chat-working-logo.chat-working-logo-no-icon.chat-working-logo-monochrome${active ? '.chat-working-logo-active' : ''}`));
++			};
++			const before = (element: HTMLElement) => targetWindow.getComputedStyle(element, '::before');
++			const after = (element: HTMLElement) => targetWindow.getComputedStyle(element, '::after');
++			// What actually runs ("Setting the display property to none will terminate any running animation", CSS
++			// Animations Level 1, 3; an unseen mark has none either).
++			const running = (element: HTMLElement) => targetWindow.document.getAnimations().filter(a => (a.effect as KeyframeEffect | null)?.target === element).length;
++
++			const moving = logo('monaco-enable-motion', true);
++			const reduced = logo('monaco-reduce-motion', true);
++			const inactive = logo('monaco-enable-motion', false);
++			const frozen = logo('monaco-enable-motion.disable-animations', true);
++			// A hidden document's root carries the class (visibilitychange); headless Chromium cannot hide its page.
++			const backgrounded = logo(`${PINE_WORKING_MARK_DOCUMENT_HIDDEN}.monaco-enable-motion`, true);
++			const hidden = logo('monaco-enable-motion', true);
++			hidden.parentElement!.style.display = 'none';
++			// A row clipped by its scrolled list but still attached and active.
++			const list = append(root, $('div'));
++			list.style.cssText = 'overflow: hidden; height: 4px;';
++			const spacer = append(list, $('div'));
++			spacer.style.height = '100px';
++			const clipped = logo('monaco-enable-motion', true, list);
++			await settle();
++
++			assert.strictEqual(before(moving).animationName, 'pine-working-mark-brackets');
++			assert.strictEqual(after(moving).animationName, 'pine-working-mark-dot');
++			assert.strictEqual(before(moving).animationDuration, `${chatWorkingLogoDrawDuration / 1000}s`);
++			assert.strictEqual(before(moving).animationTimingFunction, `steps(${chatWorkingLogoAtlasFrameCount})`, 'steps(count, end), which Chromium writes without its default end');
++			assert.strictEqual(after(moving).backgroundColor, 'rgb(47, 216, 146)', `the lit dot is ${PINE_WORKING_MARK_LIT}`);
++			assert.strictEqual(targetWindow.getComputedStyle(moving).filter, 'none', 'the dot is not greyed');
++			assert.strictEqual(before(moving).visibility, 'visible', 'shown in the place the hidden VS Code mark keeps');
++			assert.strictEqual(running(moving), 2);
++
++			for (const still of [reduced, inactive, frozen, clipped, backgrounded]) {
++				assert.strictEqual(before(still).animationName, 'none');
++				assert.strictEqual(after(still).animationName, 'none');
++				assert.strictEqual(running(still), 0);
++				assert.ok(before(still).maskPosition.startsWith('50%') || before(still).maskPosition.startsWith('50.'), `whole mark: ${before(still).maskPosition}`);
++			}
++			assert.strictEqual(running(hidden), 0, 'a hidden view runs nothing');
++			assert.ok(clipped.classList.contains(PINE_WORKING_MARK_UNSEEN), 'the clipped row is unseen');
++
++			// Scrolled into view, it plays, from its first frame.
++			spacer.style.height = '0px';
++			await settle();
++			assert.ok(!clipped.classList.contains(PINE_WORKING_MARK_UNSEEN));
++			assert.strictEqual(running(clipped), 2);
++			assert.ok((targetWindow.document.getAnimations().find(a => (a.effect as KeyframeEffect | null)?.target === clipped)!.currentTime as number) < 1000, 'it starts again rather than resuming');
++		} finally {
++			root.remove();
++			style.remove();
++		}
++	});
++});

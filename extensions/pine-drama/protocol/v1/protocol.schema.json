@@ -1,0 +1,905 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:pine-drama:protocol:v1",
+  "title": "Pine Drama protocol, major version 1 (doc/protocol.md)",
+  "description": "Pine Drama protocol, major 1 (doc/protocol.md, which is normative). Each document is one entry of $defs: choices, versionRecord, review, request, return, progress (snapshot is part of return). Patterns are ECMA-262; validators must turn on format assertion.",
+  "$defs": {
+    "path": {
+      "description": "Project-relative, '/'-separated, NFC; no empty segment, none starting with '.', no backslash, no C0, DEL or C1 control.",
+      "type": "string",
+      "pattern": "^[^/\\\\.\\u0000-\\u001f\\u007f-\\u009f][^/\\\\\\u0000-\\u001f\\u007f-\\u009f]*(/[^/\\\\.\\u0000-\\u001f\\u007f-\\u009f][^/\\\\\\u0000-\\u001f\\u007f-\\u009f]*)*(?![\\s\\S])",
+      "maxLength": 240
+    },
+    "segment": {
+      "type": "string",
+      "pattern": "^[^/\\\\.\\u0000-\\u001f\\u007f-\\u009f][^/\\\\\\u0000-\\u001f\\u007f-\\u009f]*(?![\\s\\S])"
+    },
+    "time": {
+      "description": "RFC 3339 date-time in UTC, whole seconds, with Z.",
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z(?![\\s\\S])"
+    },
+    "hash": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}(?![\\s\\S])"
+    },
+    "clientId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{8,64}(?![\\s\\S])"
+    },
+    "scope": {
+      "description": "'project' for the Project Chat, 'episodes' for any other session.",
+      "enum": [
+        "project",
+        "episodes"
+      ]
+    },
+    "objectChoice": {
+      "type": "object",
+      "properties": {
+        "chosen": {
+          "type": "object",
+          "properties": {
+            "version": {
+              "$ref": "#/$defs/versionId"
+            },
+            "import": {
+              "$ref": "#/$defs/clientId"
+            },
+            "words": {
+              "type": "string",
+              "pattern": "\\S"
+            }
+          },
+          "oneOf": [
+            {
+              "required": [
+                "version"
+              ]
+            },
+            {
+              "required": [
+                "import"
+              ]
+            }
+          ]
+        },
+        "discarded": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/versionId"
+          }
+        },
+        "prompt": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "removed": {
+          "const": true
+        }
+      }
+    },
+    "add": {
+      "type": "object",
+      "required": [
+        "id",
+        "type",
+        "name",
+        "description"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/clientId"
+        },
+        "type": {
+          "enum": [
+            "character",
+            "scene",
+            "prop",
+            "variant"
+          ]
+        },
+        "name": {
+          "type": "string",
+          "pattern": "\\S"
+        },
+        "description": {
+          "type": "string"
+        },
+        "from": {
+          "$ref": "#/$defs/path"
+        },
+        "setting": {
+          "enum": [
+            "interior",
+            "exterior"
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "variant"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "from"
+            ]
+          },
+          "else": {
+            "not": {
+              "required": [
+                "from"
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "setting"
+            ]
+          },
+          "then": {
+            "properties": {
+              "type": {
+                "const": "scene"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "import": {
+      "type": "object",
+      "required": [
+        "id",
+        "object",
+        "file"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/clientId"
+        },
+        "object": {
+          "$ref": "#/$defs/path"
+        },
+        "file": {
+          "type": "string",
+          "pattern": "^imports/[A-Za-z0-9_-]{8,64}\\.[A-Za-z0-9]{1,8}(?![\\s\\S])"
+        }
+      }
+    },
+    "choices": {
+      "type": "object",
+      "required": [
+        "schema",
+        "objects",
+        "added",
+        "imports"
+      ],
+      "properties": {
+        "schema": {
+          "const": 1
+        },
+        "objects": {
+          "type": "object",
+          "propertyNames": {
+            "$ref": "#/$defs/path"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/objectChoice"
+          }
+        },
+        "added": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/add"
+          }
+        },
+        "imports": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/import"
+          }
+        }
+      }
+    },
+    "versionRecord": {
+      "type": "object",
+      "required": [
+        "schema",
+        "made_at",
+        "file",
+        "inputs",
+        "prompt",
+        "from_import"
+      ],
+      "properties": {
+        "schema": {
+          "const": 1
+        },
+        "made_at": {
+          "$ref": "#/$defs/time"
+        },
+        "file": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/path"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "inputs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "object",
+              "version"
+            ],
+            "properties": {
+              "object": {
+                "$ref": "#/$defs/path"
+              },
+              "version": {
+                "$ref": "#/$defs/versionId"
+              }
+            }
+          }
+        },
+        "prompt": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "from_import": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/clientId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "review": {
+      "type": "object",
+      "required": [
+        "schema",
+        "accepted_at",
+        "reason"
+      ],
+      "properties": {
+        "schema": {
+          "const": 1
+        },
+        "accepted_at": {
+          "$ref": "#/$defs/time"
+        },
+        "reason": {
+          "type": "string",
+          "pattern": "\\S"
+        },
+        "person": {
+          "type": "string",
+          "pattern": "\\S"
+        }
+      }
+    },
+    "folders": {
+      "type": "object",
+      "propertyNames": {
+        "$ref": "#/$defs/path"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/hash"
+      },
+      "description": "Path to the hash of its archive (version folders) or of the file (review files, client files)."
+    },
+    "note": {
+      "type": "object",
+      "required": [
+        "object",
+        "text"
+      ],
+      "properties": {
+        "object": {
+          "$ref": "#/$defs/path"
+        },
+        "version": {
+          "$ref": "#/$defs/versionId"
+        },
+        "text": {
+          "type": "string"
+        },
+        "at": {
+          "type": "object",
+          "required": [
+            "x",
+            "y"
+          ],
+          "properties": {
+            "x": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "y": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            }
+          }
+        },
+        "time": {
+          "type": "number",
+          "minimum": 0
+        },
+        "file": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/path"
+            },
+            {
+              "pattern": "^imports/"
+            }
+          ]
+        }
+      }
+    },
+    "request": {
+      "type": "object",
+      "required": [
+        "schema",
+        "turn",
+        "scope",
+        "choices",
+        "versions",
+        "reviews",
+        "files",
+        "private_state",
+        "notes"
+      ],
+      "properties": {
+        "schema": {
+          "const": 1
+        },
+        "turn": {
+          "$ref": "#/$defs/clientId"
+        },
+        "scope": {
+          "$ref": "#/$defs/scope"
+        },
+        "choices": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/choices"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "versions": {
+          "$ref": "#/$defs/folders"
+        },
+        "private_state": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/hash"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "notes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/note"
+          }
+        },
+        "reviews": {
+          "$ref": "#/$defs/reviewFiles"
+        },
+        "files": {
+          "type": "object",
+          "propertyNames": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/path"
+              },
+              {
+                "pattern": "^(imports|inputs)/"
+              }
+            ]
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/hash"
+          }
+        }
+      }
+    },
+    "object": {
+      "type": "object",
+      "required": [
+        "type",
+        "name",
+        "segment",
+        "usable",
+        "from_add"
+      ],
+      "properties": {
+        "type": {
+          "enum": [
+            "episode",
+            "screenplay",
+            "bible",
+            "character",
+            "scene",
+            "prop",
+            "variant",
+            "breakdown",
+            "storyboard",
+            "keyframe",
+            "video_prompts",
+            "take",
+            "cut",
+            "subtitles"
+          ]
+        },
+        "name": {
+          "type": "string"
+        },
+        "segment": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/segment"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "usable": {
+          "type": "boolean"
+        },
+        "why": {
+          "type": "string"
+        },
+        "making": {
+          "type": "boolean"
+        },
+        "prompt": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "inputs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/path"
+          }
+        },
+        "from_add": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/clientId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "if": {
+        "properties": {
+          "usable": {
+            "const": false
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "why"
+        ]
+      }
+    },
+    "edge": {
+      "type": "object",
+      "required": [
+        "from",
+        "to",
+        "kind"
+      ],
+      "properties": {
+        "from": {
+          "$ref": "#/$defs/path"
+        },
+        "to": {
+          "$ref": "#/$defs/path"
+        },
+        "kind": {
+          "enum": [
+            "variant_of",
+            "inside_of",
+            "appears_in",
+            "needs"
+          ]
+        }
+      },
+      "description": "One end is an object of this snapshot; the other may belong to another scope."
+    },
+    "snapshot": {
+      "type": "object",
+      "required": [
+        "observed_at",
+        "objects",
+        "edges"
+      ],
+      "properties": {
+        "observed_at": {
+          "$ref": "#/$defs/time"
+        },
+        "objects": {
+          "type": "object",
+          "propertyNames": {
+            "$ref": "#/$defs/path"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/object"
+          }
+        },
+        "edges": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/edge"
+          }
+        }
+      }
+    },
+    "error": {
+      "type": "object",
+      "required": [
+        "code",
+        "message"
+      ],
+      "properties": {
+        "code": {
+          "enum": [
+            "not_found",
+            "not_allowed",
+            "invalid",
+            "missing_input",
+            "interrupted",
+            "failed",
+            "unsupported_schema"
+          ]
+        },
+        "message": {
+          "type": "string"
+        },
+        "action": {
+          "type": "string"
+        }
+      }
+    },
+    "return": {
+      "type": "object",
+      "required": [
+        "schema",
+        "turn",
+        "state"
+      ],
+      "properties": {
+        "schema": {
+          "const": 1
+        },
+        "turn": {
+          "$ref": "#/$defs/clientId"
+        },
+        "state": {
+          "enum": [
+            "stopped",
+            "ended",
+            "failed",
+            "refused"
+          ]
+        },
+        "versions": {
+          "$ref": "#/$defs/folders"
+        },
+        "reviews": {
+          "$ref": "#/$defs/reviewFiles"
+        },
+        "private_state": {
+          "$ref": "#/$defs/hash"
+        },
+        "snapshot": {
+          "$ref": "#/$defs/snapshot"
+        },
+        "problems": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "ref",
+              "error"
+            ],
+            "properties": {
+              "ref": {
+                "type": "string",
+                "minLength": 1
+              },
+              "error": {
+                "allOf": [
+                  {
+                    "$ref": "#/$defs/error"
+                  },
+                  {
+                    "properties": {
+                      "code": {
+                        "enum": [
+                          "not_found",
+                          "not_allowed",
+                          "invalid"
+                        ]
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "question": {
+          "type": "string"
+        },
+        "review": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "object",
+              "version",
+              "reason"
+            ],
+            "properties": {
+              "object": {
+                "$ref": "#/$defs/path"
+              },
+              "version": {
+                "$ref": "#/$defs/versionId"
+              },
+              "reason": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "error": {
+          "$ref": "#/$defs/error"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "const": "refused"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "error"
+            ],
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "versions"
+                  ]
+                },
+                {
+                  "required": [
+                    "reviews"
+                  ]
+                },
+                {
+                  "required": [
+                    "private_state"
+                  ]
+                },
+                {
+                  "required": [
+                    "snapshot"
+                  ]
+                },
+                {
+                  "required": [
+                    "problems"
+                  ]
+                },
+                {
+                  "required": [
+                    "question"
+                  ]
+                },
+                {
+                  "required": [
+                    "review"
+                  ]
+                }
+              ]
+            },
+            "properties": {
+              "error": {
+                "properties": {
+                  "code": {
+                    "enum": [
+                      "invalid",
+                      "missing_input",
+                      "interrupted",
+                      "unsupported_schema"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "enum": [
+                  "stopped",
+                  "ended"
+                ]
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "versions",
+              "reviews",
+              "private_state",
+              "snapshot",
+              "problems"
+            ],
+            "not": {
+              "required": [
+                "error"
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "const": "failed"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "versions",
+              "reviews",
+              "private_state",
+              "snapshot",
+              "problems",
+              "error"
+            ],
+            "properties": {
+              "error": {
+                "properties": {
+                  "code": {
+                    "const": "failed"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "const": "stopped"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "question",
+              "review"
+            ]
+          },
+          "else": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "question"
+                  ]
+                },
+                {
+                  "required": [
+                    "review"
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "progress": {
+      "description": "turns/<turn id>/progress/<archive hash>.json (section 4.6): a finished version announced before the return; never installed by itself.",
+      "type": "object",
+      "required": [
+        "schema",
+        "object",
+        "version",
+        "file"
+      ],
+      "properties": {
+        "schema": {
+          "const": 1
+        },
+        "object": {
+          "$ref": "#/$defs/path"
+        },
+        "version": {
+          "$ref": "#/$defs/versionId"
+        },
+        "file": {
+          "$ref": "#/$defs/path"
+        }
+      }
+    },
+    "versionId": {
+      "description": "A version that has a version.json: lowercase letters, then digits.",
+      "type": "string",
+      "pattern": "^[a-z]+[0-9]+(?![\\s\\S])"
+    },
+    "reviewFiles": {
+      "description": "Review file path (<version folder>/reviews/<review id>.json) to its hash.",
+      "type": "object",
+      "propertyNames": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/path"
+          },
+          {
+            "pattern": "^.+/reviews/[A-Za-z0-9_-]{1,64}\\.json(?![\\s\\S])"
+          }
+        ]
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/hash"
+      }
+    }
+  }
+}

@@ -1,0 +1,11 @@
+{
+	"nameShort": "Pine Drama Studio",
+	"nameLong": "Pine Drama Studio",
+	"applicationName": "pine-drama-studio",
+	"dataFolderName": ".pine-drama-studio",
+	"sharedDataFolderName": ".pine-drama-studio-shared",
+	"urlProtocol": "pine-drama-studio",
+	"reportIssueUrl": "https://github.com/PineComputer/pine-drama-studio/issues/new",
+	"licenseName": "Apache-2.0",
+	"pineShipsNoCopilot": true
+}

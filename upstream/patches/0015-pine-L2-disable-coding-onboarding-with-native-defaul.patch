@@ -1,0 +1,21 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Pine Drama Studio Authors <authors@example.invalid>
+Date: Wed, 4 Nov 2026 21:16:26 -0800
+Subject: [PATCH 15/31] pine(L2): disable coding onboarding with native
+ defaults
+
+
+diff --git a/src/vs/workbench/contrib/pine/browser/pine.contribution.ts b/src/vs/workbench/contrib/pine/browser/pine.contribution.ts
+index 227fc940ec7..a767c674a61 100644
+--- a/src/vs/workbench/contrib/pine/browser/pine.contribution.ts
++++ b/src/vs/workbench/contrib/pine/browser/pine.contribution.ts
+@@ -20,6 +20,9 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
+ 	overrides: {
+ 		[ChatConfiguration.CopilotCliCommandEnabled]: false,
+ 		[ChatConfiguration.EditorLocalAgentEnabled]: false,
++		// Native first-run onboarding requires Copilot sign-in; Pine uses native Welcome and Accounts.
++		'workbench.welcomePage.experimentalOnboarding': false,
++		'workbench.welcomePage.walkthroughs.openOnInstall': false,
+ 	},
+ }]);
+ 

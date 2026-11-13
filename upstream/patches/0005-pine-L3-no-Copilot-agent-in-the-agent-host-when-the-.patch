@@ -1,0 +1,26 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Pine Drama Studio Authors <authors@example.invalid>
+Date: Mon, 2 Nov 2026 16:00:44 -0800
+Subject: [PATCH 05/31] pine(L3): no Copilot agent in the agent host when the
+ product ships none
+
+The agent host registers its Copilot provider unconditionally; in a
+package that ships no Copilot it offers a Copilot session type and logs
+that its SDK runtime is missing. A product.json key, pineShipsNoCopilot,
+which only Pine Drama Studio's package sets, skips it.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+diff --git a/src/vs/platform/agentHost/node/agentHostMain.ts b/src/vs/platform/agentHost/node/agentHostMain.ts
+index d7c3453ae73..eb606875043 100644
+--- a/src/vs/platform/agentHost/node/agentHostMain.ts
++++ b/src/vs/platform/agentHost/node/agentHostMain.ts
+@@ -191,7 +191,7 @@ async function startAgentHost(): Promise<void> {
+ 		const agentSdkDownloader = runtimeServices.agentSdkDownloader;
+ 		const providerService = runtimeServices.providerService;
+ 		sdkDownloadProgress = runtime.sdkDownloadProgress;
+-		providerService.registerProvider(instantiationService.createInstance(CopilotAgent));
++		if (!(productService as { pineShipsNoCopilot?: boolean }).pineShipsNoCopilot) { providerService.registerProvider(instantiationService.createInstance(CopilotAgent)); } // pine: Pine Drama Studio ships no Copilot
+ 		// Claude and Codex providers are gated on two things:
+ 		//  1. The user-facing enable toggle (`chat.agentHost.<x>Agent.enabled`,
+ 		//     forwarded as an env var by the starters). Claude defaults to on.
