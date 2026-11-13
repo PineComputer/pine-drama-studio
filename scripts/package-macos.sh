@@ -99,7 +99,7 @@ verify_checksums() {
 # read-only and hidden from Finder (-nobrowse, -noautoopen), the app's Info.plist and checksums read inside, detached.
 make_dmg() {
 	local dir="$1" stage dmg mnt
-	dmg="$dir/Pine-Video-Studio-$(version)-darwin-arm64.dmg"
+	dmg="$dir/Pine-Drama-Studio-$(version)-darwin-arm64.dmg"
 	stage="$(mktemp -d)"
 	cp -cR "$dir/$APP_NAME.app" "$stage/$APP_NAME.app"
 	ln -s /Applications "$stage/Applications"
@@ -120,7 +120,7 @@ make_dmg() {
 
 zip_app() {
 	local dir="$1" build="$2" zip
-	zip="$dir/Pine-Video-Studio-$(version)-b$build-darwin-arm64.zip"
+	zip="$dir/Pine-Drama-Studio-$(version)-b$build-darwin-arm64.zip"
 	# ditto keeps the bundle's symlinks and attributes, as Finder's Compress does (ditto(1)).
 	(cd "$dir" && ditto -c -k --sequesterRsrc --keepParent "$APP_NAME.app" "$zip")
 	echo "$zip"

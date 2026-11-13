@@ -70,7 +70,7 @@ export async function releaseMacos(options, dependencies = {}) {
 	await run('/usr/bin/ditto', ['-c', '-k', '--sequesterRsrc', '--keepParent', app, zip]);
 	const appSubmission = await notarize(zip, 'app', app);
 	await rm(zip);
-	const dmg = join(output, `Pine-Video-Studio-${options.tag.slice(1)}-darwin-arm64.dmg`);
+	const dmg = join(output, `Pine-Drama-Studio-${options.tag.slice(1)}-darwin-arm64.dmg`);
 	const stage = join(output, 'dmg-stage');
 	log('Building and signing DMG from the stapled application.');
 	await mkdir(stage);

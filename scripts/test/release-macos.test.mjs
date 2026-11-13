@@ -58,7 +58,7 @@ test('staples the app before making a DMG, verifies both, and only then writes p
 	assert.equal(f.calls.filter(([cmd]) => cmd === 'spctl').length, 2);
 	assert.equal(f.calls[1][1].preAutoEntitlements, false);
 	assert.equal(f.calls[1][1].optionsForFile('/A').hardenedRuntime, true);
-	assert.match(await readFile(join(f.output, 'SHA256SUMS'), 'utf8'), /^[a-f0-9]{64}  Pine-Video-Studio-1\.2\.3-darwin-arm64\.dmg\n$/);
+	assert.match(await readFile(join(f.output, 'SHA256SUMS'), 'utf8'), /^[a-f0-9]{64}  Pine-Drama-Studio-1\.2\.3-darwin-arm64\.dmg\n$/);
 	const info = JSON.parse(await readFile(join(f.output, 'build-info.json'), 'utf8'));
 	assert.equal(info.signing.notarization, 'Accepted');
 	assert.equal(info.signing.stapled, true);
@@ -67,7 +67,7 @@ test('staples the app before making a DMG, verifies both, and only then writes p
 	await assert.rejects(access(join(f.output, 'dmg-stage')));
 });
 
-for (const rejection of ['notary-app.zip', 'Pine-Video-Studio-1.2.3-darwin-arm64.dmg', 'gatekeeper', 'dmg-gatekeeper', 'signing', 'app-stapler', 'dmg-stapler']) {
+for (const rejection of ['notary-app.zip', 'Pine-Drama-Studio-1.2.3-darwin-arm64.dmg', 'gatekeeper', 'dmg-gatekeeper', 'signing', 'app-stapler', 'dmg-stapler']) {
 	test(`a ${rejection} refusal produces no publishable build-info or checksum`, async t => {
 		const f = await fixture(t, rejection);
 		await assert.rejects(releaseMacos(f.options, f.dependencies), /notarization was Invalid|Gatekeeper rejected|Signing rejected|Stapler rejected/);
