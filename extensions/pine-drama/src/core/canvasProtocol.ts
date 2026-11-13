@@ -107,7 +107,9 @@ export type ToCanvas =
 		/** An asset card's picture versions; null with none. */
 		readonly picture?: CanvasPicture | null;
 		/** The box's prompt; null for an object with none to edit. */
-		readonly prompt?: CanvasPrompt | null }
+		readonly prompt?: CanvasPrompt | null;
+		/** The model and settings the shown version was made with, for display only (versionDetail.ts, madeWith); null when unknown. */
+		readonly made?: MadeWith | null }
 	/** A record panel's action ended (cardActions.ts): its failure, or `unchanged` when it wrote nothing (unchangedLine). */
 	| { readonly v: typeof CANVAS_PROTOCOL; readonly type: 'actionEnded'; readonly key: string; readonly error: string | null; readonly unchanged: string | null };
 
@@ -126,7 +128,6 @@ export interface CanvasPicture {
 export interface CanvasPrompt {
 	readonly object: string;
 	readonly text: string | null;
-	readonly byPerson: boolean;
 }
 
 /** An asset or variant as the record panel shows and edits it. */
@@ -144,6 +145,12 @@ export interface MadeFrom {
 	readonly label: string;
 	readonly src: string | null;
 	readonly stageId: string | null;
+}
+
+/** A version's model and its request's settings, each "<field> <value>" in its provider's own field name. */
+export interface MadeWith {
+	readonly model: string;
+	readonly settings: readonly string[];
 }
 
 /**

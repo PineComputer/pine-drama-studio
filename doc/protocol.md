@@ -68,6 +68,8 @@ The Computer side MUST NOT put lock files, records of a paid call still in progr
 
 **A version is a folder with `version.json`** (`$defs/versionRecord`). The rest of the folder belongs to the Computer side and is not part of the protocol. A returned folder without `version.json`, such as one of the Computer side's own records, is not a version. It is stored and restored like one, but never shown.
 
+A client MAY read the Computer side's other files in the folder, such as the request a version was made with or the one planned for an object not made yet, for display only: what it reads there never decides anything, and a file it does not find or understand shows nothing.
+
 | Field | Meaning |
 |---|---|
 | `made_at` | When it was finished. |

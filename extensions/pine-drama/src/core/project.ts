@@ -382,7 +382,12 @@ export function versionFile(object: DramaObject, version: string | null): string
 		return null;
 	}
 	const preview = object.previews.get(version);
-	return preview ? join(preview, ...file.split('/')) : `${object.id}/${version}/${file}`;
+	return preview ? join(preview, ...file.split('/')) : `${versionFolder(object, version)}/${file}`;
+}
+
+/** A version's folder: project-relative for an installed version, absolute for a downloaded one. */
+export function versionFolder(object: DramaObject, version: string): string {
+	return object.previews.get(version) ?? `${object.id}/${version}`;
 }
 
 /** A Chat's title by its key, as the sessions list shows it (its first message); undefined while unknown. */

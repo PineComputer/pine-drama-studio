@@ -4,34 +4,26 @@
 // is as tall as its own picture at a fixed width, and a row as tall as its tallest card (as open-pinedrama does), which
 // drama-cli's fixed 300 x 340 cells cannot hold. The person's arrangement wins over all of it. No vscode import, no DOM.
 
-import { graphlib, layout } from '@dagrejs/dagre';
+import potpack from 'potpack';
 import type { CanvasCard, CanvasLayout, Point, Size } from './canvasProtocol';
 
 export const CARD_W = 300; // drama-cli's WIDTH (export.py:29)
-export const LABEL_H = 26; // the label row above the picture
-export const FOOT_H = 24; // the version line under it
-const DEFAULT_MEDIA: Size = { w: 300, h: 290 }; // until the file's own size is known: 340 tall in all, drama-cli's HEIGHT
+const DEFAULT_MEDIA: Size = { w: 300, h: 290 }; // until the file's own size is known
 const GAP = 60; // drama-cli's GAP
 const PAD = 20; // drama-cli's PAD
 const TITLE = 50; // drama-cli's TITLE
 const SHARED = ['Characters', 'Locations', 'Props'];
 
-/** An assets card's footer: its name, then its state and episodes, sized to be read zoomed out. */
-export const ASSET_FOOT_H = 84;
-
-/** An assets canvas card's size: the fixed width, its picture's height at that width, and its footer; no label row. */
-export function assetCardSize(media: Size | undefined): Size {
-	const m = media && media.w > 0 && media.h > 0 ? media : DEFAULT_MEDIA;
-	return { w: CARD_W, h: Math.round((CARD_W * m.h) / m.w) + ASSET_FOOT_H };
-}
+/** A card's footer under its picture, the same on both canvases: its name, then its state, sized to be read zoomed out. */
+export const FOOT_H = 84;
 
 /** Sections on the board: drama-cli's text stages stay off it (canvas-scope #7). */
 export const onBoard = (card: CanvasCard) => card.media !== 'text' && card.section !== 'Text';
 
-/** A card's size: the fixed width, its picture's height at that width, the label and the version line. */
+/** A card's size, the same on both canvases: the fixed width, its picture's height at that width, and its footer. */
 export function cardSize(media: Size | undefined): Size {
 	const m = media && media.w > 0 && media.h > 0 ? media : DEFAULT_MEDIA;
-	return { w: CARD_W, h: LABEL_H + Math.round((CARD_W * m.h) / m.w) + FOOT_H };
+	return { w: CARD_W, h: Math.round((CARD_W * m.h) / m.w) + FOOT_H };
 }
 
 const frameId = (title: string) => `frame:${title}`;
@@ -41,22 +33,19 @@ const order = (a: CanvasCard, b: CanvasCard) => a.column - b.column || (a.id < b
 interface Group { readonly key: string; readonly w: number; readonly h: number }
 
 /**
- * Boxes packed in rows, region by region (each region under its own heading, `heading` tall, 0 for none): in a region
+ * Boxes packed in rows, region by region: in a region
  * the boxes go left to right in their order and wrap at the board's width, each row as tall as its tallest box, the
  * reading order of Eclipse ELK's rectangle packing ("The given order of the boxes is always preserved and the main
  * reading direction of the boxes is left to right"), without its compaction. The width is the one that makes the whole
  * board closest to square, so it fits the view when it opens: every width from the widest box up to all in one row is
- * tried. Returns each box's corner and each region's heading's.
+ * tried. Returns each box's corner.
  */
-function packClosestToSquare(regions: readonly (readonly Group[])[], gap: number, heading: number): { at: Map<string, Point>; headings: Point[] } {
+function packClosestToSquare(regions: readonly (readonly Group[])[], gap: number): Map<string, Point> {
 	const arrange = (limit: number) => {
 		const at = new Map<string, Point>();
-		const headings: Point[] = [];
 		let y = 0;
 		let width = 0;
 		for (const region of regions) {
-			headings.push({ x: 0, y });
-			y += heading;
 			let x = 0;
 			let rowHeight = 0;
 			for (const box of region) {
@@ -72,7 +61,7 @@ function packClosestToSquare(regions: readonly (readonly Group[])[], gap: number
 			}
 			y += rowHeight + GAP; // a wider gap between the regions
 		}
-		return { at, headings, width, height: y - GAP };
+		return { at, width, height: y - GAP };
 	};
 	const boxes = regions.flat();
 	const widest = Math.max(0, ...boxes.map(b => b.w));
@@ -84,7 +73,22 @@ function packClosestToSquare(regions: readonly (readonly Group[])[], gap: number
 		const score = Math.abs(Math.log(packed.width / packed.height));
 		if (score < bestScore) { bestScore = score; best = packed; }
 	}
-	return best;
+	return best.at;
+}
+
+/** Cards' places in a frame, relative to its corner, and the frame's size. */
+interface Grid { readonly at: Map<string, Point>; readonly w: number; readonly h: number }
+
+/** `cards` in order, left to right in rows of `columns` under the frame's title, each row as tall as its tallest card. */
+function gridLayout(cards: readonly CanvasCard[], columns: number, size: (id: string) => Size): Grid {
+	const at = new Map<string, Point>();
+	let y = TITLE + PAD;
+	for (let start = 0; start < cards.length; start += columns) {
+		const row = cards.slice(start, start + columns);
+		row.forEach((card, i) => at.set(card.id, { x: PAD + i * (CARD_W + GAP), y }));
+		y += Math.max(...row.map(c => size(c.id).h)) + GAP;
+	}
+	return { at, w: 2 * PAD + Math.min(columns, cards.length) * (CARD_W + GAP) - GAP, h: y - GAP + PAD };
 }
 
 /**
@@ -104,21 +108,15 @@ export function layoutEpisode(sections: readonly string[], cards: readonly Canva
 		if (!own.length) {
 			return undefined;
 		}
-		let rowTop = TITLE + PAD;
-		for (let start = 0; start < own.length; start += 4) {
-			const row = own.slice(start, start + 4);
-			row.forEach((card, i) => {
-				positions[card.id] = { x: PAD + i * (CARD_W + GAP), y: rowTop };
-			});
-			rowTop += Math.max(...row.map(c => size(c.id).h)) + GAP;
-		}
-		return { key: title, w: 2 * PAD + Math.min(4, own.length) * (CARD_W + GAP) - GAP, h: rowTop - GAP + PAD };
+		const grid = gridLayout(own, 4, size);
+		for (const [id, at] of grid.at) { positions[id] = at; }
+		return { key: title, w: grid.w, h: grid.h };
 	};
 	const shared = SHARED.filter(t => sections.includes(t));
 	const cuts = sections.filter(t => t.endsWith(' cut')).sort();
 	const segments = sections.filter(t => !SHARED.includes(t) && t !== 'Text' && !t.endsWith(' cut')).sort();
 	const regions = [shared, [...segments, ...cuts]].map(titles => titles.map(frame).filter((g): g is Group => !!g)).filter(r => r.length);
-	const { at } = packClosestToSquare(regions, GAP, 0);
+	const at = packClosestToSquare(regions, GAP);
 	for (const [key, corner] of at) { positions[frameId(key)] = corner; }
 	return { positions };
 }
@@ -133,75 +131,47 @@ const HEADING = 70;
 const isRoot = (c: CanvasCard) => c.id === c.section;
 
 /**
- * Each card's place inside its group, relative to the frame's corner, and the frame's size (section 4; * Pippit 727; its Cathedral Hall: the root at the left; the nodes derived from it stacked in the column to its right).
- * The group is laid out as its from-tree by dagre, left to right, as React Flow's layouting guide recommends for a tree
- * ("If you need to organize your flows into a tree, we highly recommend dagre"): every `from` edge runs from one rank
- * to the next on its right and stays inside its frame (752/753/756/757: a root at the right, edges crossing
- * the group and into the next one). The edges are the board's inside the group (assetsCanvas.ts: each variant from its
- * `from` node, an interior from its exterior). A card with no edge into it (a record that did not read, a `from` that
- * names no node) is laid out as one derived from the root, with no edge drawn.
+ * An asset group's places, relative to its frame's corner, and the frame's size (gridLayout): the asset's own card
+ * first, then its variants in drama-cli's order, in as many columns as rows (the square root of the count, rounded up).
+ * A group of many looks stays a block, not one tall column.
  */
-function groupLayout(own: readonly CanvasCard[], links: readonly { readonly from: string; readonly to: string }[], size: (id: string) => Size): { at: Map<string, Point>; w: number; h: number } {
-	const ids = new Set(own.map(c => c.id));
-	const inside = links.filter(l => ids.has(l.from) && ids.has(l.to) && l.from !== l.to);
+function groupLayout(own: readonly CanvasCard[], size: (id: string) => Size): Grid {
 	const sorted = [...own].sort((a, b) => Number(isRoot(b)) - Number(isRoot(a)) || order(a, b));
-	const root = sorted.find(c => !inside.some(l => l.to === c.id)) ?? sorted[0];
-	const graph = new graphlib.Graph();
-	graph.setGraph({ rankdir: 'LR', nodesep: GAP, ranksep: GAP, marginx: 0, marginy: 0 });
-	graph.setDefaultEdgeLabel(() => ({}));
-	// Nodes in drama-cli's order, the root first: dagre starts each rank's order from it.
-	for (const c of sorted) { graph.setNode(c.id, { width: CARD_W, height: size(c.id).h }); }
-	for (const l of inside) { graph.setEdge(l.from, l.to); }
-	for (const c of sorted.filter(c => c !== root && !inside.some(l => l.to === c.id))) { graph.setEdge(root.id, c.id); }
-	layout(graph);
-	const { width = 0, height = 0 } = graph.graph();
-	// dagre gives each node's centre; React Flow places a node by its top-left corner.
-	const at = new Map(sorted.map(c => {
-		const n = graph.node(c.id);
-		return [c.id, { x: PAD + n.x - n.width / 2, y: TITLE + PAD + n.y - n.height / 2 }];
-	}));
-	return { at, w: 2 * PAD + width, h: TITLE + PAD + height + PAD };
+	return gridLayout(sorted, Math.ceil(Math.sqrt(sorted.length)), size);
 }
 
-/** The gap between two groups on the assets canvas, packed as Pippit packs them. */
+/** The gap between two groups on the assets canvas. */
 const GROUP_GAP = 24;
 
 /**
- * The assets canvas's default arrangement (section 4; Pippit 727): one frame per asset
- * group (assetsCanvas.ts), its cards its from-tree laid out left to right (groupLayout). The characters', the
- * scenes' and the props' groups are three regions stacked top to bottom, each under its heading (`heading:<kind>`, the
- * person, 652). In a region the groups go left to right in drama-cli's order and wrap at the board's width, each row as
- * tall as its tallest group, so a narrow group never leaves a wide one's empty column beside it (the reading order of
- * ELK's rectangle packing, without its compaction). The width is the one that makes the whole board closest to square,
- * so it fits the view when it opens. An asset with one card has no frame: its card stands alone, placed absolutely, and
- * the name shows once (652; DESIGN-2026-11-08; the object model: a frame is a class with its variants; or
- * an exterior with its interior). Same contract as layoutEpisode otherwise: frames and headings absolute, a framed card
- * relative to its frame. Ours.
+ * The assets canvas's default arrangement: one frame per asset group (assetsCanvas.ts) with its cards in a grid
+ * (groupLayout); the characters', scenes' and props' groups are three regions stacked top to bottom, each under its
+ * heading (`heading:<kind>`), each packed into a near-square block by potpack, mapbox's rectangle packer ("packs 2D
+ * rectangles into a near-square container", https://github.com/mapbox/potpack). Every asset is a frame, one with no
+ * variant too. Frames and headings absolute, a card relative to its frame.
  */
-export function layoutAssets(sections: readonly string[], cards: readonly CanvasCard[], sizes: Readonly<Record<string, Size>>, links: readonly { readonly from: string; readonly to: string }[]): { positions: Record<string, Point> } {
-	const size = (id: string) => sizes[id] ?? assetCardSize(undefined);
+export function layoutAssets(sections: readonly string[], cards: readonly CanvasCard[], sizes: Readonly<Record<string, Size>>): { positions: Record<string, Point> } {
+	const size = (id: string) => sizes[id] ?? cardSize(undefined);
 	const groups = sections.map(key => {
 		const own = cards.filter(c => c.section === key && onBoard(c));
-		const framed = own.length > 1;
-		const tree = framed ? groupLayout(own, links, size) : undefined;
-		const cells = own.map(c => ({ id: c.id, at: tree?.at.get(c.id) ?? { x: 0, y: 0 } }));
-		const w = tree ? tree.w : CARD_W;
-		const h = tree ? tree.h : own.length ? size(own[0].id).h : 0;
 		// A group holding a place sits with the scenes, the prop it is inside included (assetsCanvas.ts).
 		const region = own.some(c => c.id.startsWith('assets/scenes/')) ? 'scenes' : key.split('/')[1];
-		return { key, region, cells, w, h, framed };
-	}).filter(g => g.cells.length);
-	const regions = ['characters', 'scenes', 'props'].map(name => groups.filter(g => g.region === name)).filter(r => r.length);
-	const best = packClosestToSquare(regions, GROUP_GAP, HEADING);
-	const positions: Record<string, Point> = Object.fromEntries(regions.map((region, i) => [`heading:${region[0].region}`, best.headings[i]]));
-	for (const g of groups) {
-		const corner = best.at.get(g.key)!;
-		if (!g.framed) {
-			positions[g.cells[0].id] = corner;
-			continue;
+		return { key, region, own, grid: groupLayout(own, size) };
+	}).filter(g => g.own.length);
+	const positions: Record<string, Point> = {};
+	let top = 0;
+	for (const name of ['characters', 'scenes', 'props']) {
+		const region = groups.filter(g => g.region === name);
+		if (!region.length) { continue; }
+		positions[`heading:${name}`] = { x: 0, y: top };
+		// Each box carries the gap on its right and bottom, so packed boxes keep it between them.
+		const boxes = region.map(g => ({ g, w: g.grid.w + GROUP_GAP, h: g.grid.h + GROUP_GAP, x: 0, y: 0 }));
+		const packed = potpack(boxes);
+		for (const { g, x, y } of boxes) {
+			positions[frameId(g.key)] = { x, y: top + HEADING + y };
+			for (const [id, at] of g.grid.at) { positions[id] = at; }
 		}
-		positions[frameId(g.key)] = corner;
-		for (const cell of g.cells) { positions[cell.id] = cell.at; }
+		top += HEADING + packed.h + GAP;
 	}
 	return { positions };
 }

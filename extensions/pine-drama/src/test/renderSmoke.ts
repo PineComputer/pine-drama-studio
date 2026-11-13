@@ -61,15 +61,18 @@ async function canvasCase(source: Source, episode: string): Promise<Case> {
 function promptOf(source: Source, id: string): CanvasPrompt | null {
 	const object = source.drama.objects.get(id);
 	const planned = object && plannedPrompt(source.drama, object);
-	return object && planned ? { object: id, text: planned.text, byPerson: planned.by === 'person' } : null;
+	return object && planned ? { object: id, text: planned.text } : null;
 }
 
-/** What the extension answers a click on a card with (episodeCanvas.ts detailReply): its record, picture strip and prompt. */
+/** What the shown version was made with, as madeWith reads it from a saved OpenAI image request. */
+const MADE = { model: 'gpt-image-2.5-sunburst', settings: ['size 1152x2048', 'quality high', 'n 1'] };
+
+/** What the extension answers a click on a card with (episodeCanvas.ts detailReply): its record, picture strip, prompt and what it was made with. */
 function recordAnswer(source: Source) {
 	return (m: { type?: string; stageId?: string; version?: string | null }) => {
 		if (m.type !== 'inspect' || !m.stageId) { return null; }
 		return { v: CANVAS_PROTOCOL, type: 'detail', stageId: m.stageId, version: m.version ?? null, detail: null, record: recordOf(source.drama, m.stageId),
-			picture: pictureOf(source.drama, m.stageId, fileSrc), prompt: promptOf(source, m.stageId), error: null };
+			picture: pictureOf(source.drama, m.stageId, fileSrc), prompt: promptOf(source, m.stageId), made: MADE, error: null };
 	};
 }
 
@@ -79,7 +82,6 @@ const entries = (posted: readonly unknown[], action: string) => (posted as Poste
 
 async function boxCase(source: Source): Promise<Case> {
 	const c = await canvasCase(source, ASSETS_CANVAS);
-	const cards = (c.message as { cards?: readonly CanvasCard[] }).cards ?? [];
 	// A save is answered as episodeCanvas.ts answers it (actionEnded): refused by --expect the first time, written after.
 	let saves = 0;
 	// The last save is held, its answer sent by the check once the box is closed.
@@ -88,37 +90,34 @@ async function boxCase(source: Source): Promise<Case> {
 	const record = recordAnswer(source);
 	const answer = (m: { type?: string; stageId?: string; version?: string | null }) => {
 		const e = m as Posted;
-		if (e.type !== 'entry' || e.request?.action !== 'prompt') { return record(m); }
-		const ended = { v: CANVAS_PROTOCOL, type: 'actionEnded', key: e.key, error: ++saves === 1 ? 'The prompt changed since the box showed v1 (it is v2 now); nothing was saved.' : null, unchanged: null };
+		if (e.type !== 'entry' || e.request?.action !== 'describe') { return record(m); }
+		const ended = { v: CANVAS_PROTOCOL, type: 'actionEnded', key: e.key, error: ++saves === 1 ? 'The description changed since the composer showed it; nothing was saved.' : null, unchanged: null };
 		if (hold) { hold = false; held = ended; return null; }
 		return ended;
 	};
 	const check = async (page: Page, posted: readonly unknown[]): Promise<string[]> => {
 		const problems: string[] = [];
 		const card = page.locator('.react-flow__node-card').first();
-		// The card's corner, away from an undrawn picture's own Import (faceCase).
 		await card.click({ position: { x: 12, y: 12 } });
-		const box = page.locator('.detail.box');
-		if (await box.waitFor({ timeout: WAIT_MS }).then(() => false, () => true)) { return ['no box opened under the clicked card']; }
+		const box = page.locator('.composer');
+		if (await box.waitFor({ timeout: WAIT_MS }).then(() => false, () => true)) { return ['no composer opened under the clicked card']; }
 		const text = box.locator('textarea');
-		if (await text.waitFor({ timeout: WAIT_MS }).then(() => false, () => true)) { return ['the box shows no prompt (its reply did not arrive)']; }
-		if (await text.count() !== 1) { problems.push(`the box holds ${await text.count()} texts, not one`); }
-		// Its one text is the picture's prompt as drama-cli planned it, with no description and no wand.
+		if (await text.waitFor({ timeout: WAIT_MS }).then(() => false, () => true)) { return ['the composer shows no text (its reply did not arrive)']; }
+		if (await text.count() !== 1) { problems.push(`the composer holds ${await text.count()} texts, not one`); }
+		// Its one text is the picture's own: the asset's description, not the compiled prompt (the person's design).
 		const pickedId = (posted.find(m => (m as { type?: string }).type === 'inspect') as { stageId?: string } | undefined)?.stageId;
-		const planned = promptOf(source, pickedId ?? '')?.text;
-		if (!planned) { return [...problems, `${pickedId} has no planned prompt in this fixture`]; }
-		if (await text.inputValue() !== planned) { problems.push('the box\'s text is not the planned prompt'); }
-		if (await text.getAttribute('aria-label') !== 'Prompt') { problems.push('the box\'s text is not labelled Prompt'); }
-		if (await textOf(box.locator('.prompt-head')) !== 'Planned') { problems.push('the box does not say the prompt is planned'); }
-		if (await box.locator('button:has-text("Write prompt"), button:has-text("Re-expand")').count() !== 0) { problems.push('the box has a wand'); }
-		// Its header names the card: a root has no node it derives from.
-		const picked = (posted.find(m => (m as { type?: string }).type === 'inspect') as { stageId?: string } | undefined)?.stageId;
-		const shown = cards.find(x => x.id === picked);
-		const head = await textOf(box.locator('.box-title'));
-		const want = shown?.name && [`${shown.name.asset} · ${shown.name.node}`, ...(shown.appearsIn?.length ? [shown.appearsIn.join(', ')] : [])].join(' · ');
-		if (!want || head !== want) { problems.push(`the box's header reads ${JSON.stringify(head)}, not ${JSON.stringify(want)}`); }
-		if (await box.locator('.box-head .link.from').count() !== 0) { problems.push('a root\'s box links to a node it derives from'); }
-		if (await page.locator('.composer').count() !== 0) { problems.push('a composer is still on the page'); }
+		const description = recordOf(source.drama, pickedId ?? '')?.description;
+		if (!description) { return [...problems, `${pickedId} has no description in this fixture`]; }
+		if (await text.inputValue() !== description) { problems.push('the composer\'s text is not the description'); }
+		if (await text.getAttribute('aria-label') !== 'Description') { problems.push('the composer\'s text is not labelled Description'); }
+		// What the Computer cannot take yet is shown greyed; the model and settings are the shown version's own; no cost is shown.
+		for (const name of [`${MADE.model} ▾`, 'Reference', 'Style', `${MADE.settings.join(' · ')} ▾`]) {
+			const button = box.locator(`button:has-text("${name}")`);
+			if (await button.count() !== 1 || !await button.isDisabled() || await button.getAttribute('title') !== 'Not available yet') { problems.push(`${name} is not shown greyed as not available yet`); }
+		}
+		// No version numbers and no record labels on the card (the person's design).
+		const foot = await textOf(card.locator('.card-status'));
+		if (!foot || /\bv\d+\b/.test(foot)) { problems.push(`the card's status reads ${JSON.stringify(foot)}`); }
 		// The board pans to show the box (canvas.tsx reveal, an animated setViewport): measure once it has stopped moving,
 		// so the card and the box are read at one moment.
 		for (let last = '', until = Date.now() + 3000; Date.now() < until;) {
@@ -131,16 +130,15 @@ async function boxCase(source: Source): Promise<Case> {
 		if (!c || !b) {
 			problems.push('the card or the box has no box on screen');
 		} else {
-			if (b.y < c.y + c.height) { problems.push(`the box starts at y ${b.y}, above the card's bottom ${c.y + c.height}`); }
+			if (b.y < c.y + c.height) { problems.push(`the composer starts at y ${b.y}, above the card's bottom ${c.y + c.height}`); }
 			const offset = Math.abs((b.x + b.width / 2) - (c.x + c.width / 2));
-			if (offset > 2) { problems.push(`the box is ${offset.toFixed(0)} px off the card's centre`); }
+			if (offset > 2) { problems.push(`the composer is ${offset.toFixed(0)} px off the card's centre`); }
 		}
 		if (process.env.PDS_RENDER_SHOTS) { await new Promise(resolve => setTimeout(resolve, 800)); await page.screenshot({ path: join(process.env.PDS_RENDER_SHOTS, 'shot-box-under-card.png') }); }
-		// Generate is secondary: drawn as the row's other buttons, and last in it.
-		const generate = box.locator('button.labeled:has-text("Generate")');
-		if (await box.locator('button.primary').count() !== 0) { problems.push('the box has a primary button'); }
-		const row = await box.locator('.record-actions').first().evaluate(element => Array.from((element as { querySelectorAll(selector: string): ArrayLike<{ textContent: string | null }> }).querySelectorAll('button'), b => b.textContent));
-		if (row.at(-1) !== 'Generate') { problems.push(`Generate is not last in its row (${JSON.stringify(row)})`); }
+		// Generate is last in the composer's bottom bar.
+		const generate = box.locator('button.generate');
+		const row = await box.locator('.composer-bar').evaluate(element => Array.from((element as { querySelectorAll(selector: string): ArrayLike<{ getAttribute(n: string): string | null }> }).querySelectorAll('button'), b => b.getAttribute('aria-label')));
+		if (row.at(-1) !== 'Generate') { problems.push(`Generate is not last in the bottom bar (${JSON.stringify(row)})`); }
 		if (await generate.isDisabled()) { problems.push('Generate is disabled with no edit'); }
 		await generate.click();
 		// The page's message reaches this side through an exposed binding, asynchronously.
@@ -149,21 +147,21 @@ async function boxCase(source: Source): Promise<Case> {
 		if (!posted.some(m => (m as { type?: string; stageId?: string }).type === 'generate' && (m as { stageId?: string }).stageId === stageId)) {
 			problems.push(`Generate posted no generate for ${stageId}`);
 		}
-		// A blanked prompt can be neither saved nor drawn from: Generate waits, and nothing is posted.
+		// A blanked text can be neither saved nor drawn from: Generate waits, and nothing is posted.
 		const before = posted.length;
 		await text.fill('   ');
-		if (!await generate.isDisabled()) { problems.push('Generate is enabled with a blank prompt'); }
+		if (!await generate.isDisabled()) { problems.push('Generate is enabled with a blank description'); }
 		await page.keyboard.press('Control+Enter');
 		await new Promise(resolve => setTimeout(resolve, 300));
-		if (posted.length !== before) { problems.push(`a blank prompt posted ${JSON.stringify(posted.slice(before))}`); }
-		await text.fill(planned);
+		if (posted.length !== before) { problems.push(`a blank description posted ${JSON.stringify(posted.slice(before))}`); }
+		await text.fill(description);
 		// With an unsaved edit, Generate saves it and puts the request in the chat: never disabled for it.
 		const edited = `${await text.inputValue()} edited`;
 		await text.fill(edited);
 		// Return, not click: a click on a disabled button waits out the whole run (seen in a mutation run).
 		if (await generate.isDisabled()) { return [...problems, 'Generate is disabled with an unsaved edit']; }
 		const generates = () => posted.filter(m => (m as { type?: string }).type === 'generate').length;
-		const saved = () => entries(posted, 'prompt').map(m => m.request!);
+		const saved = () => entries(posted, 'describe').map(m => m.request!);
 		// A refused save puts no request in the chat: the edit stays, with drama-cli's words.
 		await generate.click();
 		for (const until = Date.now() + 2000; saved().length < 1 && Date.now() < until;) { await new Promise(resolve => setTimeout(resolve, 50)); }
@@ -177,25 +175,25 @@ async function boxCase(source: Source): Promise<Case> {
 		for (const until = Date.now() + 2000; generates() < 2 && Date.now() < until;) { await new Promise(resolve => setTimeout(resolve, 50)); }
 		if (generates() !== 2) { problems.push(`Generate with an edit posted ${generates() - 1} requests once saved, not 1`); }
 		// + Variant's draft stops at what readFromCanvas takes, so nothing longer is sent and dropped unanswered.
-		await box.locator('button.labeled:has-text("Variant")').click();
+		await box.locator('button:has-text("Variant")').click();
 		problems.push(...await draftLimits(box, 'input[aria-label="Variant name"]', 'textarea[aria-label="Variant description"]', '+ Variant'));
 		// A save still running when the box closes: its request still goes to the chat once the save is written (the box is keyed by its card and unmounts with it).
 		await box.locator('input[aria-label="Variant name"]').click();
 		await page.keyboard.press('Escape');
 		hold = true;
-		await box.locator('textarea[aria-label="Prompt"]').fill(`${edited} again`);
+		await box.locator('textarea[aria-label="Description"]').fill(`${edited} again`);
 		await generate.click();
 		for (const until = Date.now() + 2000; !held && Date.now() < until;) { await new Promise(resolve => setTimeout(resolve, 50)); }
 		if (!held) { return [...problems, 'Generate with an edit sent no save to hold']; }
-		await box.locator('.box-close').click();
-		if (await box.waitFor({ state: 'detached', timeout: WAIT_MS }).then(() => false, () => true)) { return [...problems, 'the box did not close']; }
+		await box.locator('button[aria-label="Close"]').click();
+		if (await box.waitFor({ state: 'detached', timeout: WAIT_MS }).then(() => false, () => true)) { return [...problems, 'the composer did not close']; }
 		// Sent as the extension's reply is sent to the webview (the acquireVsCodeApi shim below).
 		await page.evaluate(message => (globalThis as unknown as { postMessage(m: unknown, origin: string): void }).postMessage(message, '*'), held);
 		for (const until = Date.now() + 2000; generates() < 3 && Date.now() < until;) { await new Promise(resolve => setTimeout(resolve, 50)); }
-		if (generates() !== 3) { problems.push('a save written after its box closed put no request in the chat'); }
+		if (generates() !== 3) { problems.push('a save written after its composer closed put no request in the chat'); }
 		return problems;
 	};
-	return { ...c, name: `${source.name}: the box under an asset card`, interact: { answer, check } };
+	return { ...c, name: `${source.name}: the composer under an asset card`, interact: { answer, check } };
 }
 
 /**
@@ -220,11 +218,10 @@ async function episodeBoxCase(source: Source): Promise<Case> {
 		if (!target) { return ['no card of EP001 has a prompt, so no episode box is checked']; }
 		const problems: string[] = [];
 		await page.locator(`.react-flow__node[data-id="${target.id}"]`).click({ position: { x: 12, y: 12 } });
-		const text = page.locator('.detail textarea[aria-label="Prompt"]');
+		const text = page.locator('.composer textarea[aria-label="Prompt"]');
 		if (await text.waitFor({ timeout: WAIT_MS }).then(() => false, () => true)) { return [`${target.id}'s box shows no prompt`]; }
-		const generate = page.locator('.detail button.labeled:has-text("Generate")');
-		if (await generate.count() !== 1) { return [`${target.id}'s box has ${await generate.count()} Generate buttons, not one`]; }
-		if (await page.locator('.detail button.primary').count() !== 0) { problems.push('the episode box has a primary button'); }
+		const generate = page.locator('.composer button.generate');
+		if (await generate.count() !== 1) { return [`${target.id}'s composer has ${await generate.count()} Generate buttons, not one`]; }
 		// A take is shot, a picture drawn: the tooltip says which, as the request does.
 		const verb = target.take ? 'Shoot only this segment' : 'Draw only this picture';
 		if (!(await generate.getAttribute('title'))?.startsWith(verb)) { problems.push(`${target.id}'s Generate reads ${JSON.stringify(await generate.getAttribute('title'))}, not "${verb}…"`); }
@@ -255,7 +252,7 @@ async function episodeBoxCase(source: Source): Promise<Case> {
 		if (generates().length !== 2 || generates()[1].stageId !== target.id) { problems.push(`Generate with an edit posted ${generates().length - 1} requests once saved, not 1 for ${target.id}`); }
 		return problems;
 	};
-	return { ...c, name: `${source.name}: an episode card's box has Generate`, interact: { answer, check } };
+	return { ...c, name: `${source.name}: an episode card's composer has Generate`, interact: { answer, check } };
 }
 
 /**
@@ -288,30 +285,24 @@ async function openingCase(source: Source, episode: string): Promise<Case> {
 const textOf = async (scope: Locator) => (await scope.count()) === 1 ? scope.evaluate(element => (element as { textContent: string | null }).textContent) : null;
 
 /**
- * The box of a variant: its header reads "<asset> · <variant>", and "from
- * Base" links to the asset it derives from, whose box then opens.
+ * A variant's composer shows its base as a reference, sent with it; the reference's click picks the base.
  */
 async function variantBoxCase(source: Source): Promise<Case> {
 	const c = await canvasCase(source, ASSETS_CANVAS);
 	const answer = recordAnswer(source);
 	const rain = 'assets/characters/lin/variants/rain';
 	const check = async (page: Page, posted: readonly unknown[]): Promise<string[]> => {
-		const problems: string[] = [];
-		const box = page.locator('.detail.box');
 		await page.locator(`.react-flow__node-card[data-id="${rain}"]`).click({ position: { x: 12, y: 12 } });
-		const link = box.locator('.box-head .link.from');
-		if (await link.waitFor({ timeout: WAIT_MS }).then(() => false, () => true)) { return [`${rain}: its box has no link to what it derives from`]; }
-		const [head, linked] = [await textOf(box.locator('.box-title')), await textOf(link)];
-		if (head !== 'Lin · In the rain') { problems.push(`the header reads ${JSON.stringify(head)}, not "Lin · In the rain"`); }
-		if (linked !== 'from Base ↗') { problems.push(`the link reads ${JSON.stringify(linked)}, not "from Base ↗"`); }
-		await link.click();
+		const base = page.locator('.composer .composer-refs .ref');
+		if (await base.first().waitFor({ timeout: WAIT_MS }).then(() => false, () => true)) { return [`${rain}: its composer shows no base`]; }
+		if (await base.count() !== 1) { return [`${rain}'s composer shows ${await base.count()} references, not its one base`]; }
+		await base.click();
 		for (const until = Date.now() + WAIT_MS; !(posted as Posted[]).some(m => m.type === 'inspect' && m.stageId === 'assets/characters/lin') && Date.now() < until;) {
 			await new Promise(resolve => setTimeout(resolve, 50));
 		}
-		if (!(posted as Posted[]).some(m => m.type === 'inspect' && m.stageId === 'assets/characters/lin')) { problems.push('the link did not pick Lin'); }
-		return problems;
+		return (posted as Posted[]).some(m => m.type === 'inspect' && m.stageId === 'assets/characters/lin') ? [] : ['the base did not pick Lin'];
 	};
-	return { ...c, name: `${source.name}: a variant's box names it and what it derives from`, interact: { answer, check } };
+	return { ...c, name: `${source.name}: a variant's composer shows its base`, interact: { answer, check } };
 }
 
 /**
@@ -331,7 +322,7 @@ async function longNameCase(source: Source): Promise<Case> {
 		type Box = { clientHeight: number; textContent: string | null; getBoundingClientRect(): { bottom: number } };
 		const seen = await node.evaluate(element => {
 			const find = (selector: string) => (element as { querySelector(s: string): Box | null }).querySelector(selector);
-			const [name, foot, card] = [find('.asset-name'), find('.asset-foot'), find('.card')];
+			const [name, foot, card] = [find('.card-name'), find('.card-foot'), find('.card')];
 			const style = (globalThis as unknown as { getComputedStyle(e: unknown): { lineHeight: string } }).getComputedStyle(name);
 			return name && foot && card && { height: name.clientHeight, line: parseFloat(style.lineHeight), text: name.textContent, footBottom: foot.getBoundingClientRect().bottom, cardBottom: card.getBoundingClientRect().bottom };
 		});
@@ -371,9 +362,8 @@ async function toolsCase(source: Source): Promise<Case> {
 }
 
 /**
- * An undrawn asset card's face: no label row; a footer with its name, then "Not drawn yet";
- * and Import in its picture, which selects it, opens its box, and imports once the record is read (an `entry` import for
- * that card, with the record's upload stages).
+ * An undrawn asset card: its footer names it and says "Not drawn yet"; its composer's Upload imports a picture for it
+ * (an `entry` import for that card).
  */
 async function faceCase(source: Source): Promise<Case> {
 	const c = await canvasCase(source, ASSETS_CANVAS);
@@ -382,20 +372,19 @@ async function faceCase(source: Source): Promise<Case> {
 	const check = async (page: Page, posted: readonly unknown[]): Promise<string[]> => {
 		const problems: string[] = [];
 		const card = page.locator(`.react-flow__node-card[data-id="${street}"]`);
-		if (await card.locator('.label').count() !== 0) { problems.push('an assets card still has a label row'); }
-		if (await card.locator('.asset-foot .asset-name').count() !== 1) { problems.push('the footer has no name'); }
-		if (await card.locator('.asset-foot .warn').count() !== 1) { problems.push('the footer does not say Not drawn yet'); }
-		const button = card.locator('.face-import');
-		if (await button.count() !== 1) { return [...problems, 'the undrawn picture holds no Import']; }
-		await button.click();
-		if (await page.locator('.detail.box').waitFor({ timeout: WAIT_MS }).then(() => false, () => true)) { problems.push('Import on the face opened no box'); }
+		if (await card.locator('.card-foot .card-name').count() !== 1) { problems.push('the footer has no name'); }
+		if (await textOf(card.locator('.card-status.warn')) !== 'Not drawn yet') { problems.push('the footer does not say Not drawn yet'); }
+		await card.click({ position: { x: 12, y: 12 } });
+		const upload = page.locator('.composer button:has-text("Upload")');
+		if (await upload.waitFor({ timeout: WAIT_MS }).then(() => false, () => true)) { return [...problems, 'its composer has no Upload']; }
+		await upload.click();
 		for (const until = Date.now() + 3000; !entries(posted, 'import').length && Date.now() < until;) { await new Promise(resolve => setTimeout(resolve, 50)); }
 		const sent = entries(posted, 'import')[0];
-		if (!sent) { problems.push('Import on the face sent no import'); }
+		if (!sent) { problems.push('Upload sent no import'); }
 		else if (sent.request?.object !== street) { problems.push(`the import was for ${sent.request?.object}, the card is ${street}`); }
 		return problems;
 	};
-	return { ...c, name: `${source.name}: an undrawn asset card's face`, interact: { answer, check } };
+	return { ...c, name: `${source.name}: an undrawn asset card, and Upload`, interact: { answer, check } };
 }
 
 /** A draft's fields stop at the protocol's limits (galleryProtocol NAME_MAX, TEXT_MAX), as the page renders them. */

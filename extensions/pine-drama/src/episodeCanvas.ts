@@ -2,17 +2,17 @@
 // for that episode (core/lineage.ts), and the global assets canvas. A click shows the object in the Versions view; a
 // double-click opens exactly the file the card shows in the native viewer. Production logic is in core (lineage.ts,
 // canvasLayout.ts, canvasProtocol.ts); the webview is canvas/canvas.tsx, on React Flow (spike S11).
-import { isAbsolute } from 'node:path';
+import { isAbsolute, resolve } from 'node:path';
 import * as vscode from 'vscode';
 import { CANVAS_COMMANDS, CANVAS_PROTOCOL, readFromCanvas, type CanvasDetail, type CanvasLayout, type Shown, type ToCanvas } from './core/canvasProtocol';
 import { unchangedLine, type EntryDone } from './core/entryActions';
 import { pictureOf, recordOf } from './core/assetStatus';
 import { plannedPrompt, shootRequest } from './core/segEditor';
-import { versionDetail } from './core/versionDetail';
+import { madeWith, plannedWith, versionDetail } from './core/versionDetail';
 import { canvasTreePath } from './core/assetsCanvas';
 import { lineageMessage } from './core/canvasMessage';
 import { ASSETS_CANVAS } from './core/lineage';
-import { episodeIn, episodeOfNode, roleOf, versionFile, type ChatTitle, type OutlineNode, type Role } from './core/project';
+import { episodeIn, episodeOfNode, roleOf, versionFile, versionFolder, type ChatTitle, type OutlineNode, type Role } from './core/project';
 import type { CardAction } from './cardActions';
 import type { ProjectViews, StageRef } from './projectViews';
 import { CanvasPicks } from './core/canvasPicks';
@@ -77,9 +77,11 @@ export function registerEpisodeCanvas(context: vscode.ExtensionContext, views: P
 			const src = (rel: string) => webview.asWebviewUri(fileUri(rel)).toString();
 			const detail: CanvasDetail | null = shown.version ? versionDetail(drama, shown.stageId, shown.version, src) : null;
 			const planned = object && plannedPrompt(drama, object);
-			const prompt = object && (planned || object.prompt !== null) ? { object: object.id, text: planned?.text ?? null, byPerson: planned?.by === 'person' } : null;
+			const prompt = object && (planned || object.prompt !== null) ? { object: object.id, text: planned?.text ?? null } : null;
+			// The shown version's request, or before any is drawn, the one planned for it (versionDetail.ts).
+			const made = !object ? null : shown.version ? await madeWith(resolve(project.root, versionFolder(object, shown.version))) : await plannedWith(resolve(project.root, object.id));
 			return { v: CANVAS_PROTOCOL, type: 'detail', stageId: shown.stageId, version: shown.version, detail, record: recordOf(drama, shown.stageId),
-				picture: pictureOf(drama, shown.stageId, src), prompt, error: object ? null : `${shown.stageId} is not in the drama any more` };
+				picture: pictureOf(drama, shown.stageId, src), prompt, made, error: object ? null : `${shown.stageId} is not in the drama any more` };
 		} catch (error) {
 			const text = (error as Error).message;
 			output.appendLine(`canvas ${episode}: ${text} (project ${project.root})`);
@@ -151,9 +153,11 @@ export function registerEpisodeCanvas(context: vscode.ExtensionContext, views: P
 					output.appendLine(`canvas ${episode}: entry ${message.request.action} ${message.stageId}: ${error} (project ${project.root})`);
 				}
 				await panel.webview.postMessage({ v: CANVAS_PROTOCOL, type: 'actionEnded', key: message.key, error, unchanged } satisfies ToCanvas);
-				// The canvas reads the drama again, and the panel then shows the record as written.
+				// The canvas reads the drama again, and the panel then shows the record as written, for the version its card
+				// now shows (lineage.ts: the object's current one).
 				await send(panel, episode);
-				await panel.webview.postMessage(await detailReply(panel.webview, episode, { stageId: message.stageId, version: null, file: null }));
+				const version = (await project.drama()).objects.get(message.stageId)?.resolved.current ?? null;
+				await panel.webview.postMessage(await detailReply(panel.webview, episode, { stageId: message.stageId, version, file: null }));
 			} else if (message?.type === 'generate') {
 				// Put in the Chat's input for the person to send, never sent from here: an asset's picture (the Project Chat
 				// draws assets, DESIGN 2026-11-08, Option B) or a keyframe's is drawn; a take is shot, asked as the seg editor's

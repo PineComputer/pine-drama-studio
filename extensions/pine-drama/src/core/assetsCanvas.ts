@@ -1,7 +1,6 @@
 // The global assets canvas's board (screenshots 647 and 711 beside Pippit's): one group frame
 // per asset, keyed by the asset's id and titled with its name, holding one card per object: the asset itself and each of
-// its variants, with a dashed line from each variant to the object it derives from (`variant_of`); a scene inside
-// another sits in that scene's group (`inside_of`). Names, edges and the episodes an asset appears in are its scope's
+// its variants; a scene inside another sits in that scene's group (`inside_of`). Names, edges and the episodes an asset appears in are its scope's
 // snapshot's (doc/protocol.md, section 5). Nothing is made up. No vscode import.
 import type { NodeName } from './canvasProtocol';
 import { assetsLineage, ASSETS_CANVAS, type Lineage } from './lineage';
@@ -19,8 +18,8 @@ export interface AssetsBoard extends Lineage {
 
 /**
  * A card's name: in a frame titled with its asset's name, only what tells
- * it apart, its own name ("Base" for the asset's own card, after Pippit's "…-Base Image", 734). Where no frame names its
- * asset (a lone card, or an interior in its exterior's frame), the asset's name leads.
+ * it apart, its own name ("Base" for the asset's own card, after Pippit's "…-Base Image", 734). Where its frame names
+ * another asset (an interior in its exterior's frame), the asset's name leads.
  */
 export function cardLabel(name: NodeName, root: boolean, titled: boolean): string {
 	return titled ? name.node : root ? name.asset : `${name.asset} · ${name.node}`;
@@ -35,7 +34,6 @@ export function assetsBoard(drama: Drama): AssetsBoard {
 		const asset = variantRoot(drama, s.id);
 		return { ...s, section: groupOf(asset), name: { asset: nameOf(asset), node: s.id === asset ? 'Base' : s.label }, root: s.id === asset };
 	});
-	const framed = (section: string) => stages.filter(s => s.section === section).length > 1;
 	const titles: Record<string, string> = Object.fromEntries([...new Set(stages.map(s => s.section))].map(key => [key, nameOf(key)]));
 	const appearsIn: Record<string, readonly string[]> = {};
 	for (const s of stages.filter(s => s.root)) {
@@ -44,17 +42,13 @@ export function assetsBoard(drama: Drama): AssetsBoard {
 			appearsIn[s.id] = episodes;
 		}
 	}
-	const ids = new Set(stages.map(s => s.id));
-	// The derivations the edges state, drawn before anything is drawn: each variant from what it derives from, and a
-	// scene to the one it lies inside. The version records' own lines are the same pairs once drawn, and drawn once.
-	const derived = drama.edges.filter(e => (e.kind === 'variant_of' || e.kind === 'inside_of') && ids.has(e.from) && ids.has(e.to)).map(e => ({ from: e.to, to: e.from }));
-	const links = [...lineage.links, ...derived.filter(l => !lineage.links.some(o => o.from === l.from && o.to === l.to))];
 	const order = ['Characters', 'Locations', 'Props'];
 	const regionOf = (key: string) => order.indexOf(lineage.stages.find(s => s.id === key)?.section ?? '');
 	const sections = Object.keys(titles).sort((a, b) => regionOf(a) - regionOf(b) || titles[a].localeCompare(titles[b]));
 	const names: Record<string, NodeName> = Object.fromEntries(stages.map(s => [s.id, s.name]));
-	const labelled = stages.map(({ name, root, ...s }) => ({ ...s, label: cardLabel(name, root, framed(s.section) && s.section === variantRoot(drama, s.id)) }));
-	return { stages: labelled, links, sections, titles, appearsIn, names };
+	const labelled = stages.map(({ name, root, ...s }) => ({ ...s, label: cardLabel(name, root, s.section === variantRoot(drama, s.id)) }));
+	// No lines: a group's frame holds an asset with its variants, and the composer shows a variant's base (the person's design).
+	return { stages: labelled, links: [], sections, titles, appearsIn, names };
 }
 
 /**

@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { CANVAS_PROTOCOL, readFromCanvas, type CanvasCard, type Point, type Size } from '../core/canvasProtocol';
-import { assetCardSize, ASSET_FOOT_H, cardSize, CARD_W, FOOT_H, LABEL_H, layoutEpisode, layoutOf, onBoard, openingViewport, positionsFor } from '../core/canvasLayout';
+import { cardSize, CARD_W, FOOT_H, layoutAssets, layoutEpisode, layoutOf, onBoard, openingViewport, positionsFor } from '../core/canvasLayout';
 
 /** A real episode's board, its cards as the extension sends them (test-fixtures/canvas/README.md). */
 const BOARD = JSON.parse(readFileSync(join(__dirname, '..', '..', 'test-fixtures', 'canvas', 'double-life-EP001.json'), 'utf8')) as { sections: string[]; cards: CanvasCard[] };
@@ -25,13 +25,10 @@ function frameBox(title: string, all: CanvasCard[], positions: Record<string, Po
 	return { ...at, w: Math.max(...own.map(c => positions[c.id].x + size[c.id].w)) + 20, h: Math.max(...own.map(c => positions[c.id].y + size[c.id].h)) + 20 };
 }
 
-test("a card is as tall as its own picture at drama-cli's width, plus its label and version line", () => {
-	assert.deepEqual(cardSize({ w: 720, h: 1280 }), { w: CARD_W, h: LABEL_H + 533 + FOOT_H });
-	assert.deepEqual(cardSize({ w: 2048, h: 1152 }), { w: CARD_W, h: LABEL_H + 169 + FOOT_H });
-	assert.deepEqual(cardSize(undefined), { w: CARD_W, h: 340 }, "unknown size: drama-cli's HEIGHT");
-	// An assets card has no label row and a taller footer; an episode's card is as above.
-	assert.deepEqual(assetCardSize({ w: 720, h: 1280 }), { w: CARD_W, h: 533 + ASSET_FOOT_H });
-	assert.deepEqual(assetCardSize(undefined), { w: CARD_W, h: 290 + ASSET_FOOT_H });
+test("a card is as tall as its own picture at drama-cli's width, plus its footer, the same on both canvases", () => {
+	assert.deepEqual(cardSize({ w: 720, h: 1280 }), { w: CARD_W, h: 533 + FOOT_H });
+	assert.deepEqual(cardSize({ w: 2048, h: 1152 }), { w: CARD_W, h: 169 + FOOT_H });
+	assert.deepEqual(cardSize(undefined), { w: CARD_W, h: 290 + FOOT_H }, 'unknown size: a default picture');
 });
 
 test("drama-cli's groups and order, four to a row; the references in a band on top, the segments side by side in order, the cut last; text off the board", () => {
@@ -343,3 +340,33 @@ test('a board with nothing on it has no opening viewport: an error, not Infinity
 	assert.throws(() => openingViewport([], { w: 1400, h: 1000 }), /nothing on it/);
 });
 
+
+/** An assets board's card: `id` in the group `section` (its asset's id), an image. */
+const assetCard = (id: string, section: string): CanvasCard => ({ id, kind: id.includes('/variants/') ? 'variant' : 'character', label: id, section, column: 0, version: 'v1', accepted: 'v1',
+	notUsable: null, file: `${id}/v1/image-1.png`, media: 'image', src: null, missing: false, appearsIn: [], name: null, segment: null } as unknown as CanvasCard);
+
+// The person: some assets became very tall columns with large empty areas beside them. A group's base and variants are a
+// grid, and each kind's groups are packed into a near-square block (potpack), with no group covering another.
+test('an asset group is a grid, not a column; each kind packs into a near-square block and no group covers another', () => {
+	const groups: [string, number][] = [['assets/characters/a', 10], ['assets/characters/b', 1], ['assets/characters/c', 3], ['assets/characters/d', 6],
+		['assets/props/p', 1], ['assets/props/q', 2]];
+	const all = groups.flatMap(([asset, n]) => Array.from({ length: n }, (_, i) => assetCard(i ? `${asset}/variants/v${i}` : asset, asset)));
+	const size = Object.fromEntries(all.map(c => [c.id, cardSize({ w: 2048, h: 1152 })]));
+	const { positions } = layoutAssets(groups.map(([a]) => a), all, size);
+	// Ten cards: four columns, three rows.
+	const a = all.filter(c => c.section === 'assets/characters/a');
+	assert.equal(new Set(a.map(c => positions[c.id].x)).size, 4);
+	assert.equal(new Set(a.map(c => positions[c.id].y)).size, 3);
+	assert.deepEqual(positions['assets/characters/a'], { x: 20, y: 70 }, 'the base first');
+	// Every asset is a frame, one with no variant too.
+	assert.ok(groups.every(([asset]) => positions[`frame:${asset}`]), 'a frame for every asset');
+	const boxes = groups.map(([asset]) => frameBox(asset, all, positions, size));
+	for (let i = 0; i < boxes.length; i++) {
+		for (let j = i + 1; j < boxes.length; j++) { assert.equal(overlap(boxes[i], boxes[j]), false, `${groups[i][0]} and ${groups[j][0]}`); }
+	}
+	const characters = boxes.slice(0, 4);
+	const width = Math.max(...characters.map(b => b.x + b.w)) - Math.min(...characters.map(b => b.x));
+	const height = Math.max(...characters.map(b => b.y + b.h)) - Math.min(...characters.map(b => b.y));
+	assert.ok(width / height < 2.5 && height / width < 2.5, `near-square: ${width} × ${height}`);
+	assert.ok(positions['heading:props'].y >= Math.max(...characters.map(b => b.y + b.h)), 'the props come under the characters');
+});
