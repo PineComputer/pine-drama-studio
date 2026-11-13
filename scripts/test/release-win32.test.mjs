@@ -14,7 +14,7 @@ const PRODUCT = {
 	tunnelApplicationName: 'pine-drama-studio-tunnel', win32AppUserModelId: '19pine.PineDramaStudio', win32x64AppId: '{{A}', win32x64UserAppId: '{{B}',
 };
 // The kinds CodeSignTool 1.3.2's batch_sign takes (its BatchSignCommand); it refuses a batch holding any other.
-const CODESIGNTOOL_KINDS = ['cab', 'cat', 'dll', 'exe', 'jar', 'js', 'msi', 'nupkg', 'ocx', 'ps1', 'ps1xml', 'sys', 'vbs'];
+const CODESIGNTOOL_KINDS = ['acm', 'bin', 'cab', 'cat', 'cpl', 'dll', 'drv', 'efi', 'exe', 'jar', 'msi', 'mui', 'nupkg', 'ocx', 'ova', 'ovf', 'ps1', 'ps1xml', 'scr', 'sys', 'tsp', 'vbs', 'wsf'];
 const SHIPPED = ['Pine Drama Studio.exe', 'ffmpeg.dll', 'tools/inno_updater.exe', 'resources/app/node_modules/x/build/x.node', 'resources/app/out/y.ps1', 'resources/app/out/README.md'];
 
 test('release refuses a package that is not the minified Windows x64 one, another version, or uncommitted changes', () => {
@@ -53,14 +53,25 @@ async function fixture(t, { env = CREDENTIALS, ids = `Credential ID(s): ${ID}`, 
 	await writeFile(join(input, 'app', 'resources/app/product.json'), JSON.stringify(PRODUCT));
 	await mkdir(join(input, 'inno', 'build', 'win32'), { recursive: true });
 	await writeFile(join(input, 'build-info.json'), JSON.stringify({ target: 'vscode-win32-x64-min', version: '1.2.3', extensionFrom: 'abc123' }));
-	const calls = [], logs = [];
+	const calls = [], logs = [], scanned = new Set();
 	const run = async (file, args, opts = {}) => {
 		calls.push([basename(file), args, opts]);
 		if (basename(file) === 'java.exe' && args.includes('get_credential_ids')) {
 			return ids;
 		}
+		if (basename(file) === 'java.exe' && args.includes('scan_code')) {
+			const path = args.find(a => a.startsWith('-input_file_path=')).slice('-input_file_path='.length);
+			scanned.add(await readFile(path, 'utf8'));
+			return 'code object is not a malware. You can proceed signing this code object';
+		}
 		if (basename(file) === 'java.exe') {
 			const value = name => args.find(a => a.startsWith(`-${name}=`))?.slice(name.length + 2);
+			// Like eSigner with its malware blocker on, a file scan_code has not scanned refuses the batch.
+			for (const name of (await readdir(value('input_dir_path')))) {
+				if (!scanned.has(await readFile(join(value('input_dir_path'), name), 'utf8'))) {
+					return `Error: hash needs to be scanned first before submitting for signing: ${name}`;
+				}
+			}
 			// Like CodeSignTool, a file of a kind it does not list refuses the whole batch, on exit code 0.
 			const refused = (await readdir(value('input_dir_path'))).find(name => !CODESIGNTOOL_KINDS.includes(name.split('.').pop().toLowerCase()));
 			if (refused) {
@@ -77,7 +88,7 @@ async function fixture(t, { env = CREDENTIALS, ids = `Credential ID(s): ${ID}`, 
 		}
 		return signtool;
 	};
-	return { input, output, calls, logs, options: { input, output, tool, tag: 'v1.2.3', codesigntool: tool, signtool: 'signtool.exe', iss: '/fixture/pine-drama-studio.iss' }, dependencies: { run, env, log: line => logs.push(line) } };
+	return { input, output, calls, logs, options: { input, output, tool, tag: 'v1.2.3', codesigntool: tool, signtool: 'signtool.exe', iss: '/fixture/pine-drama-studio.iss' }, dependencies: { run, env, log: line => logs.push(line), wait: async () => { calls.push(['next TOTP step']); } } };
 }
 
 test('signs every listed file in one batch, builds the signed installer, verifies every signature, and only then writes the checksum', async t => {
@@ -85,8 +96,11 @@ test('signs every listed file in one batch, builds the signed installer, verifie
 	const installer = await releaseWin32(f.options, f.dependencies);
 	assert.equal(basename(installer), 'Pine-Drama-Studio-1.2.3-win32-x64-setup.exe');
 	const javas = f.calls.filter(([cmd]) => cmd === 'java.exe');
-	assert.deepEqual(javas.map(([, args]) => args[2]), ['get_credential_ids', 'batch_sign']);
-	assert.ok(javas[1][1].includes(`-credential_id=${ID}`));
+	assert.deepEqual(javas.map(([, args]) => args[2]), ['get_credential_ids', ...Array(5).fill('scan_code'), 'batch_sign']);
+	assert.ok(javas.slice(1).every(([, args]) => args.includes(`-credential_id=${ID}`)));
+	// batch_sign takes its one-time password on a fresh TOTP step (RFC 6238, 5.2).
+	const batch = f.calls.findIndex(([cmd, args]) => cmd === 'java.exe' && args[2] === 'batch_sign');
+	assert.deepEqual(f.calls[batch - 1], ['next TOTP step']);
 	// The id reaches Inno Setup's sign tool through the environment, and the log only as GitHub's mask command.
 	assert.equal(f.calls.find(([cmd]) => cmd === 'ISCC.exe')[2].env.CREDENTIAL_ID, ID);
 	assert.deepEqual(f.logs.filter(line => line.includes(ID)), [`::add-mask::${ID}`]);

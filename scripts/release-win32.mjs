@@ -40,8 +40,8 @@ export function validateBuild(info, tag) {
 const SIGNED = /\.(exe|dll|node|ps1|psm1|psd1|ps1xml)$/i;
 export const filesToSign = files => files.filter(f => SIGNED.test(f)).sort();
 
-// CodeSignTool signs only the extensions it lists (1.3.2's BatchSignCommand: cab, cat, dll, exe, jar, js, msi, nupkg,
-// ocx, ps1, ps1xml, sys, vbs) and refuses the rest of the batch. A native module is a DLL under Node's own extension
+// CodeSignTool signs only the extensions it lists (1.3.2's BatchSignCommand: acm, bin, cab, cat, cpl, dll, drv, efi, exe,
+// jar, msi, mui, nupkg, ocx, ova, ovf, ps1, ps1xml, scr, sys, tsp, vbs, wsf) and refuses the rest of the batch. A native module is a DLL under Node's own extension
 // (nodejs.org/api/addons.html), and a PowerShell module or manifest is a PowerShell script signed the same way as .ps1
 // (learn.microsoft.com, about_Signing; Code-OSS signs .node with the PE files and .psm1/.psd1 with the scripts,
 // build/azure-pipelines/win32/codesign.ts). Each is signed under the kind's name the tool takes, then put back; step 3
@@ -102,10 +102,18 @@ export async function credentialId({ run, env, tool, log }) {
 }
 
 /** One CodeSignTool signing command (its `sign` and `batch_sign`), with the eSigner credentials from the environment. */
-export async function codesign(command, args, { run, env, tool }) {
+// A one-time password is good for one call: within its 30-second step the verifier "MUST NOT accept the second attempt of
+// the OTP" (RFC 6238, 5.2), and CodeSignTool derives it from ES_TOTP_SECRET. batch_sign and Inno Setup's two `sign` runs,
+// each in a process of its own, may follow each other within seconds, so each call starts on a fresh step: one that
+// begins after any earlier call took its password.
+const TOTP_STEP_MS = 30_000;
+const nextTotpStep = () => new Promise(resolve => setTimeout(resolve, TOTP_STEP_MS - Date.now() % TOTP_STEP_MS));
+
+export async function codesign(command, args, { run, env, tool, wait = nextTotpStep }) {
 	for (const name of ['CREDENTIAL_ID', 'ES_TOTP_SECRET']) {
 		if (!env[name]) throw new Error(`Missing ${name} for SSL.com eSigner.`);
 	}
+	await wait();
 	return codesignTool(command, [`-credential_id=${env.CREDENTIAL_ID}`, `-totp_secret=${env.ES_TOTP_SECRET}`, ...args], { run, env, tool });
 }
 
@@ -148,7 +156,13 @@ export async function releaseWin32(options, dependencies = {}) {
 	const flat = files.map((rel, i) => signedName(`${String(i).padStart(4, '0')}-${basename(rel)}`));
 	await Promise.all(files.map((rel, i) => cp(join(app, rel), join(unsigned, flat[i]))));
 	log(`Signing ${files.length} files in the app with SSL.com eSigner.`);
-	await codesign('batch_sign', [`-input_dir_path=${unsigned}`, `-output_dir_path=${signed}`], { run, env, tool });
+	// With eSigner's malware blocker on, batch_sign signs only what scan_code scanned first, one file at a time: "each code
+	// object in the batch must first be scanned with the scan_code command" (SSL.com, eSigner CodeSignTool command guide,
+	// batch_sign). `sign`, Inno Setup's tool below, scans by itself.
+	for (const name of flat) {
+		await codesignTool('scan_code', [`-credential_id=${env.CREDENTIAL_ID}`, `-input_file_path=${join(unsigned, name)}`], { run, env, tool });
+	}
+	await codesign('batch_sign', [`-input_dir_path=${unsigned}`, `-output_dir_path=${signed}`], { run, env, tool, wait: dependencies.wait });
 	await Promise.all(files.map((rel, i) => cp(join(signed, flat[i]), join(app, rel))));
 	await rm(unsigned, { recursive: true });
 	await rm(signed, { recursive: true });
