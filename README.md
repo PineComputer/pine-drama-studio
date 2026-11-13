@@ -36,8 +36,13 @@ sample) and put it in your project's `inputs/preset/<your-preset>/`.
 
 ## Install
 
-Signed macOS builds (Apple silicon) will be published on this repository's Releases page. Until then, build from
-source (below).
+1. Download the latest release from the [Releases page](https://github.com/PineComputer/pine-drama-studio/releases/latest):
+   the `.dmg` for your Mac, `darwin-arm64` for Apple silicon or `darwin-x64` for Intel. Both are signed and notarized by
+   Apple.
+2. Open it and drag Pine Drama Studio to Applications. From then on the app updates itself.
+3. Get a Pine project key (`pk_…`) at [pinecomputer.io](https://pinecomputer.io).
+
+To build it yourself instead, see [Build from source](#build-from-source).
 
 ## Quickstart
 
