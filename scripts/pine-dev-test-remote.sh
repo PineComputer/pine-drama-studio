@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # The pine-dev side of scripts/test-on-pine-dev.sh: staged in ~/test-runs/staging/<run id>/ and run there. Not meant
-# to be run by hand (doc/development.md, "Tests on pine-dev").
+# to be run by hand.
 #
 #   remote.sh studio <sha> <run id> <minutes> <wait minutes> none
 #

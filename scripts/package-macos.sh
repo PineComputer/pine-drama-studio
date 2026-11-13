@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Package Pine Drama Studio as a macOS .app (doc/development.md, section 5; milestones M1; issue #59).
+# Package Pine Drama Studio as a macOS .app.
 #
 #   scripts/package-macos.sh                   full build: Code-OSS at the pin + our patch series, the product overlay,
 #                                              upstream's packaging target, our built-in extension; then a zip
@@ -12,7 +12,7 @@
 # VSCODE_DIR itself, which a running dev Studio uses. Each build gets a folder of its own, dist/<version>-b<N>/, holding
 # the app, its disk image (.dmg), its zip and its build-info.json, so a build never writes over an app that may be open; dist/latest names the
 # newest. Before zipping, the integrity checksums in the app's product.json are recomputed and compared, offline.
-# Unsigned (doc/install.md says how to open it). arm64 only: the target is upstream's vscode-darwin-arm64.
+# Unsigned (macOS asks before the first open). arm64 only: the target is upstream's vscode-darwin-arm64.
 set -euo pipefail
 STUDIO="$(cd "$(dirname "$0")/.." && pwd)"
 VSCODE_DIR="$(cd "${VSCODE_DIR:-$STUDIO/../vscode}" && pwd)"
@@ -175,7 +175,7 @@ fi
 
 # ---- full build ----
 
-# 1. Code-OSS at the pin with our patch series, in the packaging worktree; the series is the source of truth (D11).
+# 1. Code-OSS at the pin with our patch series, in the packaging worktree; the series is the source of truth.
 if [ ! -d "$PKG_DIR" ]; then
 	git -C "$VSCODE_DIR" worktree add --detach "$PKG_DIR" "$BASE"
 fi
@@ -206,7 +206,7 @@ node -e '
 # Extensions off the allowlist are still compiled: build/gulpfile.extensions.ts names its compilations in a fixed list,
 # so removing their sources breaks the build. They are removed from the packaged app below instead. GitHub Copilot is
 # the exception: it is packaged by a task of its own, which skips a missing extensions/copilot, and patch 0003 lets the
-# packaging step after it do the same (doc/workbench/upstream.md).
+# packaging step after it do the same.
 rm -rf "$PKG_DIR/extensions/copilot"
 
 # 3. Upstream's packaging target (build/gulpfile.vscode.ts, BUILD_TARGETS): writes <PKG_DIR>/../VSCode-darwin-arm64.

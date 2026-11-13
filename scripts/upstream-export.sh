@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Export the commits of the Code-OSS branch (upstream/vscode.lock) as the patch series in
-# upstream/patches/, one patch per commit. The series is the source of truth (D11).
+# upstream/patches/, one patch per commit. The series is the source of truth.
 set -euo pipefail
 source "$(dirname "$0")/upstream-lib.sh"
 

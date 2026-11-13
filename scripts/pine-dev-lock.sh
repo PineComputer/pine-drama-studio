@@ -28,8 +28,8 @@ ptd_gate() {
 	if [ "$PTD_RUNNER" -lt "$seen" ]; then echo "$PTD_OLDER (runner $PTD_RUNNER, host $seen)"; exec 7>&-; return 1; fi
 	if [ "$PTD_RUNNER" -gt "$seen" ]; then echo "$PTD_RUNNER" > "$root/.runner-version.$$" && mv -f "$root/.runner-version.$$" "$root/.runner-version"; fi
 	exec 7>&-
-	# Runners from before the gate cannot read it: they lock ~/test-runs/.lock (one run at a time, #448) or .lock-<n>
-	# (#468). Those names become folders, which the old code cannot open, so it stops at once and prints the holder file,
+	# Runners from before the gate cannot read it: they lock ~/test-runs/.lock (one run at a time) or
+	# .lock-<n>. Those names become folders, which the old code cannot open, so it stops at once and prints the holder file,
 	# which says why.
 	local f
 	for f in .lock $(seq -f '.lock-%g' 1 "$PTD_SLOTS"); do [ -d "$root/$f" ] || { rm -f "$root/$f"; mkdir -p "$root/$f"; }; done

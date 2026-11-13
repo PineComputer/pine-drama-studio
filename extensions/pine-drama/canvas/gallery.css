@@ -1,4 +1,4 @@
-/* Galleries and detail pages (D17), on the workbench's colours only, with the canvas's type scale and corners. */
+/* Galleries and detail pages, on the workbench's colours only, with the canvas's type scale and corners. */
 html, body { margin: 0; padding: 0; background: var(--vscode-editor-background); color: var(--vscode-foreground); font-family: var(--vscode-font-family); font-size: 12px; }
 button { font: inherit; color: inherit; }
 .page { padding: 20px 24px 32px; max-width: 1600px; }

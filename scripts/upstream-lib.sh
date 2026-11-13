@@ -14,7 +14,7 @@ lock_value() {
 BASE="$(lock_value base)"
 BRANCH="${PINE_BRANCH:-$(lock_value branch)}"
 
-# Layer 3 (D11): upstream files the series modifies or deletes, as opposed to files it adds.
+# Layer 3: upstream files the series modifies or deletes, as opposed to files it adds.
 touchpoints() {
 	git -C "$VSCODE_DIR" diff --name-only --diff-filter=MDR "$BASE" "$1"
 }
