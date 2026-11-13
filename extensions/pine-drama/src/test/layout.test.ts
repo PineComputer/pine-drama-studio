@@ -73,3 +73,11 @@ test('the only Computer command is the developer Stop All, in no menu', () => {
 	assert.deepEqual(stops.map(c => [c.command, c.category, c.title]), [['pineDrama.stopAllComputers', 'Developer', 'Pine: Stop All Computers']]);
 	assert.deepEqual(Object.entries(contributes.menus).flatMap(([menu, entries]) => entries.filter(e => /stop/i.test(e.command)).map(e => [menu, e.command])), []);
 });
+
+test("Production's welcome says when the project is open in another Studio window, and names no config file", () => {
+	const welcome = (manifest.contributes as unknown as { viewsWelcome: { view: string; when: string; contents: string }[] }).viewsWelcome.filter(w => w.view === 'pine.project');
+	assert.deepEqual(welcome.map(w => w.when), ['!pineDrama.projectOpen && !pineDrama.projectElsewhere', 'pineDrama.projectElsewhere'], 'one welcome at a time');
+	assert.match(welcome[0].contents, /^No drama project is open\.\n\[Open Project Folder\]/);
+	assert.doesNotMatch(welcome[0].contents, /drama-cli|cfg\.yaml/);
+	assert.match(welcome[1].contents, /^This project is open in another Pine Drama Studio window\./);
+});

@@ -413,8 +413,13 @@
     "viewsWelcome": [
       {
         "view": "pine.project",
-        "when": "!pineDrama.projectOpen",
-        "contents": "No drama project is open. A drama project is a folder with a drama-cli.cfg.yaml.\n[Open Project Folder](command:workbench.action.files.openFolder)"
+        "when": "!pineDrama.projectOpen && !pineDrama.projectElsewhere",
+        "contents": "No drama project is open.\n[Open Project Folder](command:workbench.action.files.openFolder)"
+      },
+      {
+        "view": "pine.project",
+        "when": "pineDrama.projectElsewhere",
+        "contents": "This project is open in another Pine Drama Studio window. Work on it there, or close that window and reload this one."
       },
       {
         "view": "pine.versions",

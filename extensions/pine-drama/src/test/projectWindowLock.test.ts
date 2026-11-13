@@ -159,8 +159,8 @@ test('a window whose project is held elsewhere loads nothing for the project and
 		await api.extension.activate({ subscriptions, extensionPath: base, globalStorageUri: { fsPath: join(base, 'storage') }, secrets: api.deep('secrets'), extensionMode: 1 } as unknown as import('vscode').ExtensionContext);
 		api.state.recording = false;
 		assert.deepEqual(api.warnings, ['Pine: This project is open in another Studio window. This window loads nothing for it.']);
-		assert.deepEqual(api.reached(), ['env.appName', 'version', 'window.createOutputChannel', 'window.showWarningMessage', 'workspace.workspaceFolders'],
-			'nothing but the output channel, the folder and the one line');
+		assert.deepEqual(api.reached(), ['commands.executeCommand', 'env.appName', 'version', 'window.createOutputChannel', 'window.showWarningMessage', 'workspace.workspaceFolders'],
+			"nothing but the output channel, the folder, the one line and Production's context key (pineDrama.projectElsewhere)");
 		assert.equal(subscriptions.length, 1, 'only the output channel');
 		assert.ok(api.lines.some(line => line.includes('is open in another Studio window')));
 		assert.ok(!existsSync(join(base, 'storage')), 'no conversation store was opened');

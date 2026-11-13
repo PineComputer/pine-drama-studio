@@ -57,6 +57,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	if (windowLock?.kind === 'elsewhere') {
 		log(`project window lock: ${lockedRoot} is open in another Studio window (${windowLock.file}); this window loads nothing for it`);
 		void vscode.window.showWarningMessage('Pine: This project is open in another Studio window. This window loads nothing for it.');
+		// Production says so too, in place of the welcome for a window with no project (package.json, viewsWelcome).
+		void vscode.commands.executeCommand('setContext', 'pineDrama.projectElsewhere', true);
 		return;
 	}
 	if (windowLock) { log(`project window lock: ${lockedRoot} (${windowLock.file})`); }
