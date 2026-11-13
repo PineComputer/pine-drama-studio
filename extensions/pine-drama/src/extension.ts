@@ -27,7 +27,6 @@ import { showInChatView } from './chatView';
 import { registerReviewView } from './reviewView';
 import { waitingReason } from './core/reviews';
 import { destinationOf, statusText, waitingItems, type WaitingItem } from './core/attention';
-import { sessionTitles } from './core/sessionTitle';
 import { openProjectChat, projectWindowRestorer, type RestoredProjectChat } from './projectChatNavigation';
 
 // Wires the Studio's parts to the workbench: business state in SQLite
@@ -188,8 +187,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	});
 	registerPineConnection(context, config, vault, log, () => { connectionCurrent = false; }, () => connectionCurrent, () => disconnectProblem(service.chats()));
 	log(`conversation store ${dbPath}`);
-	// One title per session wherever it is named: the sessions list, the pickers, Review, the status bar.
-	const titleOf = sessionTitles(key => service.projectRoot(key), log, key => service.chat(key));
+	// One title per session wherever it is named: the sessions list, the pickers, Review, the status bar: its first message.
+	const titleOf = (key: string) => service.chat(key)?.label;
 	chatTitleOf = titleOf;
 	// The open reviews with each item's verdict so far: a session's project window shows its own Chat's. Registered
 	// before the sessions, whose Chat cards submit through it.

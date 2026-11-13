@@ -312,7 +312,7 @@ export function versionFile(object: DramaObject, version: string | null): string
 	return preview ? join(preview, ...file.split('/')) : `${object.id}/${version}/${file}`;
 }
 
-/** A Chat's title by its key, as the sessions list shows it (core/sessionTitle.ts); undefined while unknown. */
+/** A Chat's title by its key, as the sessions list shows it (its first message); undefined while unknown. */
 export type ChatTitle = (key: string) => string | undefined;
 
 /** The three marks a card shows of the person's choices, in the approved words. */

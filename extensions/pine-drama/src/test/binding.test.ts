@@ -53,7 +53,10 @@ test('a new binding takes any folder that holds no drama-cli project; a project 
 	const notes = folder('notes');
 	mkdirSync(join(notes, 'drama'));
 	writeFileSync(join(notes, 'drama', 'notes.md'), 'the person\'s');
-	assert.deepEqual(entryFor([], '/p', KEY, notes), { kind: 'go', bind: true, note: `${SAID(notes)} Its 1 file (under 0.1 MB) goes to the Pine Computer with each task, and no result replaces it.` });
+	assert.deepEqual(entryFor([], '/p', KEY, notes), { kind: 'go', bind: true, note: SAID(notes) }, 'only inputs/ and imports/ travel');
+	mkdirSync(join(notes, 'inputs'));
+	writeFileSync(join(notes, 'inputs', 'notes.md'), 'the person\'s');
+	assert.deepEqual(entryFor([], '/p', KEY, notes), { kind: 'go', bind: true, note: `${SAID(notes)} Its 1 file under imports/, inputs/ (under 0.1 MB) goes to the Pine Computer with each task, and no result replaces it.` });
 	const project = folder('double-life');
 	writeFileSync(join(project, 'choices.json'), 'project: x\n');
 	assert.deepEqual(entryFor([], '/p', KEY, project), { kind: 'adopt', folder: project });
@@ -63,15 +66,17 @@ test('a new binding takes any folder that holds no drama-cli project; a project 
 	assert.deepEqual(entryFor([], '/p', KEY, parent), { kind: 'inside', folder: parent, project: child });
 });
 
-// Hidden names stay local (transportedPath): they are neither counted in the note nor the person's record's.
-test('the note counts only the files that travel: .DS_Store, .git and .env stay local, Thumbs.db travels', () => {
+// Only the client files travel (doc/protocol.md, 3.3), and of them no hidden name (transportedPath).
+test('the note counts only the files that travel: the client folders, less .DS_Store, .git and .env', () => {
 	const { folder } = setup();
 	const finder = folder('finder');
-	for (const name of ['.DS_Store', '.env']) { writeFileSync(join(finder, name), 'x'); }
-	mkdirSync(join(finder, '.git')); writeFileSync(join(finder, '.git', 'HEAD'), 'ref: refs/heads/main');
+	mkdirSync(join(finder, 'inputs'));
+	for (const name of ['.DS_Store', '.env']) { writeFileSync(join(finder, 'inputs', name), 'x'); }
+	mkdirSync(join(finder, 'inputs', '.git')); writeFileSync(join(finder, 'inputs', '.git', 'HEAD'), 'ref: refs/heads/main');
+	writeFileSync(join(finder, 'notes.txt'), 'the person\'s, outside inputs/');
 	assert.deepEqual(entryFor([], '/p', KEY, finder), { kind: 'go', bind: true, note: SAID(finder) });
-	writeFileSync(join(finder, 'Thumbs.db'), 'explorer'); writeFileSync(join(finder, 'notes.txt'), 'the person\'s');
-	assert.deepEqual(entryFor([], '/p', KEY, finder), { kind: 'go', bind: true, note: `${SAID(finder)} Its 2 files (under 0.1 MB) go to the Pine Computer with each task, and no result replaces them.` });
+	writeFileSync(join(finder, 'inputs', 'Thumbs.db'), 'explorer'); writeFileSync(join(finder, 'inputs', 'notes.txt'), 'the person\'s');
+	assert.deepEqual(entryFor([], '/p', KEY, finder), { kind: 'go', bind: true, note: `${SAID(finder)} Its 2 files under imports/, inputs/ (under 0.1 MB) go to the Pine Computer with each task, and no result replaces them.` });
 });
 
 test('a bound session goes on in its folder and is refused elsewhere; a Chat of no project joins it as a session (D48)', () => {

@@ -10,20 +10,12 @@ import { projectIdentity } from './projectPlace';
 import type { Choices, Folders, Note, ProtocolError, Request, Snapshot } from './protocol';
 import { fileKey, sha256, stateKey, versionKey } from './taskArtifacts';
 
-/** The one hidden folder that travels: the Studio's own at the project root, which holds the project's preset. */
-export const STUDIO_FOLDER = '.pine-drama';
-
 /**
- * Whether a project file travels with a task, by its project-relative POSIX path. A path travels only if no part of
- * it is hidden: drama-cli's locks and temporary files, .git, .DS_Store, .env and every other hidden name are left behind.
- * The one exception is the Studio's folder at the root. A publication's staging leftovers (`.incoming-`) also stay
- * behind. resources/pine-task.py `transported` applies the same rule on the Computer, and taskRoundTrip.test.ts holds
- * the two to it.
+ * Whether a file travels with a task, by its POSIX path below the client folder walked (CLIENT_FOLDERS): only if no part
+ * of it is hidden, so .git, .DS_Store, .env and every other hidden name stay on this machine.
  */
 export function transportedPath(rel: string): boolean {
-	const parts = rel.split('/');
-	return !parts.at(-1)!.includes('.incoming-')
-		&& parts.every((part, i) => !part.startsWith('.') || (i === 0 && i < parts.length - 1 && part === STUDIO_FOLDER));
+	return rel.split('/').every(part => !part.startsWith('.'));
 }
 
 /**
@@ -197,15 +189,18 @@ export function previewVersions(storage: string, root: string): { readonly objec
 	return dramaRecordOf(storage, root).previews().filter(p => !existsSync(join(root, p.object, p.version)));
 }
 
-/** The client files (doc/protocol.md, 3.3): every file under `imports/` and `inputs/`, by path to its hash. */
+/** The folders of the client files (doc/protocol.md, 3.3): the person's pictures and their inputs. */
+export const CLIENT_FOLDERS = ['imports', 'inputs'] as const;
+
+/** Every client file of the drama at `root`: its project-relative path, and where it is. */
+export function clientFileList(root: string): { readonly rel: string; readonly path: string }[] {
+	return CLIENT_FOLDERS.flatMap(top => existsSync(join(root, top))
+		? transportedFiles(join(root, top)).map(f => ({ rel: `${top}/${f.rel}`, path: f.path })) : []);
+}
+
+/** The client files, by path to their hash (4.2, `files`). */
 export function clientFiles(root: string): Record<string, string> {
-	const files: Record<string, string> = {};
-	for (const top of ['imports', 'inputs']) {
-		for (const { rel, path } of existsSync(join(root, top)) ? transportedFiles(join(root, top)) : []) {
-			files[`${top}/${rel}`] = sha256(readFileSync(path));
-		}
-	}
-	return files;
+	return Object.fromEntries(clientFileList(root).map(f => [f.rel, sha256(readFileSync(f.path))]));
 }
 
 /** Every file of a folder, by its path relative to it, sorted, leaving out `reviews/` (a version's archive, 4.1). */

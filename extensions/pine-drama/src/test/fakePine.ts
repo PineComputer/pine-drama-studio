@@ -38,12 +38,6 @@ export type TurnPlan = {
 	noReturn?: boolean;
 };
 
-/**
- * The real resources/pine-task.py, run as the agent runs it, in a session folder that persists between turns as a
- * Computer's does, against the artifacts kept as a folder (`pine-artifact` is a shell script over it, as PineSandbox
- * cmd/pine-artifact/main.go documents cat, get and save). `dramaCli` stands in for drama-cli's `jobs`.
- */
-
 const TYPES: Record<string, string> = { png: 'image/png', mp4: 'video/mp4', md: 'text/markdown', json: 'application/json', txt: 'text/plain' };
 const bytesOf = (content: string | Uint8Array) => typeof content === 'string' ? new TextEncoder().encode(content) : content;
 

@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert';
-import { chmodSync, mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs';
 import { registerHooks } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -14,14 +14,8 @@ const base = realpathSync(mkdtempSync(join(tmpdir(), 'pine-later-binding-')));
 const project = join(base, 'project');
 mkdirSync(project);
 writeFileSync(join(project, 'choices.json'), `project: ${project}\n`);
-const resources = join(base, 'Resources');
-const python = join(resources, 'drama-project', 'python', 'bin', 'python3');
-mkdirSync(join(resources, 'drama-project', 'python', 'bin'), { recursive: true });
-writeFileSync(python, '#!/bin/sh\nfor a in "$@"; do [ "$a" = stdin ] && cat > /dev/null; done\necho \'{}\'\n');
-chmodSync(python, 0o755);
-const extensionPath = join(resources, 'app', 'extensions', 'pine-drama');
-mkdirSync(join(extensionPath, 'resources'), { recursive: true });
-writeFileSync(join(extensionPath, 'resources', 'pine-task.py'), '# stand-in\n');
+const extensionPath = join(base, 'Resources', 'app', 'extensions', 'pine-drama');
+mkdirSync(extensionPath, { recursive: true });
 
 /** Every file system watcher the activation creates: where it watches, and its listeners. */
 type Watcher = { base: string; listeners: ((uri: { fsPath: string }) => void)[] };

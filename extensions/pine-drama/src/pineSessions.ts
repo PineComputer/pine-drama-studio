@@ -11,7 +11,6 @@ import type { Chat, Message } from './core/store';
 import { endpointHost, notSetUpText, PINE_MODEL, sendGate, type PineConfig } from './pineConfig';
 import { OPEN_REVIEW_COMMAND, VIEW_ID } from './reviewView';
 import { chatRows, NOT_LISTED_YET } from './core/chatPick';
-import { sessionTitles } from './core/sessionTitle';
 import { itemTiming } from './core/sessionTiming';
 import { chatLine, enabledCommands, refusalOf, type Refusal, type RefusalCommands, type Situation } from './core/refusal';
 import { randomUUID } from 'node:crypto';
@@ -55,7 +54,7 @@ export function registerPineSessions(
 	/** The Review index's submit, and its record of a continuation in flight (reviewView.ts), which the Chat cards show. */
 	review: { submitReviewDecisions(key: string, id: string, words?: string): Promise<void>; continuing(id: string): boolean; readonly onDidChangeContinuing: vscode.Event<void> },
 ): { refresh(key: string): void; scope(): ProjectSessions | undefined } {
-	const titleOf = sessionTitles(key => service.projectRoot(key), line => output.appendLine(`${new Date().toISOString()} ${line}`), key => service.chat(key));
+	const titleOf = (key: string) => service.chat(key)?.label;
 
 	const openFolder = (folder: vscode.Uri) => vscode.commands.executeCommand('vscode.openFolder', folder, { forceNewWindow: false });
 

@@ -3,9 +3,8 @@
 import { CHOICES_FILE } from './choices';
 import { existsSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { folderFiles } from './personFiles';
 import { projectIdentity, projectRootOf } from './projectPlace';
-import { transportedTree } from './taskRun';
+import { CLIENT_FOLDERS, clientFileList, transportedTree } from './taskRun';
 
 export type Entry =
 	/** An explicit send may adopt this initialized root only after local CLI validation. */
@@ -47,14 +46,15 @@ export function projectsBelow(folder: string): string[] {
  */
 export function holdsNoProject(folder: string): boolean { return !existsSync(join(folder, CONFIG)) && !projectsBelow(folder).length; }
 
-/** The first send's one note: where results arrive, and what of the folder goes with each task. */
+/** The first send's one note: where results arrive, and what of the folder goes with each task: its client files alone
+ * (taskRun.ts, CLIENT_FOLDERS; doc/protocol.md, 3.3 and 4.2). */
 function bindingNote(root: string): string {
-	const files = folderFiles(root);
+	const files = clientFileList(root).map(f => ({ rel: f.rel, bytes: statSync(f.path).size }));
 	const said = `This project's root is \`${root}\`. The Pine Computer's returned results are published here.`;
 	if (!files.length) { return said; }
 	const mb = files.reduce((sum, f) => sum + f.bytes, 0) / 1e6; // decimal megabytes
 	const one = files.length === 1;
-	return `${said} Its ${one ? '1 file' : `${files.length} files`} (${mb < 0.1 ? 'under 0.1' : mb.toFixed(1)} MB) ${one ? 'goes' : 'go'} to the Pine Computer with each task, and no result replaces ${one ? 'it' : 'them'}.`;
+	return `${said} Its ${one ? '1 file' : `${files.length} files`} under ${CLIENT_FOLDERS.map(top => `${top}/`).join(', ')} (${mb < 0.1 ? 'under 0.1' : mb.toFixed(1)} MB) ${one ? 'goes' : 'go'} to the Pine Computer with each task, and no result replaces ${one ? 'it' : 'them'}.`;
 }
 
 /** What the window's one folder means for a message in session `key`. */

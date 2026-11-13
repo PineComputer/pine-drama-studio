@@ -34,7 +34,6 @@ import { hashFile, projectIdentity, projectPlaceOf, projectRootOf } from './proj
 import { entryFor, type Entry } from './binding';
 import { givenBack, refusalLine } from './refusal';
 import { Holders, keptBytes, putAll, requestKey, returnKey, sha256 } from './taskArtifacts';
-import { PERSON_FILES, personFilesNote, recordPersonFiles } from './personFiles';
 import { dramaRecordOf, installedSnapshots, requestKeys, requestOf, taskMessage, type DramaRecord } from './taskRun';
 import { installReturn, InvalidReturn, previewProgress, type ReviewTarget } from './resultImporter';
 import { check, ProtocolDocumentError, UnsupportedMajor, type Return } from './protocol';
@@ -407,17 +406,6 @@ export class ChatService {
 			}
 		}
 		if (folder && entry?.kind === 'go' && entry.bind) {
-			// A folder's first binding (the one with a note) records the files it holds as the person's before it is bound, so
-			// a bound project always has its record and no result replaces them (core/personFiles.ts).
-			if (entry.note) {
-				try { recordPersonFiles(folder); }
-				catch (error) {
-					this.log(`${key}: ${folder}: the folder's files could not be recorded: ${(error as Error).stack ?? error}`);
-					yield unsentLine(text, files, 'the folder\'s files could not be recorded');
-					yield { kind: 'markdown', text: `**Your message was not sent:** the folder's own files could not be recorded in ${PERSON_FILES} (${(error as Error).message}).` };
-					return;
-				}
-			}
 			if (!this.store.bindFolder(key, folder)) {
 				yield unsentLine(text, files, 'the session it was for has ended');
 				yield { kind: 'markdown', text: '_Not sent: this folder changed or was bound in another window; reopen the project and retry._' };
@@ -508,10 +496,7 @@ export class ChatService {
 		// Files the person added are in the drama's folder already (placeFiles): the request carries them, the note names them.
 		const note = placedAttachments.length ? `Pine Drama Studio: the person added to the drama's folder: ${placedAttachments.join(', ')}.` : undefined;
 		const body = decided.kind === 'decision' ? decided.sent : text;
-		// The folder's own files, told with the standing instructions, so each session of the project learns of them once.
-		const ownRoot = standing ? this.projectRoot(key) : undefined;
-		const own = ownRoot ? personFilesNote(ownRoot) : undefined;
-		const noted = [body, changed ? CHANGED_TARGET_NOTE : undefined, note, own].filter((part): part is string => !!part).join('\n\n');
+		const noted = [body, changed ? CHANGED_TARGET_NOTE : undefined, note].filter((part): part is string => !!part).join('\n\n');
 		// A run or an answer is a task (doc/protocol.md, 4.1): its request and every archive and file it names are on the
 		// Computer before the message that starts it is sent, and the task id is the message's Idempotency-Key.
 		const opId = randomUUID();
