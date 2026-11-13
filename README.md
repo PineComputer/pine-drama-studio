@@ -19,8 +19,11 @@ storyboards, takes and the cut. You review and choose in the Studio; the drama's
 - The Studio and a Pine Computer speak one open, add-only [protocol](doc/protocol.md). The terms are defined, with their
   film-industry sources, in the [vocabulary](doc/vocabulary.md).
 
-A project's custom presets, the prompt templates the agent's tools write and draw with, go in its `inputs/preset/`
-folder: see [presets](doc/presets.md).
+## Presets
+
+You don't need to provide a preset: Pine Computers come with built-in presets, and the agent picks one or uses the one
+you name. To use your own, write it as [presets](doc/presets.md) describes (the format, the reply schemas and a minimal
+sample) and put it in your project's `inputs/preset/<your-preset>/`.
 
 ## Conventions
 

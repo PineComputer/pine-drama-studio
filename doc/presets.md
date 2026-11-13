@@ -2,6 +2,8 @@
 
 A **preset** decides how a drama is written and drawn. It is a folder of prompt templates, one per model call drama-cli makes, plus a `preset.yaml` with a few settings. The agent on the Pine Computer runs drama-cli, and drama-cli fills each template with the drama's data and sends it to the model. A preset sets the style and the rules. It never names models: those come from a model set the platform keeps.
 
+**A preset is optional.** Pine Computers come with built-in presets, and the agent uses one of them unless you name another. To override it, add your own preset folder as `inputs/preset/<name>/` in your project, written as this page describes.
+
 A preset is not an agent skill. A skill tells the agent what to do. A preset is the input drama-cli sends to the models. The terms are defined in the [vocabulary](vocabulary.md#running-the-work).
 
 ## Where a preset goes
@@ -54,6 +56,8 @@ The check covers:
 Each template is a Markdown file at a fixed path, filled by one drama-cli command. `{{name}}` is a placeholder drama-cli fills, `{{shared:file}}` includes `shared/file` from the same preset, and `{{! ... }}` is a comment drama-cli removes before sending. The wording is yours. The paths, the placeholders and the reply's structure are fixed, because later steps read them.
 
 **Bold** placeholders must appear in the template; the others are optional. A placeholder not listed is refused.
+
+A reply schema, linked in the Reply column, is the JSON structure a JSON template's reply must follow (field names and types only); your template's `Example:` must match it.
 
 | Template | Command | Reply | Placeholders |
 |---|---|---|---|
