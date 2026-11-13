@@ -13,8 +13,6 @@ quickDiff, testing, interactive, tasks' taskService, issue and
 extensionHostDebugService stay. Found by removing them one at a time
 and starting the Studio after each.
 
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
-
 diff --git a/src/vs/workbench/workbench.common.main.ts b/src/vs/workbench/workbench.common.main.ts
 index 8de8a781d04..4bff31a2ae7 100644
 --- a/src/vs/workbench/workbench.common.main.ts

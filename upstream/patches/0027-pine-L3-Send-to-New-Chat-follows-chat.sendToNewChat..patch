@@ -11,8 +11,6 @@ and the view item offers it while Alt is held, or Shift with the pointer over th
 updateAltState). With the setting off the button stays Send. An extension cannot remove a keybinding or a menu
 alternative.
 
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
-
 diff --git a/src/vs/workbench/contrib/chat/browser/actions/chatExecuteActions.ts b/src/vs/workbench/contrib/chat/browser/actions/chatExecuteActions.ts
 index f97e8888c7c..82f83dd7897 100644
 --- a/src/vs/workbench/contrib/chat/browser/actions/chatExecuteActions.ts

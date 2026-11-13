@@ -9,8 +9,6 @@ Registers chat.editor.localAgent.enabled false, so upstream's local
 hides the 'chat.statusBarEntry' status bar entry, as the person's own
 Hide would. The Studio ships no Copilot.
 
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
-
 diff --git a/src/vs/workbench/contrib/pine/browser/pine.contribution.ts b/src/vs/workbench/contrib/pine/browser/pine.contribution.ts
 index 4035ed19cec..5d4d7d98088 100644
 --- a/src/vs/workbench/contrib/pine/browser/pine.contribution.ts

@@ -4,7 +4,6 @@ Date: Fri, 6 Nov 2026 20:10:36 -0800
 Subject: [PATCH 25/32] pine(L2): name the Review lock after Code-OSS's input
  block: blockChatInputWhileReviewWaits
 
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 
 diff --git a/src/vs/workbench/contrib/pine/browser/pineReview.ts b/src/vs/workbench/contrib/pine/browser/pineReview.ts
 index 159e5f5efe2..ccac2c82a4b 100644

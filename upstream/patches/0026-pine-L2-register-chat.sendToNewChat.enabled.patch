@@ -7,8 +7,6 @@ A generic setting, default true, for whether Chat offers Send to New Chat. The S
 : the person's reply to a session waiting for their answer went to a new session and a new
 Computer, twice, through Send to New Chat, which they did not mean to use.
 
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
-
 diff --git a/src/vs/workbench/contrib/pine/browser/pine.contribution.ts b/src/vs/workbench/contrib/pine/browser/pine.contribution.ts
 index df5e0a0d4ba..8522dca0065 100644
 --- a/src/vs/workbench/contrib/pine/browser/pine.contribution.ts

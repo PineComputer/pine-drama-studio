@@ -7,8 +7,6 @@ Subject: [PATCH 28/32] pine(L2): test that Send to New Chat follows
 The setting is registered on by default; with it off, the keybinding's when and the Send button's alternative do not
 match a chat input with text.
 
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
-
 diff --git a/src/vs/workbench/contrib/pine/test/browser/pineSendToNewChat.test.ts b/src/vs/workbench/contrib/pine/test/browser/pineSendToNewChat.test.ts
 new file mode 100644
 index 00000000000..464f9438d22

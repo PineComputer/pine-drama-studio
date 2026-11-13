@@ -9,8 +9,6 @@ package that ships no Copilot it offers a Copilot session type and logs
 that its SDK runtime is missing. A product.json key, pineShipsNoCopilot,
 which only Pine Drama Studio's package sets, skips it.
 
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
-
 diff --git a/src/vs/platform/agentHost/node/agentHostMain.ts b/src/vs/platform/agentHost/node/agentHostMain.ts
 index d7c3453ae73..eb606875043 100644
 --- a/src/vs/platform/agentHost/node/agentHostMain.ts

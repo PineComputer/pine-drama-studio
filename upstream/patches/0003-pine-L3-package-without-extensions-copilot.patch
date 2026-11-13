@@ -9,8 +9,6 @@ prepare the Copilot ripgrep shim, so it fails; CI builds get Copilot as a
 VSIX instead. Pine Drama Studio ships no Copilot: when the product has no
 extensions/copilot, the shim step has nothing to prepare and returns.
 
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
-
 diff --git a/build/gulpfile.vscode.ts b/build/gulpfile.vscode.ts
 index 0256e9eabef..f89333e453d 100644
 --- a/build/gulpfile.vscode.ts

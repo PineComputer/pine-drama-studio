@@ -9,8 +9,6 @@ offered without the Copilot variant. An application-scoped setting, which
 an extension's configurationDefaults cannot set. Registered by one import
 in workbench.common.main.ts (already a touchpoint).
 
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
-
 diff --git a/src/vs/workbench/contrib/pine/browser/pine.contribution.ts b/src/vs/workbench/contrib/pine/browser/pine.contribution.ts
 new file mode 100644
 index 00000000000..4035ed19cec
