@@ -144,7 +144,7 @@ export interface CanvasRecord {
 export interface CanvasDetail {
 	readonly prompt: string | null;
 	readonly madeAt: string;
-	readonly references: readonly { readonly n: number; readonly file: string | null; readonly raw: string; readonly src: string | null; readonly stageId: string | null }[];
+	readonly references: readonly { readonly n: number; readonly file: string | null; readonly label: string; readonly src: string | null; readonly stageId: string | null }[];
 }
 
 export const CANVAS_COMMANDS = ['zoomIn', 'zoomOut', 'fit', 'selectAll'] as const;

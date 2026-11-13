@@ -45,6 +45,7 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, statSync
 import { basename, extname, join } from 'node:path';
 import { withoutRepeatedQuestion } from './askedOnce';
 import { answerFor, asks, complete, decisionRun, itemComplete, reviewKindOf, itemHere, subjectOf, viewOf, type ReviewFile, type ReviewItem, type ReviewView, type Verdict } from './reviews';
+import { snapshotState, versionTitle } from './project';
 import { EXTRACTED, extractText, textName, type Extraction } from './extract';
 import { PineSessionGenerations, PineSessionReplacedError } from './pineSessionGeneration';
 import { type Chat, type Message, type SavedSend, type SavedSendKind, type Store } from './store';
@@ -1339,16 +1340,19 @@ export class ChatService {
 		}
 		if (!targets.length && turn.state !== 'needs_input' && !asks(turn.asked)) { return undefined; }
 		const root = this.projectRoot(key);
+		// What the installed snapshots say of each object (core/project.ts, snapshotState): its type sets the review's
+		// kind, and its name the item's title, as the canvas names it. No version history is read for that.
+		const protocol = this.options.protocol;
+		const state = root && protocol ? snapshotState(installedSnapshots(protocol.storage, root)) : undefined;
+		const named = { objects: new Map([...state?.listed ?? []].map(([id, { object }]) => [id, object])), edges: state?.edges ?? [] };
 		// Each version shows the file its version.json names (doc/protocol.md, 2.1).
 		const items: ReviewItem[] = root ? targets.map(target => {
 			const folder = `${target.object}/${target.version}`;
 			const shown = (JSON.parse(readFileSync(join(root, folder, 'version.json'), 'utf8')) as { file: string | null }).file;
 			const files: ReviewFile[] = shown ? [{ id: 0, relPath: `drama/${folder}/${shown}`, sha: hashFile(join(root, folder, shown)), type: '', here: true }] : [];
-			return { key: folder, label: `${target.object} ${target.version}`, files, targets: [target] };
+			return { key: folder, label: versionTitle(named, target.object, target.version), files, targets: [target] };
 		}) : [];
-		// The kind follows the objects' types in the latest installed snapshot that lists them (doc/protocol.md, 5.3).
-		const snapshots = root && this.options.protocol ? installedSnapshots(this.options.protocol.storage, root).map(s => s.snapshot).reverse() : [];
-		const kind = reviewKindOf(targets.flatMap(t => { const type = snapshots.find(s => s.objects[t.object])?.objects[t.object].type; return type ? [type] : []; }));
+		const kind = reviewKindOf(targets.flatMap(t => { const type = named.objects.get(t.object)?.type; return type ? [type] : []; }));
 		this.write(key, epoch, () => this.store.insertReview({ id: randomUUID(), chat_key: key, turn_id: turn.turnId, kind, subject: subjectOf(kind), question: turn.asked, items: JSON.stringify(items) }));
 		return this.openReview(key);
 	}

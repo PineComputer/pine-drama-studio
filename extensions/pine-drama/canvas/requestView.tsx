@@ -17,7 +17,7 @@ export function RequestView({ detail, onGo }: { detail: CanvasDetail; onGo: (sta
 				<div className="refs">
 					{detail.references.map(r => (
 						<button key={r.n} className="ref" disabled={!r.stageId} onClick={() => r.stageId && onGo(r.stageId)}
-							title={`Image ${r.n}: ${r.file ?? r.raw}${r.stageId ? '\nClick: go to its card' : ''}`}>
+							title={`Image ${r.n}: ${r.label}${r.stageId ? '\nClick: go to its card' : ''}`}>
 							{r.src ? <img src={r.src} draggable={false} loading="lazy" decoding="async" /> : <span className="codicon codicon-file-media" />}
 							<span className="n">{r.n}</span>
 						</button>

@@ -4,7 +4,7 @@
 
 import { extname } from 'node:path';
 import type { CanvasDetail } from './canvasProtocol';
-import { versionFile, type Drama } from './project';
+import { versionFile, versionTitle, type Drama } from './project';
 
 export const IMAGE_SUFFIXES: ReadonlySet<string> = new Set(['.png', '.jpg', '.jpeg', '.webp']);
 
@@ -23,7 +23,7 @@ export function versionDetail(drama: Drama, object: string, version: string, src
 			const used = drama.objects.get(input.object);
 			const file = used ? versionFile(used, input.version) : null;
 			return {
-				n: i + 1, file, raw: `${input.object} ${input.version}`,
+				n: i + 1, file, label: versionTitle(drama, input.object, input.version),
 				src: file && IMAGE_SUFFIXES.has(extname(file).toLowerCase()) ? src(file) : null,
 				stageId: drama.objects.has(input.object) ? input.object : null,
 			};

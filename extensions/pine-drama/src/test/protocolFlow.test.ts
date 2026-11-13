@@ -92,6 +92,8 @@ test('Review Submit writes the chosen versions with the person\'s words into cho
 		f.pine.plans = [reviewPlan([{ object: 'assets/props/umbrella', version: 'v1', files: { 'image-1.png': 'umbrella' } }])];
 		await f.send('draw the umbrella');
 		const review = f.service.openReview('main')!.review;
+		// B13: the card names the version for the person, not by its folder's path.
+		assert.deepEqual(review.items.map(item => item.label), ['umbrella · v1']);
 		f.service.approveAll('main', review.id);
 		await f.service.recordReviewDecisionsLocally('main', review.id);
 		assert.deepEqual((await readChoices(f.root))!.objects['assets/props/umbrella'], { chosen: { version: 'v1', words: REVIEW_APPROVAL_STATEMENT } });

@@ -3,7 +3,7 @@ import { cpSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { DramaProject, episodeOfNode, readDrama, versionFile } from '../core/project';
+import { DramaProject, episodeOfNode, readDrama, versionFile, versionTitle } from '../core/project';
 import { decomposition } from '../core/threeSteps';
 import type { Choices, Snapshot } from '../core/protocol';
 import type { ScopedSnapshot, TasksOf } from '../core/project';
@@ -165,4 +165,15 @@ test('Script lists the episodes under way, folds the ones not started into one r
 	const folded = (await drama.children(rows[1]))[1];
 	assert.equal(episodeOfNode(folded), 'EP003');
 	assert.equal(episodeOfNode(rows[0]), 'EP001');
+});
+
+// B13: a review card titled versions by their folders' paths ("episodes/EP001/segments/seg02 t01"); the canvas's
+// reference tooltips did too. Both now name a version as the canvas names its card.
+test("a version's name for the person: a variant after its asset, an episode's object after its episode, a take by its number", async () => {
+	const drama = await readDrama(folder(), () => [project(PROJECT, 1), episodes(EPISODES, 2)]);
+	assert.equal(versionTitle(drama, 'assets/characters/lin/variants/rain', 'v1'), 'Lin · In the rain · v1');
+	assert.equal(versionTitle(drama, 'assets/characters/lin', 'v3'), 'Lin · v3');
+	assert.equal(versionTitle(drama, 'episodes/EP001/segments/seg02', 't01'), 'EP001 · seg02 · take 1');
+	assert.equal(versionTitle(drama, 'episodes/EP001', 'v1'), 'EP001 The Interview · v1');
+	assert.equal(versionTitle(drama, 'assets/props/kettle', 'v2'), 'kettle · v2', 'an object no snapshot names yet, by its folder');
 });

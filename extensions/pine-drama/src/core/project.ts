@@ -91,15 +91,11 @@ export interface Drama {
 }
 
 /**
- * Reads the drama. Each object, and each edge from it, comes from the latest installed snapshot that lists the object,
- * labelled with that snapshot's `observed_at`, whichever session returned it. A later snapshot that should list an object
- * and does not removes it, but only an object the client knew when that turn's request was sent: a version folder of it
- * was in the request, or a snapshot installed before then listed it (doc/protocol.md, sections 1 and 5.3). So a shared
- * object an episode turn made is not removed by a Project Chat turn that never saw it. The person's `removed` removes an
- * object with every variant derived from it.
+ * What the installed snapshots say now (doc/protocol.md, 5.3): each object from the latest snapshot that lists it, and
+ * the edges from it, after the removals readDrama describes. readDrama reads the drama's files on top of it; a reader
+ * that needs only names, types and edges, such as a review card's titles, reads this alone.
  */
-export async function readDrama(root: string, snapshotOf: SnapshotOf, previewsOf: PreviewsOf = () => [], tasks?: TasksOf): Promise<Drama> {
-	const snapshots = snapshotOf();
+export function snapshotState(snapshots: readonly ScopedSnapshot[], tasks?: TasksOf): { readonly listed: ReadonlyMap<string, { readonly object: Snapshot['objects'][string]; readonly at: string; readonly from: Snapshot }>; readonly edges: readonly Edge[] } {
 	const requested = new Map((tasks?.requests() ?? []).map(r => [r.request.turn, Object.keys(r.request.versions)]));
 	const listed = new Map<string, { object: Snapshot['objects'][string]; at: string; from: Snapshot }>();
 	for (const { scope, snapshot, task, sent } of snapshots) {
@@ -126,6 +122,19 @@ export async function readDrama(root: string, snapshotOf: SnapshotOf, previewsOf
 	}
 	// An edge goes with its `from` object: the snapshot that object comes from gives its edges.
 	const edges = snapshots.flatMap(({ snapshot }) => snapshot.edges.filter(e => listed.get(e.from)?.from === snapshot));
+	return { listed, edges };
+}
+
+/**
+ * Reads the drama. Each object, and each edge from it, comes from the latest installed snapshot that lists the object,
+ * labelled with that snapshot's `observed_at`, whichever session returned it. A later snapshot that should list an object
+ * and does not removes it, but only an object the client knew when that turn's request was sent: a version folder of it
+ * was in the request, or a snapshot installed before then listed it (doc/protocol.md, sections 1 and 5.3). So a shared
+ * object an episode turn made is not removed by a Project Chat turn that never saw it. The person's `removed` removes an
+ * object with every variant derived from it.
+ */
+export async function readDrama(root: string, snapshotOf: SnapshotOf, previewsOf: PreviewsOf = () => [], tasks?: TasksOf): Promise<Drama> {
+	const { listed, edges } = snapshotState(snapshotOf(), tasks);
 	const choices = await readChoices(root);
 	const removed = new Set(Object.entries(choices?.objects ?? {}).filter(([, c]) => c.removed).map(([id]) => id));
 	// A variant of a removed object is removed with it, down its chain.
@@ -226,7 +235,7 @@ export function roleOf(drama: Drama, object: DramaObject): Role {
 }
 
 /** The asset a variant derives from, down its `variant_of` chain; the object itself when it is no variant. */
-export function variantRoot(drama: Drama, id: string): string {
+export function variantRoot(drama: Pick<Drama, 'edges'>, id: string): string {
 	const seen = new Set<string>();
 	let at = id;
 	for (let up = variantParent(drama, at); up && !seen.has(up); up = variantParent(drama, at)) {
@@ -252,8 +261,32 @@ export function episodeOfNode(node: Partial<OutlineNode> | undefined): string | 
 	return episodeIn(node?.episode ?? node?.id ?? '');
 }
 
+/** What naming reads: each object's name and the edges (a Drama, or the snapshots' state alone, snapshotState). */
+export interface Named {
+	readonly objects: ReadonlyMap<string, { readonly name: string }>;
+	readonly edges: readonly Edge[];
+}
+
+/**
+ * An object's name for the person, as the assets canvas names a card where no frame names its asset
+ * (assetsCanvas.ts cardLabel): a variant after its asset's name, an episode's object after its episode, each from the
+ * snapshots (doc/protocol.md, 5.1, `name`); an object no snapshot names yet, by its folder.
+ */
+export function objectTitle(drama: Named, id: string): string {
+	const name = (object: string) => drama.objects.get(object)?.name ?? object.split('/').at(-1)!;
+	const episode = episodeIn(id);
+	const asset = variantRoot(drama, id);
+	return [episode && id !== `episodes/${episode}` ? episode : '', asset !== id ? name(asset) : '', name(id)].filter(Boolean).join(' · ');
+}
+
+/** A version's name for the person: its object's (objectTitle) and the version, a take by its number (`t02` is take 2). */
+export function versionTitle(drama: Named, object: string, version: string): string {
+	const take = /^t(\d+)$/.exec(version);
+	return `${objectTitle(drama, object)} · ${take ? `take ${Number(take[1])}` : version}`;
+}
+
 /** The object a variant derives from directly (its `variant_of` edge), or undefined. */
-export function variantParent(drama: Drama, id: string): string | undefined {
+export function variantParent(drama: Pick<Drama, 'edges'>, id: string): string | undefined {
 	return drama.edges.find(e => e.kind === 'variant_of' && e.from === id)?.to;
 }
 
