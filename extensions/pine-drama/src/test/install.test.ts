@@ -47,8 +47,8 @@ async function drama(scope: 'project' | 'episodes' = 'project') {
 	const storage = temp('storage');
 	const record = dramaRecordOf(storage, root);
 	const store = memoryStore();
-	const send = async (task: string, at: string) => {
-		const request: Request = await requestOf(root, record, join(storage, 'kept'), task, scope, 'chat-1', await readChoices(root), []);
+	const send = async (task: string, at: string, as: 'project' | 'episodes' = scope) => {
+		const request: Request = await requestOf(root, record, join(storage, 'kept'), task, as, 'chat-1', await readChoices(root), []);
 		await record.sentRequest(request, 'computer-1', 'chat-1', new Date(at));
 		return request;
 	};
@@ -276,6 +276,49 @@ test('an episodes return may add a new shared object under assets/, with its own
 	const again = archive(d.store, { 'version.json': version(), 'image-1.png': 'v2' });
 	await assert.rejects(d.install(await d.send('task-0002', '2026-11-12T10:01:00Z'), { versions: { 'assets/scenes/x/variants/y/v2': again } }), InvalidReturn);
 	assert.equal(existsSync(join(d.root, 'assets/scenes/x/variants/y/v2')), false);
+});
+
+// B11: a variant an episode turn made was refused in that episode's next turn, which drew its picture.
+test('an episodes return may add inside a shared object made in an episodes turn, while it holds that object\'s asset; elsewhere not', async () => {
+	const d = await drama('project');
+	const object = (type: 'scene' | 'variant', extra = {}) => ({ type, name: type, segment: null, usable: true, from_add: null, ...extra });
+	const entry = (text: string) => archive(d.store, { 'version.json': version(), 'entry.json': text });
+	// The Project Chat's drama: the street with a variant made in an episodes turn (y) and one the Project Chat made (z),
+	// and the yard, which only its marked variant (w) holds.
+	await d.install(await d.send('task-0001', '2026-11-12T10:00:00Z'), {
+		versions: { 'assets/scenes/street/entry/v1': entry('street'), 'assets/scenes/street/variants/y/entry/v1': entry('y'), 'assets/scenes/street/variants/z/entry/v1': entry('z'),
+			'assets/scenes/yard/variants/w/entry/v1': entry('w') },
+		snapshot: { observed_at: '2026-11-12T10:00:00Z', edges: [
+			{ from: 'assets/scenes/street/variants/y', to: 'assets/scenes/street', kind: 'variant_of' }, { from: 'assets/scenes/street/variants/z', to: 'assets/scenes/street', kind: 'variant_of' },
+			{ from: 'assets/scenes/yard/variants/w', to: 'assets/scenes/yard', kind: 'variant_of' }],
+		objects: { 'assets/scenes/street': object('scene'), 'assets/scenes/street/variants/y': object('variant', { episode_made: true }), 'assets/scenes/street/variants/z': object('variant'),
+			'assets/scenes/yard': object('scene'), 'assets/scenes/yard/variants/w': object('variant', { episode_made: true }) } },
+	});
+	const picture = (text: string) => archive(d.store, { 'version.json': version(), 'image-1.png': text });
+	// Inside y, its picture and a view: accepted.
+	const inside = { 'assets/scenes/street/variants/y/v1': picture('y'), 'assets/scenes/street/variants/y/views/front/v1': picture('front') };
+	await d.install(await d.send('task-0002', '2026-11-12T10:01:00Z', 'episodes'), { versions: inside });
+	assert.ok(existsSync(join(d.root, 'assets/scenes/street/variants/y/views/front/v1/image-1.png')));
+	// Inside z, which the Project Chat made, or inside w, whose asset the request holds no version of: refused whole.
+	for (const [task, versions] of [['task-0003', { 'assets/scenes/street/variants/z/v1': picture('z') }], ['task-0004', { 'assets/scenes/yard/variants/w/v1': picture('w') }]] as const) {
+		await assert.rejects(d.install(await d.send(task, '2026-11-12T10:02:00Z', 'episodes'), { versions }), /outside the task's scope, episodes/);
+		assert.equal(existsSync(join(d.root, Object.keys(versions)[0])), false);
+	}
+});
+
+// Codex on B11: the marked object's asset is the one the latest snapshot listing it derives it from (5.3): an edge
+// an older snapshot gave it decides nothing, in whatever order the records are read.
+test('the asset an episodes return must hold follows the latest snapshot of the marked object, not an older edge', async () => {
+	const d = await drama('project');
+	const object = (type: 'scene' | 'variant', extra = {}) => ({ type, name: type, segment: null, usable: true, from_add: null, ...extra });
+	const entry = (text: string) => archive(d.store, { 'version.json': version(), 'entry.json': text });
+	const objects = { 'assets/scenes/a': object('scene'), 'assets/scenes/a/variants/m': object('variant', { episode_made: true }) };
+	await d.install(await d.send('task-0001', '2026-11-12T10:00:00Z'), { versions: { 'assets/scenes/a/entry/v1': entry('a'), 'assets/scenes/a/variants/m/entry/v1': entry('m') },
+		snapshot: { observed_at: '2026-11-12T10:00:00Z', objects, edges: [{ from: 'assets/scenes/a/variants/m', to: 'assets/scenes/a', kind: 'variant_of' }] } });
+	// The latest snapshot lists m with no variant_of edge: m derives from nothing the request holds beside its own.
+	await d.install(await d.send('task-0002', '2026-11-12T10:01:00Z'), { snapshot: { observed_at: '2026-11-12T10:01:00Z', objects, edges: [] } });
+	const picture = archive(d.store, { 'version.json': version(), 'image-1.png': 'm' });
+	await assert.rejects(d.install(await d.send('task-0003', '2026-11-12T10:02:00Z', 'episodes'), { versions: { 'assets/scenes/a/variants/m/v1': picture } }), /outside the task's scope, episodes/);
 });
 
 test('an episodes return may not draw a planned shared object an installed snapshot lists', async () => {

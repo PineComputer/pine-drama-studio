@@ -509,6 +509,9 @@
               "type": "null"
             }
           ]
+        },
+        "episode_made": {
+          "const": true
         }
       },
       "if": {

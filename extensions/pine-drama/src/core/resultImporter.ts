@@ -8,9 +8,10 @@ import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, renameSync
 import { basename, dirname, join } from 'node:path';
 import { readChoices, updateChoices, withObject, writeWhole } from './choices';
 import { within } from './placement';
+import { snapshotState, variantRoot } from './project';
 import { check, type Request, type Return, type VersionRef } from './protocol';
 import { fetchKept, fileKey, sha256, stateKey, versionKey, type ArtifactStore } from './taskArtifacts';
-import type { DramaRecord, Installed } from './taskRun';
+import { scopedSnapshots, type DramaRecord, type Installed } from './taskRun';
 
 /** A version the agent asks the person to choose (4.3, `review`). */
 export type ReviewTarget = VersionRef & { readonly reason: string };
@@ -18,12 +19,13 @@ export type ReviewTarget = VersionRef & { readonly reason: string };
 /**
  * Whether `path` is the scope's to add to: the Project Chat's `project` adds outside `episodes/`, a session's `episodes`
  * under it, any episode (a session's episodes are given in words, so a session is not bound to one), and under
- * `assets/` for an object new to the drama (`isNew`, doc/protocol.md section 1: an episode may add a new shared variant).
+ * `assets/` where `episodesMay` says so for its object (doc/protocol.md section 1: a shared object new to the drama, or
+ * inside one made in an episodes turn).
  */
-export function inScope(path: string, scope: string, isNew: (object: string) => boolean): boolean {
+export function inScope(path: string, scope: string, episodesMay: (object: string) => boolean): boolean {
 	const episode = path === 'episodes' || path.startsWith('episodes/');
 	if (episode === (scope === 'episodes')) { return true; }
-	return scope === 'episodes' && path.startsWith('assets/') && isNew(objectOf(path));
+	return scope === 'episodes' && path.startsWith('assets/') && episodesMay(objectOf(path));
 }
 
 /** The object a returned path is of: a version folder's parent, or the object of the version a review file is in. */
@@ -111,7 +113,16 @@ async function installNow(o: {
 	const before = record.returns().filter(r => r.task !== ret.turn);
 	const isNew = (object: string) => !before.some(r => r.snapshot?.objects[object])
 		&& !(existsSync(join(root, object)) ? readdirSync(join(root, object)) : []).some(name => versions[`${object}/${name}`] === undefined && existsSync(join(root, object, name, 'version.json')));
-	const outside = paths.filter(p => !validPath(p) || !inScope(p, request.scope, isNew) || !within(root, join(root, p)));
+	// Inside an object made in an episodes turn (section 1): the snapshots installed before this return, reconciled as the
+	// readers do (5.3, snapshotState), mark it `episode_made`, and the request holds a version of its asset, by the latest
+	// `variant_of` edges, other than the marked object's own.
+	const state = snapshotState(scopedSnapshots(before), record);
+	const marked = [...state.listed].filter(([, { object }]) => object.episode_made).map(([id]) => id);
+	const edges = { edges: state.edges };
+	const held = Object.keys(request.versions);
+	const under = (path: string, object: string) => path === object || path.startsWith(`${object}/`);
+	const insideMade = (object: string) => marked.some(m => under(object, m) && held.some(f => under(f, variantRoot(edges, m)) && !under(f, m)));
+	const outside = paths.filter(p => !validPath(p) || !inScope(p, request.scope, object => isNew(object) || insideMade(object)) || !within(root, join(root, p)));
 	if (outside.length) { throw new InvalidReturn(`${outside.join(', ')} ${outside.length === 1 ? 'is' : 'are'} outside the task's scope, ${request.scope}`); }
 
 	// New folders only: one already here is skipped when it holds the same archive, and refuses the return otherwise.

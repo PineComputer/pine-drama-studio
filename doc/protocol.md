@@ -48,7 +48,9 @@ The Computer side's own files inside a version folder are opaque to the client. 
 
 **Scopes.**
 - A turn of the Project Chat has scope `project`. It MUST add version folders only outside `episodes/`.
-- A turn of any other session has scope `episodes`. It MUST add version folders only under `episodes/`.
+- A turn of any other session has scope `episodes`. It MUST add version folders only under `episodes/`, or under `assets/` as the next two rules allow.
+- **An object new to the drama** is one the client does not know when it installs the return: no version folder of it is in the drama other than this return's own (so installing it again after a crash is safe), and no snapshot installed before this return lists it. An `episodes` turn may make such an object under `assets/`, with its versions and their review files. It names the object so that no other turn can name the same one, for example with a suffix derived from its turn id. Once installed, the object is shared like any other.
+- **Inside an object made in an episodes turn.** An `episodes` turn may also add versions and review files inside an object an installed snapshot marks `episode_made` (5.1): in its folder and anywhere under it, in any later turn, as long as the turn's request holds a version of the asset it derives from (`variant_of`, 5.2) other than the marked object's own. The Project Chat may add there too; two sessions making the same version clash (4.4). An `episodes` turn adds to no other shared object, a planned one included.
 - An add (3.1) belongs to `project`. A variant add belongs to the scope of its `from`'s path. An import belongs to the scope of its object's path.
 
 **Rules for a session.**
@@ -262,7 +264,7 @@ The client installs one return at a time, finishing one before it starts the nex
 1. **Check everything first.** Before the first rename, the client fetches and checks every archive and file (4.1), and extracts each archive into a temporary sibling folder whose name starts with `.pine-install-` and is its own (two places in one folder can hold the same bytes), so that at start the client can find such folders and delete them. It compares paths without regard to case.
    - **Already there.** A folder that already exists with the same archive hash (the one the client keeps for it, 4.1) is skipped. So is a review file with the same hash.
    - **Refused whole.** The client refuses the whole return, installs nothing and shows `invalid` if anything:
-     - lies outside the turn's scope;
+     - lies outside the turn's scope (section 1);
      - fails a check;
      - names a folder or a review that already exists with another hash.
 
@@ -308,7 +310,7 @@ snapshot = { observed_at, objects: { <object id>: object }, edges: [ edge ] }
 
 Which objects a snapshot lists:
 - **A Project Chat turn:** every shared object and every episode object, so a new episode appears with the Project Chat's next return.
-- **Any other turn:** the objects of the episodes it worked on, including each episode object.
+- **Any other turn:** the objects of the episodes it worked on, including each episode object, and each shared object it made or added to (section 1), with its edges.
 
 A snapshot that lists an episode object lists all of that episode's objects. An object's episode follows from its id (`episodes/<id>/…`).
 
@@ -324,6 +326,7 @@ A snapshot that lists an episode object lists all of that episode's objects. An 
 | `description` | When the person may edit the description: the agent's current text. |
 | `inputs` | For an object with no version yet: the objects its first version will be made from. |
 | `from_add` | The client id of the add it was created for, or `null`. |
+| `episode_made` | `true` for a shared object made in an `episodes` turn, inside which later `episodes` turns may add (section 1). Absent otherwise. |
 
 Objects with no version are the planned nodes, shown as empty cards. The client shows the person's `prompt` or `description` (3.1) when there is one, and the snapshot's otherwise.
 
@@ -342,9 +345,11 @@ Lines between versions come from `version.json` `inputs`, not from edges.
 
 ### 5.3 What the client shows
 
-The client shows each object, and the edges from it, from the snapshot installed last of those that list it. An object has been removed when it is missing from a later snapshot that should list it:
+The client shows each object, and the edges from it, from the snapshot installed last of those that list it, whichever session returned it. An object has been removed when it is missing from a later snapshot that should list it:
 - for a shared object or an episode object, the Project Chat's snapshot;
 - for an episode's object, a snapshot that lists its episode.
+
+A snapshot removes only objects the client knew when it sent that turn's request: an object that appeared after the request was sent is never removed by its snapshot.
 
 `usable`, `why`, `making` and the edges are as of the return that last listed the object. For example, a new picture of a shared asset reaches an episode's `usable` only with the next return that lists that episode. Each object is shown with its snapshot's `observed_at`.
 

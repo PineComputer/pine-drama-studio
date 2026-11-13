@@ -180,7 +180,12 @@ export function dramaRecordOf(storage: string, root: string): DramaRecord {
  * and a reader shows each object from the latest one that lists it (doc/protocol.md, 5.3).
  */
 export function installedSnapshots(storage: string, root: string): { readonly scope: 'project' | 'episodes'; readonly snapshot: Snapshot; readonly task: string; readonly sent: string; readonly installed: string }[] {
-	return dramaRecordOf(storage, root).returns().sort((a, b) => a.installed.localeCompare(b.installed))
+	return scopedSnapshots(dramaRecordOf(storage, root).returns());
+}
+
+/** The snapshots of `returns`, in install order, each with its session's scope, its task and its times (installedSnapshots). */
+export function scopedSnapshots(returns: readonly Installed[]): { readonly scope: 'project' | 'episodes'; readonly snapshot: Snapshot; readonly task: string; readonly sent: string; readonly installed: string }[] {
+	return [...returns].sort((a, b) => a.installed.localeCompare(b.installed))
 		.flatMap(r => r.snapshot ? [{ scope: r.scope === 'project' ? 'project' as const : 'episodes' as const, snapshot: r.snapshot, task: r.task, sent: r.sent, installed: r.installed }] : []);
 }
 

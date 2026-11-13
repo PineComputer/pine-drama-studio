@@ -113,6 +113,8 @@ export interface SnapshotObject {
 	readonly description?: string;
 	readonly inputs?: readonly string[];
 	readonly from_add: string | null;
+	/** Made in an `episodes` turn: later `episodes` turns may add inside it (doc/protocol.md, section 1). */
+	readonly episode_made?: true;
 }
 
 export interface Edge {
