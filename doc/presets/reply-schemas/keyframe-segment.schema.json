@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "drama-cli/keyframe/segment-reply",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "shots"
+  ],
+  "properties": {
+    "shots": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/shot_prompt"
+      },
+      "minItems": 1
+    }
+  },
+  "$defs": {
+    "shot_prompt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "shot",
+        "prompt"
+      ],
+      "properties": {
+        "shot": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "prompt": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  }
+}

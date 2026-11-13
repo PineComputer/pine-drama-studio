@@ -13,6 +13,18 @@ storyboards, takes and the cut. You review and choose in the Studio; the drama's
 - The Studio and a Pine Computer speak one open, add-only [protocol](doc/protocol.md). The terms are defined, with their
   film-industry sources, in the [vocabulary](doc/vocabulary.md).
 
+A project's custom presets, the prompt templates the agent's tools write and draw with, go in its `inputs/preset/`
+folder: see [presets](doc/presets.md).
+
+## Conventions
+
+- Docs are Markdown in [GitHub Flavored Markdown](https://github.github.com/gfm/).
+- The [protocol](doc/protocol.md) uses the key words of [RFC 2119](https://www.rfc-editor.org/rfc/rfc2119), and its schema is [JSON Schema 2020-12](https://json-schema.org/draft/2020-12).
+- Screenplays are [Fountain](https://fountain.io/syntax).
+- Releases are numbered by [Semantic Versioning](https://semver.org/).
+- Commits are signed off under the [Developer Certificate of Origin](https://developercertificate.org/).
+- Production terms follow the film and VFX industry's sources, named for each term in the [vocabulary](doc/vocabulary.md).
+
 ## Install
 
 Signed macOS builds (Apple silicon) will be published on this repository's Releases page. Until then, build from

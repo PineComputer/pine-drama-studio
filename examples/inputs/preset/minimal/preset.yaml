@@ -1,0 +1,87 @@
+# A minimal sample preset: it shows the format, not a tuned style.
+# The preset contract this preset is written for. drama-cli refuses a preset written for another one.
+contract: 18
+# The youngest age a character may have; 0 sets no floor.
+min_character_age: 0
+# What a video request carries besides the character sheets (one value today).
+video_references: motion-or-keyframes
+# The models this preset's templates are written for: one of the model sets the platform keeps.
+model_set: openai_based_model_set
+# How each finding of drama-cli's picture and video checks is treated: error or warn, for every key.
+understand:
+  policy:
+    image-cast:
+      anatomy: warn
+      continuity: warn
+      description: warn
+      identity: warn
+      layout: warn
+      look_detail: warn
+      text: warn
+    image-keyframe:
+      anatomy: warn
+      background: warn
+      characters: warn
+      extras: warn
+      identity_swap: warn
+      look_detail: warn
+      missing_speaker: warn
+      position: warn
+      text: warn
+    image-multi-panel-storyboard:
+      action: warn
+      angle: warn
+      background: warn
+      characters: warn
+      continuity: warn
+      count: warn
+      extras: warn
+      identity_swap: warn
+      light: warn
+      look_detail: warn
+      missing_speaker: warn
+      position_axis: warn
+      progression: warn
+      size: warn
+      story_prop: warn
+      text: warn
+    image-props:
+      duplicate_object: warn
+      geometry: warn
+      people: warn
+      text: warn
+    image-scenes:
+      continuity: warn
+      description: warn
+      duplicate_object: warn
+      geometry: warn
+      light: warn
+      people: warn
+      placement: warn
+      setting: warn
+      text: warn
+    text-prompt-continuity:
+      behind_camera: warn
+      camera_wall: warn
+      look: warn
+      presence: warn
+    video-shoot:
+      action: warn
+      angle: warn
+      background: warn
+      characters: warn
+      continuity: warn
+      count: warn
+      deformation: warn
+      extras: warn
+      frozen: warn
+      identity_swap: warn
+      light: warn
+      lipsync: warn
+      look_detail: warn
+      size: warn
+      sound: warn
+      speech: warn
+      story_prop: warn
+      text: warn
+      voice: warn

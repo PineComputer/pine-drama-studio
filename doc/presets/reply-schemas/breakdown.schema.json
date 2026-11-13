@@ -1,0 +1,469 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "drama-cli/breakdown",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "episode",
+    "title",
+    "segments"
+  ],
+  "properties": {
+    "episode": {
+      "type": "string",
+      "pattern": "^EP[0-9]{3}$"
+    },
+    "title": {
+      "type": "string",
+      "pattern": "\\S"
+    },
+    "segments": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/segment"
+      },
+      "minItems": 1
+    },
+    "act_plan": {
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "$ref": "#/$defs/act_plan_step"
+      }
+    },
+    "new_views": {
+      "type": "object",
+      "patternProperties": {
+        "^[a-z][a-z0-9_]*$": {
+          "type": "object",
+          "patternProperties": {
+            "^[a-z][a-z0-9_]*$": {
+              "$ref": "#/$defs/scene_variant"
+            }
+          },
+          "propertyNames": {
+            "pattern": "^[a-z][a-z0-9_]*$"
+          }
+        }
+      },
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9_]*$"
+      }
+    },
+    "cards": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/card"
+      }
+    },
+    "bible_version": {
+      "type": "string"
+    }
+  },
+  "$defs": {
+    "act_plan_step": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "segment",
+        "act",
+        "beat",
+        "progression"
+      ],
+      "properties": {
+        "segment": {
+          "type": "string",
+          "pattern": "^seg[0-9]+[a-z]*$"
+        },
+        "act": {
+          "type": "string",
+          "minLength": 1
+        },
+        "beat": {
+          "type": "string",
+          "pattern": "\\S"
+        },
+        "progression": {
+          "type": "string",
+          "pattern": "\\S"
+        }
+      }
+    },
+    "angle": {
+      "oneOf": [
+        {
+          "const": "eye level"
+        },
+        {
+          "const": "high angle"
+        },
+        {
+          "const": "low angle"
+        },
+        {
+          "const": "overhead shot"
+        }
+      ]
+    },
+    "card": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "text",
+        "at"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "pattern": "\\S"
+        },
+        "text": {
+          "type": "string",
+          "pattern": "\\S"
+        },
+        "at": {
+          "type": "string",
+          "pattern": "\\S"
+        }
+      }
+    },
+    "line": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "speaker",
+        "line"
+      ],
+      "properties": {
+        "speaker": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*$"
+        },
+        "line": {
+          "type": "string",
+          "pattern": "\\S"
+        },
+        "offscreen": {
+          "type": "boolean"
+        }
+      }
+    },
+    "movement": {
+      "oneOf": [
+        {
+          "const": "locked-off camera"
+        },
+        {
+          "const": "push in"
+        },
+        {
+          "const": "pull out"
+        },
+        {
+          "const": "pull back"
+        },
+        {
+          "const": "pan"
+        },
+        {
+          "const": "tilt up"
+        },
+        {
+          "const": "tilt down"
+        },
+        {
+          "const": "track"
+        },
+        {
+          "const": "follow"
+        },
+        {
+          "const": "orbit"
+        },
+        {
+          "const": "dive"
+        },
+        {
+          "const": "crane"
+        },
+        {
+          "const": "roll"
+        }
+      ]
+    },
+    "scene_variant": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "text"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1
+        },
+        "from": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*$"
+        },
+        "time": {
+          "type": "string",
+          "enum": [
+            "Day",
+            "Night"
+          ]
+        }
+      }
+    },
+    "segment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "duration",
+        "location",
+        "scene_heading",
+        "characters",
+        "first_state",
+        "shots",
+        "dialogue",
+        "must_hit",
+        "exit_state"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^seg[0-9]+[a-z]*$"
+        },
+        "duration": {
+          "type": "number"
+        },
+        "location": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*$"
+        },
+        "scene_heading": {
+          "type": "string",
+          "pattern": "\\S"
+        },
+        "time": {
+          "type": "string"
+        },
+        "characters": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*$"
+          },
+          "uniqueItems": true
+        },
+        "props": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*$"
+          },
+          "uniqueItems": true
+        },
+        "states": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "pattern": "\\S"
+          }
+        },
+        "first_state": {
+          "type": "string",
+          "pattern": "\\S"
+        },
+        "shots": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/shot"
+          },
+          "minItems": 1
+        },
+        "light_audio": {
+          "type": "string"
+        },
+        "dialogue": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/line"
+          }
+        },
+        "must_hit": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "\\S"
+          }
+        },
+        "exit_state": {
+          "type": "string",
+          "pattern": "\\S"
+        },
+        "negative": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "\\S"
+          }
+        },
+        "act": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "motion_reference_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "motion_reference_match": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "motion_reference_roles": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*$"
+          }
+        }
+      }
+    },
+    "shot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "time",
+        "size",
+        "angle",
+        "camera",
+        "visual",
+        "audio",
+        "characters"
+      ],
+      "properties": {
+        "time": {
+          "type": "string",
+          "pattern": "^[0-9]+-[0-9]+s$"
+        },
+        "size": {
+          "$ref": "#/$defs/size"
+        },
+        "angle": {
+          "$ref": "#/$defs/angle"
+        },
+        "movement": {
+          "$ref": "#/$defs/movement"
+        },
+        "techniques": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/technique"
+          },
+          "uniqueItems": true
+        },
+        "view": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*$"
+        },
+        "camera": {
+          "type": "string",
+          "pattern": "\\S"
+        },
+        "visual": {
+          "type": "string",
+          "pattern": "\\S"
+        },
+        "audio": {
+          "type": "string"
+        },
+        "characters": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*$"
+          },
+          "uniqueItems": true
+        },
+        "lines": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      }
+    },
+    "size": {
+      "oneOf": [
+        {
+          "const": "extreme wide shot"
+        },
+        {
+          "const": "wide shot"
+        },
+        {
+          "const": "medium shot"
+        },
+        {
+          "const": "medium close-up"
+        },
+        {
+          "const": "close-up"
+        },
+        {
+          "const": "extreme close-up"
+        }
+      ]
+    },
+    "technique": {
+      "oneOf": [
+        {
+          "const": "handheld"
+        },
+        {
+          "const": "first-person perspective"
+        },
+        {
+          "const": "aerial perspective"
+        },
+        {
+          "const": "FPV"
+        },
+        {
+          "const": "long take"
+        },
+        {
+          "const": "dolly zoom"
+        },
+        {
+          "const": "bullet time"
+        },
+        {
+          "const": "speed ramp"
+        }
+      ]
+    }
+  }
+}

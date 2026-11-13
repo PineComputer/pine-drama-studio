@@ -1,0 +1,400 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "drama-cli/bible/reply",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "characters",
+    "scenes",
+    "beats",
+    "episodes",
+    "red_line_issues"
+  ],
+  "properties": {
+    "title": {
+      "type": "string"
+    },
+    "logline": {
+      "type": "string"
+    },
+    "tone": {
+      "type": "string"
+    },
+    "characters": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/character"
+      }
+    },
+    "scenes": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/scene"
+      }
+    },
+    "props": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/prop"
+      }
+    },
+    "beats": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/beat"
+      }
+    },
+    "episodes": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/episode_reply"
+      }
+    },
+    "red_line_issues": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "$defs": {
+    "beat": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "lines",
+        "seconds",
+        "event"
+      ],
+      "properties": {
+        "lines": {
+          "type": "array",
+          "prefixItems": [
+            {
+              "type": "integer",
+              "minimum": 1
+            },
+            {
+              "type": "integer",
+              "minimum": 1
+            }
+          ],
+          "maxItems": 2,
+          "minItems": 2
+        },
+        "seconds": {
+          "type": "number",
+          "minimum": 0
+        },
+        "event": {
+          "type": "string"
+        }
+      }
+    },
+    "character": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "name",
+        "aliases",
+        "role",
+        "personality",
+        "appearance",
+        "voice",
+        "observable"
+      ],
+      "allOf": [
+        {
+          "else": {
+            "required": [
+              "look"
+            ],
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "members"
+                  ]
+                }
+              ]
+            }
+          },
+          "if": {
+            "required": [
+              "observable"
+            ],
+            "properties": {
+              "observable": {
+                "const": false
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "reason"
+            ]
+          }
+        }
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*$"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "aliases": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "role": {
+          "type": "string"
+        },
+        "personality": {
+          "type": "string"
+        },
+        "appearance": {
+          "type": "string"
+        },
+        "voice": {
+          "type": "string"
+        },
+        "observable": {
+          "type": "boolean"
+        },
+        "reason": {
+          "type": "string",
+          "pattern": "\\S"
+        },
+        "group": {
+          "type": "boolean"
+        },
+        "members": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*$"
+          },
+          "minItems": 2,
+          "uniqueItems": true
+        },
+        "look": {
+          "type": "string",
+          "minLength": 1
+        },
+        "variants": {
+          "type": "object",
+          "patternProperties": {
+            "^[a-z][a-z0-9_]*$": {
+              "$ref": "#/$defs/variant"
+            }
+          },
+          "propertyNames": {
+            "pattern": "^[a-z][a-z0-9_]*$"
+          }
+        },
+        "appears_in": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^EP\\d{3}$"
+          }
+        }
+      }
+    },
+    "episode_reply": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "title",
+        "summary",
+        "end_hook"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^EP[0-9]{3}$"
+        },
+        "title": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "end_hook": {
+          "type": "string"
+        }
+      }
+    },
+    "prop": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "name",
+        "description"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*$"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "description": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1
+        },
+        "variants": {
+          "type": "object",
+          "patternProperties": {
+            "^[a-z][a-z0-9_]*$": {
+              "$ref": "#/$defs/variant"
+            }
+          },
+          "propertyNames": {
+            "pattern": "^[a-z][a-z0-9_]*$"
+          }
+        },
+        "appears_in": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^EP\\d{3}$"
+          }
+        }
+      }
+    },
+    "scene": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "name",
+        "description",
+        "setting"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*$"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "description": {
+          "type": "string"
+        },
+        "setting": {
+          "$ref": "#/$defs/setting"
+        },
+        "time": {
+          "type": "string",
+          "enum": [
+            "Day",
+            "Night"
+          ]
+        },
+        "inside_of": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*$"
+        },
+        "establishing": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*$"
+        },
+        "variants": {
+          "type": "object",
+          "patternProperties": {
+            "^[a-z][a-z0-9_]*$": {
+              "$ref": "#/$defs/scene_variant"
+            }
+          },
+          "propertyNames": {
+            "pattern": "^[a-z][a-z0-9_]*$"
+          }
+        },
+        "appears_in": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^EP\\d{3}$"
+          }
+        }
+      }
+    },
+    "scene_variant": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "text"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1
+        },
+        "from": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*$"
+        },
+        "time": {
+          "type": "string",
+          "enum": [
+            "Day",
+            "Night"
+          ]
+        }
+      }
+    },
+    "setting": {
+      "oneOf": [
+        {
+          "const": "interior"
+        },
+        {
+          "const": "exterior"
+        }
+      ]
+    },
+    "variant": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "text"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1
+        },
+        "from": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*$"
+        }
+      }
+    }
+  }
+}

@@ -122,6 +122,7 @@ Layer: agent execution model.
 | **scope** | The folders a session's turns may add versions to: the project's or the episodes'. | none | Pine Drama term: it lets sessions work in parallel without locks Defined in [protocol §1][p-conventions], "Sessions and scopes". |
 | **choices** | The person's decisions, one file only the client writes. | none: a tracker keeps status changes and comments in its database, and AYON in its Activity feed ([Activity feed][ayon-activity]) | Pine Drama term: one local file, so a decision needs no server Defined in [protocol §3][p-choices]. |
 | **snapshot** | What a return reports that the files cannot show: names, whether each object is usable, what is being made, and the edges. | AYON **Status**, one per entity ([Project Anatomy][ayon-anatomy]). | Pine Drama term: a report with its time, not a stored status Defined in [protocol §5][p-snapshot]. |
+| **preset** | A folder of prompt templates and a few settings, one template per model call: how drama-cli writes and draws a drama. A project's own presets are the folders of `inputs/preset/` ([presets](presets.md)). | Apple Compressor **preset**: "a group of preconfigured properties that you can apply to a source media file" ([Compressor glossary][compressor-glossary]). | subset. Not an agent **skill**, which is "directories containing instructions, executable code, and reference materials" for the agent itself ([Agent Skills][agent-skills]); a preset is input to the models drama-cli calls, not instructions to the agent. |
 
 ## References
 
@@ -143,6 +144,8 @@ Layer: agent execution model.
 [pine-overview]: https://console.pinecomputer.io/docs/overview
 [pine-sessions]: https://console.pinecomputer.io/docs/sessions
 [pine-agent]: https://console.pinecomputer.io/docs/agent
+[compressor-glossary]: https://support.apple.com/guide/compressor/glossary-cpsr67a75b98/mac
+[agent-skills]: https://platform.claude.com/docs/en/agents-and-tools/agent-skills/overview
 [seedance-guide]: https://ai.byteplus.com/ark/region:ap-southeast-1/docs/seedance-2-5-prompt-guide
 [ark-video-api]: https://ai.byteplus.com/ark/region:ap-southeast-1/docs/create-video-generation-task-api
 [p-conventions]: protocol.md#1-conventions
@@ -162,6 +165,7 @@ Layer: agent execution model.
 - [Fountain syntax][fountain]; Final Draft, [Screenplay Formatting and Elements][fd-heading].
 - Pine Computer: [overview][pine-overview], [sessions][pine-sessions], [agent turns][pine-agent].
 - BytePlus ModelArk (the video model's vendor): [Dreamina Seedance 2.5 prompt guide][seedance-guide], [Create a video generation task][ark-video-api].
-- Pine Drama: the [protocol](protocol.md).
+- Apple: [Compressor User Guide, glossary][compressor-glossary]. Anthropic: [Agent Skills][agent-skills].
+- Pine Drama: the [protocol](protocol.md) and [presets](presets.md).
 
 All pages were read on 2026-11-13.
