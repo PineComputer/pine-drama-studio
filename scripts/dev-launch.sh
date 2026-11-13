@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Launch Pine Drama Studio in development mode on a compiled Code-OSS checkout (M0 spike S1).
+# Launch Pine Drama Studio in development mode on a compiled Code-OSS checkout.
 # Changes no tracked upstream file: product.overrides.json is ignored by upstream's .gitignore,
 # and the extension loads from this repository through --extensionDevelopmentPath.
 # Usage: scripts/dev-launch.sh [folder-to-open]   (VSCODE_DIR defaults to ../vscode)
@@ -14,7 +14,7 @@ if ! git -C "$VSCODE_DIR" check-ignore -q product.overrides.json; then
 	exit 1
 fi
 # The dev Studio must carry the same Code-OSS changes as the package (upstream/patches), every one of them: without them
-# it offers upstream's Copilot chat (doc/workbench/upstream.md, "A dev Studio that offered Copilot"), and without the later
+# it offers upstream's Copilot chat, and without the later
 # ones the extension calls workbench commands that do not exist. Checked by patch id, not by a symbol of one patch.
 VSCODE_DIR="$VSCODE_DIR" "$STUDIO/scripts/upstream-carries.sh"
 cp "$STUDIO/upstream/product.overrides.dev.json" "$VSCODE_DIR/product.overrides.json"
@@ -22,7 +22,7 @@ cp "$STUDIO/upstream/product.overrides.dev.json" "$VSCODE_DIR/product.overrides.
 (cd "$EXT" && npm run --silent compile)
 mkdir -p "$DEV/user-data" "$DEV/extensions"
 
-# The Pine environment to use (one endpoint and pk_ key; doc/development.md). Only the path is passed;
+# The Pine environment to use (one endpoint and pk_ key). Only the path is passed;
 # the extension reads the file. Override with PINE_DRAMA_ENV_FILE.
 export PINE_DRAMA_ENV_FILE="${PINE_DRAMA_ENV_FILE:-$STUDIO/.env}"
 [ -f "$PINE_DRAMA_ENV_FILE" ] || echo "note: $PINE_DRAMA_ENV_FILE does not exist; the Studio will say no Pine environment is set up" >&2
@@ -37,7 +37,7 @@ done < <(cd "$VSCODE_DIR" && for f in extensions/*/package.json .build/builtInEx
 done)
 
 # Workspace trust guards against running a code project's tasks and settings; the Studio runs nothing
-# from a drama project, so its Restricted Mode only gets in the way (doc/workbench/design.md, section 3).
+# from a drama project, so its Restricted Mode only gets in the way.
 # Code-OSS is already compiled; skip preLaunch so nothing in the checkout is rebuilt or downloaded.
 export VSCODE_SKIP_PRELAUNCH=1
 exec "$VSCODE_DIR/scripts/code.sh" \

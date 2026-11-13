@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Prepare the Code-OSS checkout for a new developer (doc/development.md, section 1):
+# Prepare the Code-OSS checkout for a new developer:
 # clone microsoft/vscode next to this repository (or VSCODE_DIR), create the branch named in
 # upstream/vscode.lock at its base commit, and apply our patch series. Compiling is left to the
 # developer (it takes a while); the commands are printed at the end.

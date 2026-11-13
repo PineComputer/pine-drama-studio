@@ -104,7 +104,7 @@ max_tokens:
   understand_video: 16000
 max_range_lines:
   bible: 160
-# Used only when the stage's model is gemini (D108).
+# Used only when the stage's model is gemini.
 safety_settings:
   bible:
     harassment:

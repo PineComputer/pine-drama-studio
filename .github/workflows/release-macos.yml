@@ -60,7 +60,7 @@ jobs:
           set -euo pipefail
           for name in APPLE_SIGNING_CERTIFICATE_P12_BASE64 APPLE_SIGNING_CERTIFICATE_PASSWORD APPLE_NOTARY_APP_PASSWORD; do
             if [ -z "${!name}" ]; then
-              echo "Missing GitHub Actions secret: $name (see doc/releasing.md)" >&2
+              echo "Missing GitHub Actions secret: $name" >&2
               exit 1
             fi
           done
