@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Pine Drama Studio Authors <authors@example.invalid>
 Date: Wed, 11 Nov 2026 19:05:07 -0800
-Subject: [PATCH 30/32] pine(L3): register the Pine macOS update service in
+Subject: [PATCH 30/33] pine(L3): register the Pine macOS update service in
  app.ts
 
 

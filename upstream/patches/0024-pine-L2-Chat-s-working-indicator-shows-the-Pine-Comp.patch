@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Pine Drama Studio Authors <authors@example.invalid>
 Date: Thu, 5 Nov 2026 20:14:19 -0800
-Subject: [PATCH 24/32] pine(L2): Chat's working indicator shows the Pine
+Subject: [PATCH 24/33] pine(L2): Chat's working indicator shows the Pine
  Computer mark with upstream's rhythm
 
 Sets upstream's chat.persistentProgress to its No Icon value, which keeps the indicator's place and neither shows nor draws the VS Code mark, and draws the Pine Computer mark there: a sprite of upstream's own frame function (getChatWorkingLogoDrawFrame) at its atlas frame count over its draw duration, both imported, played with steps() only while the indicator is active, seen (an IntersectionObserver and the document's visibility, as upstream's observeVisibility) and motion is on.

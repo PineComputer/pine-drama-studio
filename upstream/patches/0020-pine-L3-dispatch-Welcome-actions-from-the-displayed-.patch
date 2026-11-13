@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Pine Drama Studio Authors <authors@example.invalid>
 Date: Wed, 4 Nov 2026 22:53:14 -0800
-Subject: [PATCH 20/32] pine(L3): dispatch Welcome actions from the displayed
+Subject: [PATCH 20/33] pine(L3): dispatch Welcome actions from the displayed
  Start entries
 
 

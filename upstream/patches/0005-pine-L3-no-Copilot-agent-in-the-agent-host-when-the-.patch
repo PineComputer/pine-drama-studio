@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Pine Drama Studio Authors <authors@example.invalid>
 Date: Mon, 2 Nov 2026 16:00:44 -0800
-Subject: [PATCH 05/32] pine(L3): no Copilot agent in the agent host when the
+Subject: [PATCH 05/33] pine(L3): no Copilot agent in the agent host when the
  product ships none
 
 The agent host registers its Copilot provider unconditionally; in a

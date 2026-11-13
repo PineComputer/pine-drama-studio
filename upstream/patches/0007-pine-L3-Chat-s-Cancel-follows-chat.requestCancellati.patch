@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Pine Drama Studio Authors <authors@example.invalid>
 Date: Tue, 3 Nov 2026 12:22:35 -0800
-Subject: [PATCH 07/32] pine(L3): Chat's Cancel follows
+Subject: [PATCH 07/33] pine(L3): Chat's Cancel follows
  chat.requestCancellation.enabled
 
 CancelAction's Chat menu entry and its keybinding (Ctrl/Cmd+Esc) show only while the setting is on. A visible Stop that

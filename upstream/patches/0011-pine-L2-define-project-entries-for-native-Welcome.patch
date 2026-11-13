@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Pine Drama Studio Authors <authors@example.invalid>
 Date: Wed, 4 Nov 2026 20:59:36 -0800
-Subject: [PATCH 11/32] pine(L2): define project entries for native Welcome
+Subject: [PATCH 11/33] pine(L2): define project entries for native Welcome
 
 
 diff --git a/src/vs/workbench/contrib/pine/browser/pineWelcome.ts b/src/vs/workbench/contrib/pine/browser/pineWelcome.ts

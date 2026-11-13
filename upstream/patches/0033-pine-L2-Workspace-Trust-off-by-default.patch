@@ -1,0 +1,29 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Pine Drama Studio Authors <authors@example.invalid>
+Date: Fri, 13 Nov 2026 00:40:49 -0800
+Subject: [PATCH 33/33] pine(L2): Workspace Trust off by default
+
+The Studio runs nothing from a drama folder, so Restricted Mode only puts
+its banner and status bar badge on every project. The dev launcher passes
+--disable-workspace-trust; the packaged app now has the same off through
+the application-scoped security.workspace.trust.enabled, which an
+extension's configurationDefaults cannot set. A registry default in the
+existing pine.contribution.ts: no new touchpoint.
+
+diff --git a/src/vs/workbench/contrib/pine/browser/pine.contribution.ts b/src/vs/workbench/contrib/pine/browser/pine.contribution.ts
+index b62f6abb28b..71bd313ff9a 100644
+--- a/src/vs/workbench/contrib/pine/browser/pine.contribution.ts
++++ b/src/vs/workbench/contrib/pine/browser/pine.contribution.ts
+@@ -26,6 +26,12 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
+ 		// Native first-run onboarding requires Copilot sign-in; Pine uses native Welcome and Accounts.
+ 		'workbench.welcomePage.experimentalOnboarding': false,
+ 		'workbench.welcomePage.walkthroughs.openOnInstall': false,
++		// Workspace Trust guards against running a folder's tasks, debug launches and settings (workspace.contribution.ts,
++		// WORKSPACE_TRUST_ENABLED); the Studio runs nothing from a drama folder, and its Restricted Mode only puts a banner
++		// and a status bar badge on every project. The same switch the --disable-workspace-trust flag is
++		// (workspaceTrust.ts, isWorkspaceTrustEnabled), application-scoped, which an extension's configurationDefaults
++		// cannot set.
++		'security.workspace.trust.enabled': false,
+ 	},
+ }]);
+ 
