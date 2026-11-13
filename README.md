@@ -53,7 +53,7 @@ cd extensions/pine-drama && npm ci && npm run compile && cd -
 scripts/dev-launch.sh               # starts the Studio on the compiled Code-OSS
 ```
 
-`scripts/package-macos.sh` packages a `.app`. The extension's tests: `cd extensions/pine-drama && npm test`.
+`scripts/package-macos.sh` packages a `.app` for Apple silicon (`--arch=x64` for Intel Macs). The extension's tests: `cd extensions/pine-drama && npm test`.
 
 ## Contributing
 

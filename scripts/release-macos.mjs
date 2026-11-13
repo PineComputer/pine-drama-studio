@@ -25,7 +25,7 @@ export function entitlementFor(file, vscode) {
 }
 
 export function validateBuild(info, tag) {
-	if (info.target !== 'vscode-darwin-arm64-min') throw new Error('Only a full minified arm64 package can be released.');
+	if (!/^vscode-darwin-(arm64|x64)-min$/.test(info.target)) throw new Error('Only a full minified macOS package (arm64 or x64) can be released.');
 	if (!info.version || !info.build || ![ `v${info.version}`, `v${info.version}-b${info.build}` ].includes(tag)) {
 		throw new Error('Release tag does not match the packaged version/build.');
 	}
@@ -70,7 +70,9 @@ export async function releaseMacos(options, dependencies = {}) {
 	await run('/usr/bin/ditto', ['-c', '-k', '--sequesterRsrc', '--keepParent', app, zip]);
 	const appSubmission = await notarize(zip, 'app', app);
 	await rm(zip);
-	const dmg = join(output, `Pine-Drama-Studio-${options.tag.slice(1)}-darwin-arm64.dmg`);
+	// vscode-darwin-<arch>-min (validateBuild): the disk image is named for the architecture it runs on.
+	const arch = info.target.split('-')[2];
+	const dmg = join(output, `Pine-Drama-Studio-${options.tag.slice(1)}-darwin-${arch}.dmg`);
 	const stage = join(output, 'dmg-stage');
 	log('Building and signing DMG from the stapled application.');
 	await mkdir(stage);

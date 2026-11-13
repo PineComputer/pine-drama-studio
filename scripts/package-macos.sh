@@ -7,31 +7,36 @@
 #   scripts/package-macos.sh --allow-dirty     build from uncommitted files too (a local try; refused otherwise)
 #   scripts/package-macos.sh --extension-only  replace only the built-in extension and the icon in the last full build,
 #                                              and zip again (no gulp run)
+#   scripts/package-macos.sh --arch=x64        for Intel Macs (default: arm64, Apple silicon); combines with the above
 #
-# The build runs in its own git worktree of the Code-OSS checkout (PKG_DIR, default <VSCODE_DIR>-pkg), never in
-# VSCODE_DIR itself, which a running dev Studio uses. Each build gets a folder of its own, dist/<version>-b<N>/, holding
-# the app, its disk image (.dmg), its zip and its build-info.json, so a build never writes over an app that may be open; dist/latest names the
-# newest. Before zipping, the integrity checksums in the app's product.json are recomputed and compared, offline.
-# Unsigned (macOS asks before the first open). arm64 only: the target is upstream's vscode-darwin-arm64.
+# The build runs in its own git worktree of the Code-OSS checkout (PKG_DIR, default <VSCODE_DIR>-pkg-<arch>), never in
+# VSCODE_DIR itself, which a running dev Studio uses. Each build gets a folder of its own, dist/darwin-<arch>/<version>-b<N>/,
+# holding the app, its disk image (.dmg), its zip and its build-info.json, so a build never writes over an app that may be
+# open; dist/darwin-<arch>/latest names the newest. Before zipping, the integrity checksums in the app's product.json are
+# recomputed and compared, offline. Unsigned (macOS asks before the first open); scripts/release-macos.mjs signs it.
 set -euo pipefail
 STUDIO="$(cd "$(dirname "$0")/.." && pwd)"
 VSCODE_DIR="$(cd "${VSCODE_DIR:-$STUDIO/../vscode}" && pwd)"
-PKG_DIR="${PKG_DIR:-$VSCODE_DIR-pkg}"
-DIST="$STUDIO/dist"
 EXT="$STUDIO/extensions/pine-drama"
 APP_NAME="Pine Drama Studio"
 lock() { grep -E "^$1=" "$STUDIO/upstream/vscode.lock" | cut -d= -f2-; }
 BASE="$(lock base)"
 
-MODE=full TARGET=vscode-darwin-arm64 DIRTY=refuse
+MODE=full MIN= DIRTY=refuse ARCH=arm64
 for arg in "$@"; do
 	case "$arg" in
-		--min) TARGET=vscode-darwin-arm64-min ;;
+		--min) MIN=-min ;;
 		--extension-only) MODE=extension ;;
 		--allow-dirty) DIRTY=allow ;;
+		--arch=arm64 | --arch=x64) ARCH="${arg#--arch=}" ;;
 		*) echo "unknown option $arg" >&2; exit 2 ;;
 	esac
 done
+# Upstream's packaging targets for macOS (build/gulpfile.vscode.ts, BUILD_TARGETS): vscode-darwin-<arch>[-min].
+TARGET="vscode-darwin-$ARCH$MIN"
+# One packaging worktree and one dist/ folder per architecture: their node_modules hold different native binaries.
+PKG_DIR="${PKG_DIR:-$VSCODE_DIR-pkg-$ARCH}"
+DIST="$STUDIO/dist/darwin-$ARCH"
 
 # What a build is made of, as hashes: the pin and patch series, and the product overlay (product fields and the built-in
 # extensions kept). --extension-only refuses a shell built from anything else, so a stale shell is never shipped. The icon
@@ -44,7 +49,7 @@ info() { node -e 'const i=require(process.argv[1]); console.log(i[process.argv[2
 next_build() { local n=0 d; for d in "$DIST"/*-b*/; do [ -d "$d" ] || continue; d="${d%/}"; n=$(( ${d##*-b} > n ? ${d##*-b} : n )); done; echo $(( n + 1 )); }
 version() { node -p "require('$EXT/package.json').version"; }
 # A release build: the minified target, for people. It ships no source maps and no readable extension source.
-release() { local t="$TARGET"; [ "$MODE" = extension ] && t="$(info target)"; [ "$t" = vscode-darwin-arm64-min ] && echo yes || echo no; }
+release() { local t="$TARGET"; [ "$MODE" = extension ] && t="$(info target)"; [ "$t" = "vscode-darwin-$ARCH-min" ] && echo yes || echo no; }
 
 # The built-in extension: compiled here, copied with its production dependencies only. An extension in the app's
 # extensions/ folder is built-in: it cannot be uninstalled, and it may use the proposed APIs its package.json enables
@@ -63,8 +68,9 @@ stage_extension() {
 		(cd "$EXT" && npx --no-install esbuild src/extension.ts --bundle --platform=node --format=cjs --target=node20 \
 			--packages=external --external:vscode --minify --legal-comments=none --log-level=warning --outfile="$stage/out/extension.js")
 	fi
-	cp -cR "$EXT/node_modules" "$stage/node_modules"
-	(cd "$stage" && npm prune --omit=dev --no-audit --no-fund >/dev/null)
+	# Its production dependencies, installed from the lockfile for the app's architecture: an optional native package
+	# such as @napi-rs/canvas-darwin-<arch> is chosen by npm's --cpu and --os (npm install, "cpu" and "os").
+	(cd "$stage" && npm ci --omit=dev --cpu="$ARCH" --os=darwin --no-audit --no-fund >/dev/null)
 	rm -f "$stage/package-lock.json"
 	rm -rf "$app/Contents/Resources/app/extensions/pine-drama"
 	mv "$stage" "$app/Contents/Resources/app/extensions/pine-drama"
@@ -99,7 +105,7 @@ verify_checksums() {
 # read-only and hidden from Finder (-nobrowse, -noautoopen), the app's Info.plist and checksums read inside, detached.
 make_dmg() {
 	local dir="$1" stage dmg mnt
-	dmg="$dir/Pine-Drama-Studio-$(version)-darwin-arm64.dmg"
+	dmg="$dir/Pine-Drama-Studio-$(version)-darwin-$ARCH.dmg"
 	stage="$(mktemp -d)"
 	cp -cR "$dir/$APP_NAME.app" "$stage/$APP_NAME.app"
 	ln -s /Applications "$stage/Applications"
@@ -120,7 +126,7 @@ make_dmg() {
 
 zip_app() {
 	local dir="$1" build="$2" zip
-	zip="$dir/Pine-Drama-Studio-$(version)-b$build-darwin-arm64.zip"
+	zip="$dir/Pine-Drama-Studio-$(version)-b$build-darwin-$ARCH.zip"
 	# ditto keeps the bundle's symlinks and attributes, as Finder's Compress does (ditto(1)).
 	(cd "$dir" && ditto -c -k --sequesterRsrc --keepParent "$APP_NAME.app" "$zip")
 	echo "$zip"
@@ -184,11 +190,19 @@ git -C "$PKG_DIR" reset -q --hard "$BASE"
 # Keep the dependencies and caches between builds; everything else returns to the pin.
 git -C "$PKG_DIR" clean -q -fdx -e node_modules -e .build/builtInExtensions
 git -C "$PKG_DIR" -c user.name=pine-package -c user.email=pine-package@localhost am -q --3way "$STUDIO"/upstream/patches/*.patch
-# Dependencies: APFS clones of the dev checkout's (same base, same lockfiles), so no download and almost no disk. Each
-# node_modules folder the worktree lacks is cloned, so a folder lost since the last build is restored.
-(cd "$VSCODE_DIR" && find . -name node_modules -type d -prune -not -path './.build/*') | while read -r d; do
-	[ -d "$PKG_DIR/$d" ] || { mkdir -p "$PKG_DIR/$(dirname "$d")"; cp -cR "$VSCODE_DIR/$d" "$PKG_DIR/$d"; }
-done
+# Dependencies. For this Mac's own architecture: APFS clones of the dev checkout's (same base, same lockfiles), so no
+# download and almost no disk; each node_modules folder the worktree lacks is cloned, so a folder lost since the last
+# build is restored. For the other architecture: installed once in the worktree for that architecture, as upstream's
+# macOS build installs each architecture's (build/azure-pipelines/darwin/product-build-darwin-node-modules.yml:
+# npm ci with npm_config_arch, no Electron or Playwright download, GYP_DEFINES kerberos_use_rtld=false).
+if [ "$ARCH" = "$(node -p process.arch)" ]; then
+	(cd "$VSCODE_DIR" && find . -name node_modules -type d -prune -not -path './.build/*') | while read -r d; do
+		[ -d "$PKG_DIR/$d" ] || { mkdir -p "$PKG_DIR/$(dirname "$d")"; cp -cR "$VSCODE_DIR/$d" "$PKG_DIR/$d"; }
+	done
+elif [ ! -d "$PKG_DIR/node_modules" ]; then
+	(cd "$PKG_DIR" && npm_config_arch="$ARCH" ELECTRON_SKIP_BINARY_DOWNLOAD=1 PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 \
+		GYP_DEFINES=kerberos_use_rtld=false npm ci)
+fi
 if [ -d "$VSCODE_DIR/.build/builtInExtensions" ] && [ ! -d "$PKG_DIR/.build/builtInExtensions" ]; then
 	mkdir -p "$PKG_DIR/.build" && cp -cR "$VSCODE_DIR/.build/builtInExtensions" "$PKG_DIR/.build/"
 fi
@@ -209,11 +223,11 @@ node -e '
 # packaging step after it do the same.
 rm -rf "$PKG_DIR/extensions/copilot"
 
-# 3. Upstream's packaging target (build/gulpfile.vscode.ts, BUILD_TARGETS): writes <PKG_DIR>/../VSCode-darwin-arm64.
+# 3. Upstream's packaging target (build/gulpfile.vscode.ts, BUILD_TARGETS): writes <PKG_DIR>/../VSCode-darwin-<arch>.
 # The build's commit, for product.json: getVersion (build/lib/getVersion.ts) cannot read it in a worktree, whose .git is
 # a file, and without it Code-OSS looks for its unpacked node modules in the wrong place (appNodeModules.ts).
 (cd "$PKG_DIR" && BUILD_SOURCEVERSION="$(git rev-parse HEAD)" npm run gulp -- "$TARGET")
-OUT="$(dirname "$PKG_DIR")/VSCode-darwin-arm64/$APP_NAME.app"
+OUT="$(dirname "$PKG_DIR")/VSCode-darwin-$ARCH/$APP_NAME.app"
 [ -d "$OUT" ] || { echo "packaging wrote no $OUT" >&2; exit 1; }
 build=$(next_build)
 OUT_DIR="$DIST/$(version)-b$build"

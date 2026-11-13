@@ -9,7 +9,8 @@ test('release refuses a non-minified, dirty, or differently versioned package', 
 	const build = { target: 'vscode-darwin-arm64-min', version: '1.2.3', build: '4', extensionFrom: 'abc123' };
 	validateBuild(build, 'v1.2.3');
 	validateBuild(build, 'v1.2.3-b4');
-	for (const [info, tag] of [[{ ...build, target: 'vscode-darwin-arm64' }, 'v1.2.3'], [build, 'v1.2.4'], [build, 'v1.2.3-b5'], [{ ...build, extensionFrom: 'abc+changes' }, 'v1.2.3']]) {
+	validateBuild({ ...build, target: 'vscode-darwin-x64-min' }, 'v1.2.3');
+	for (const [info, tag] of [[{ ...build, target: 'vscode-darwin-arm64' }, 'v1.2.3'], [{ ...build, target: 'vscode-darwin-x64' }, 'v1.2.3'], [{ ...build, target: 'vscode-linux-x64-min' }, 'v1.2.3'], [build, 'v1.2.4'], [build, 'v1.2.3-b5'], [{ ...build, extensionFrom: 'abc+changes' }, 'v1.2.3']]) {
 		assert.throws(() => validateBuild(info, tag));
 	}
 });
@@ -20,14 +21,14 @@ test('Electron helpers retain Code-OSS role-specific entitlements', () => {
 	}
 });
 
-async function fixture(t, rejection) {
+async function fixture(t, rejection, target = 'vscode-darwin-arm64-min') {
 	const root = await mkdtemp(join(tmpdir(), 'pine-release-test-'));
 	t.after(() => rm(root, { recursive: true, force: true }));
 	const input = join(root, 'unsigned'), output = join(root, 'signed'), vscode = join(root, 'vscode');
 	await mkdir(input);
 	await mkdir(join(vscode, '.build/electron'), { recursive: true });
 	await writeFile(join(vscode, '.build/electron/version'), 'v43.8.3\n');
-	await writeFile(join(input, 'build-info.json'), JSON.stringify({ target: 'vscode-darwin-arm64-min', version: '1.2.3', build: '1', extensionFrom: 'abc123' }));
+	await writeFile(join(input, 'build-info.json'), JSON.stringify({ target, version: '1.2.3', build: '1', extensionFrom: 'abc123' }));
 	const calls = [];
 	return { output, calls, options: { input, output, vscode, identity: 'Developer ID fixture', profile: 'fixture', keychain: '/fixture/keychain', tag: 'v1.2.3' }, dependencies: {
 		log: () => {},
@@ -65,6 +66,13 @@ test('staples the app before making a DMG, verifies both, and only then writes p
 	assert.equal(info.signing.gatekeeper, 'accepted');
 	await assert.rejects(access(join(f.output, 'notary-app.zip')));
 	await assert.rejects(access(join(f.output, 'dmg-stage')));
+});
+
+test('an Intel (x64) build is released as its own disk image, named for its architecture', async t => {
+	const f = await fixture(t, undefined, 'vscode-darwin-x64-min');
+	const dmg = await releaseMacos(f.options, f.dependencies);
+	assert.equal(basename(dmg), 'Pine-Drama-Studio-1.2.3-darwin-x64.dmg');
+	assert.match(await readFile(join(f.output, 'SHA256SUMS'), 'utf8'), /^[a-f0-9]{64}  Pine-Drama-Studio-1\.2\.3-darwin-x64\.dmg\n$/);
 });
 
 for (const rejection of ['notary-app.zip', 'Pine-Drama-Studio-1.2.3-darwin-arm64.dmg', 'gatekeeper', 'dmg-gatekeeper', 'signing', 'app-stapler', 'dmg-stapler']) {

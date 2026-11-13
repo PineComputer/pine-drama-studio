@@ -130,7 +130,7 @@ jobs:
 
       - name: Sign, notarize, staple and verify the app and DMG
         run: |
-          node scripts/release-macos.mjs --input dist/latest --output dist/release \
+          node scripts/release-macos.mjs --input dist/darwin-arm64/latest --output dist/release \
             --vscode "$VSCODE_DIR" --tag "$TAG" --identity "$APPLE_SIGNING_IDENTITY" \
             --profile pine-release --keychain "$SIGNING_KEYCHAIN"
 
