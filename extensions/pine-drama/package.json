@@ -3,7 +3,7 @@
   "displayName": "Pine Drama Studio",
   "description": "Pine Drama Studio's built-in extension.",
   "publisher": "pine",
-  "version": "0.2.3",
+  "version": "0.2.5",
   "private": true,
   "license": "UNLICENSED",
   "engines": {
