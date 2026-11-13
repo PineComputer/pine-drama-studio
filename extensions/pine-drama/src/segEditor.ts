@@ -5,7 +5,7 @@
 // cost. Nothing here starts a paid call.
 import { isAbsolute } from 'node:path';
 import * as vscode from 'vscode';
-import { episodeIn, type OutlineNode } from './core/project';
+import { episodeIn, episodeOfNode, type OutlineNode } from './core/project';
 import { segEditorModel, shootRequest } from './core/segEditor';
 import { readFromSegEditor, SEG_PROTOCOL, type ToSegEditor } from './core/segEditorProtocol';
 import type { ProjectViews } from './projectViews';
@@ -89,8 +89,7 @@ export function registerSegEditor(context: vscode.ExtensionContext, views: Proje
 	// The episode a command means: the row it was given, else the seg editor in front, else the tree's selection.
 	const activeEpisode = () => [...panels].find(([, panel]) => panel.active)?.[0];
 	const target = (node: unknown) => {
-		const id = (node as Partial<OutlineNode> | undefined)?.id;
-		return (typeof id === 'string' ? episodeIn(id) : undefined) ?? activeEpisode() ?? episodeIn(views.selection()?.id ?? '');
+		return episodeOfNode(node as Partial<OutlineNode> | undefined) ?? activeEpisode() ?? episodeOfNode(views.selection());
 	};
 
 	context.subscriptions.push(

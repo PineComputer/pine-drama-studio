@@ -19,7 +19,7 @@ const ICONS: Partial<Record<Role, string>> = {
 	script: 'file-text', bible: 'book', assets: 'checklist', characters: 'organization', character: 'person', look: 'person', scenes: 'globe', location: 'location', view: 'eye',
 	props: 'package', prop: 'package', episodes: 'folder-library', episode: 'play-circle', breakdown: 'list-ordered',
 	storyboard: 'layout', segment: 'device-camera-video', cut: 'play',
-	'script-episode': 'list-ordered', voices: 'mic', motion: 'run', note: 'info',
+	'script-episode': 'list-ordered', 'script-later': 'list-ordered', voices: 'mic', motion: 'run', note: 'info',
 };
 
 /**

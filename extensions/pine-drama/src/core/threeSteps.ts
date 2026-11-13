@@ -11,12 +11,12 @@ interface Decomposition {
 	readonly decomposed: boolean;
 }
 
-/** An episode's breakdown: none is "Not decomposed"; usable is "Decomposed"; else the snapshot's `why`. */
+/** An episode's breakdown, in the person's words: none is "Not started"; usable is "Shots planned"; else the snapshot's `why`. */
 export function decomposition(breakdown: DramaObject | undefined): Decomposition {
 	if (!breakdown?.versions.length) {
-		return { text: 'Not decomposed', decomposed: false };
+		return { text: 'Not started', decomposed: false };
 	}
-	return breakdown.usable ? { text: 'Decomposed', decomposed: true } : { text: breakdown.why ?? 'not usable yet', decomposed: false };
+	return breakdown.usable ? { text: 'Shots planned', decomposed: true } : { text: breakdown.why ?? 'not usable yet', decomposed: false };
 }
 
 /** The action on a Script episode not broken down yet: a new session for it (B8; the skill names it too). */

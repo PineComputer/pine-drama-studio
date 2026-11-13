@@ -3,7 +3,8 @@ import { cpSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { readDrama, versionFile } from '../core/project';
+import { DramaProject, episodeOfNode, readDrama, versionFile } from '../core/project';
+import { decomposition } from '../core/threeSteps';
 import type { Choices, Snapshot } from '../core/protocol';
 import type { ScopedSnapshot, TasksOf } from '../core/project';
 
@@ -144,4 +145,24 @@ test("a shared object an episode turn made stays until a snapshot whose turn kne
 	// So does one whose request carried a version folder of it, though no snapshot listed it before.
 	const carried = await readDrama(root, () => [project(PROJECT, 1), episode(2, 4, 8), chat(3, 6, 10)], () => [], requests({ n: 3, folders: [`${rain}/v1`] }));
 	assert.ok(!carried.objects.has(rain));
+});
+
+// B18: a 53-episode screenplay listed 53 rows, each "Decomposed" or "Not decomposed".
+test('Script lists the episodes under way, folds the ones not started into one row, and says so in plain words', async () => {
+	const episode = (name: string) => ({ type: 'episode' as const, name, segment: null, usable: true, from_add: null });
+	const listed: Snapshot = { ...PROJECT, objects: { ...PROJECT.objects, screenplay: { type: 'screenplay', name: 'Screenplay', segment: null, usable: true, from_add: null },
+		'episodes/EP002': episode('EP002 Second'), 'episodes/EP003': episode('EP003 Third') } };
+	const drama = new DramaProject(folder(), () => [project(listed, 1), episodes(EPISODES, 2)]);
+	const [script] = await drama.children();
+	const rows = await drama.children(script);
+	assert.deepEqual(rows.map(r => r.label), ['EP001 The Interview', '2 not started yet']);
+	assert.deepEqual((await drama.children(rows[1])).map(r => [r.label, r.episode]), [['EP002 Second', 'episodes/EP002'], ['EP003 Third', 'episodes/EP003']]);
+	const objects = (await drama.drama()).objects;
+	assert.equal(decomposition(objects.get('episodes/EP001/breakdown')).text, 'Shots planned');
+	assert.equal(decomposition(undefined).text, 'Not started');
+	assert.deepEqual((await drama.locate('#script/episodes/EP003')).map(n => n.id), ['screenplay', '#script/later', '#script/episodes/EP003'], 'a folded episode is still found');
+	// Its canvas and seg editor open from its row (Codex on B18): the row names its episode.
+	const folded = (await drama.children(rows[1]))[1];
+	assert.equal(episodeOfNode(folded), 'EP003');
+	assert.equal(episodeOfNode(rows[0]), 'EP001');
 });

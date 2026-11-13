@@ -202,7 +202,7 @@ export interface OutlineNode {
 
 export type Role = 'project' | 'script' | 'bible' | 'assets' | 'characters' | 'character' | 'look' | 'scenes' | 'location' | 'view' | 'props' | 'prop'
 	| 'episodes' | 'episode' | 'breakdown' | 'storyboard' | 'segment' | 'cut' | 'other'
-	| 'script-episode' | 'voices' | 'motion' | 'note';
+	| 'script-episode' | 'script-later' | 'voices' | 'motion' | 'note';
 
 /** An object's role, for its icon; a variant takes its asset's (variantRoot). */
 export function roleOf(drama: Drama, object: DramaObject): Role {
@@ -234,6 +234,22 @@ export function variantRoot(drama: Drama, id: string): string {
 		at = up;
 	}
 	return at;
+}
+
+/** Script's row of each episode, in episode order: its breakdown, which opens its shot list, once it has one. */
+function scriptRows(drama: Drama): OutlineNode[] {
+	const objects = [...drama.objects.values()].sort((a, b) => (a.id < b.id ? -1 : 1));
+	return objects.filter(ep => ep.type === 'episode').map(ep => {
+		const breakdown = objects.find(b => b.type === 'breakdown' && episodeIn(b.id) === episodeIn(ep.id));
+		return breakdown
+			? { ...stage(drama, breakdown, ep.name, false), episode: ep.id }
+			: { id: `#script/${ep.id}`, label: ep.name, kind: 'group' as const, role: 'script-episode' as const, hasChildren: false, episode: ep.id };
+	});
+}
+
+/** The episode a tree row stands for: a Script row names it (`episode`), any other row by its id. */
+export function episodeOfNode(node: Partial<OutlineNode> | undefined): string | undefined {
+	return episodeIn(node?.episode ?? node?.id ?? '');
 }
 
 /** The object a variant derives from directly (its `variant_of` edge), or undefined. */
@@ -421,14 +437,17 @@ export class DramaProject {
 				if (!ofType('screenplay').length) {
 					return [note(this.awaiting ? NOTE_ATTACH : NOTE_INTAKE)];
 				}
-				// Each episode's row is its breakdown, which opens its shot list, once it has one.
-				return ofType('episode').map(ep => {
-					const breakdown = ofType('breakdown').find(b => episodeIn(b.id) === episodeIn(ep.id));
-					return breakdown
-						? { ...stage(drama, breakdown, ep.name, false), episode: ep.id }
-						: { id: `#script/${ep.id}`, label: ep.name, kind: 'group' as const, role: 'script-episode' as const, hasChildren: false, episode: ep.id };
-				});
+				// The episodes under way, then one row for those not started yet, so a long screenplay's tree starts with the
+				// work under way (B18).
+				const rows = scriptRows(drama);
+				const later = rows.filter(row => !row.stagePath);
+				return [
+					...rows.filter(row => row.stagePath),
+					...(later.length ? [{ ...group('#script/later', `${later.length} not started yet`, 'script-later'), hasChildren: true }] : []),
+				];
 			}
+			case 'script-later':
+				return scriptRows(drama).filter(row => !row.stagePath);
 			case 'assets':
 				return [
 					...ASSET_GROUPS.map(([id, label, role, type]) => ({ ...group(id, label, role), hasChildren: ofType(type).length > 0 })),

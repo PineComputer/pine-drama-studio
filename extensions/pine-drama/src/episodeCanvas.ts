@@ -12,7 +12,7 @@ import { versionDetail } from './core/versionDetail';
 import { canvasTreePath } from './core/assetsCanvas';
 import { lineageMessage } from './core/canvasMessage';
 import { ASSETS_CANVAS } from './core/lineage';
-import { episodeIn, roleOf, versionFile, type ChatTitle, type OutlineNode, type Role } from './core/project';
+import { episodeIn, episodeOfNode, roleOf, versionFile, type ChatTitle, type OutlineNode, type Role } from './core/project';
 import type { CardAction } from './cardActions';
 import type { ProjectViews, StageRef } from './projectViews';
 import { CanvasPicks } from './core/canvasPicks';
@@ -188,8 +188,7 @@ export function registerEpisodeCanvas(context: vscode.ExtensionContext, views: P
 	});
 	// The episode a command means: the row it was given, else the canvas in front, else the tree's selection.
 	const target = (node: unknown) => {
-		const id = (node as Partial<OutlineNode> | undefined)?.id;
-		return (typeof id === 'string' ? episodeIn(id) : undefined) ?? activeEpisode() ?? episodeIn(views.selection()?.id ?? '');
+		return episodeOfNode(node as Partial<OutlineNode> | undefined) ?? activeEpisode() ?? episodeOfNode(views.selection());
 	};
 	const openTarget = (node: unknown, column?: vscode.ViewColumn.Beside) => {
 		const episode = target(node);
