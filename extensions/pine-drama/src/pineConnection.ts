@@ -45,9 +45,8 @@ export function registerPineConnection(context: vscode.ExtensionContext, config:
 			await vscode.window.showErrorMessage(text);
 		} finally { busy = false; }
 	}));
-	if (config.kind === 'disconnected') {
-		void vscode.window.showInformationMessage('Connect to Pine Computer to start making a drama. Your local files are available without connecting.', 'Connect to Pine Computer').then(action => {
-			if (action) { void vscode.commands.executeCommand(CONNECTION_COMMAND); }
-		});
-	}
+	// No notification at startup: it covered the bottom of the Chat message box until closed. Code-OSS shows a needed
+	// sign-in as a badge on Accounts, not as a notification (authenticationExtensionsService.ts, NumberBadge "Sign in
+	// requested"); here the status bar's "Pine · not connected" opens this command, Accounts → Pine Computer… does too, and
+	// a send says how to connect (pineConfig.ts, notSetUpText).
 }
