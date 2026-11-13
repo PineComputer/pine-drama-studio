@@ -1,0 +1,84 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Pine Drama Studio Authors <authors@example.invalid>
+Date: Wed, 4 Nov 2026 22:53:07 -0800
+Subject: [PATCH 19/31] pine(L2): retain restored native New Chat inputs before
+ defaulting
+
+
+diff --git a/src/vs/workbench/contrib/pine/browser/pineProjectChat.ts b/src/vs/workbench/contrib/pine/browser/pineProjectChat.ts
+index 1353db33fbb..fd47666bcc1 100644
+--- a/src/vs/workbench/contrib/pine/browser/pineProjectChat.ts
++++ b/src/vs/workbench/contrib/pine/browser/pineProjectChat.ts
+@@ -10,6 +10,7 @@ import { ChatConfiguration } from '../../chat/common/constants.js';
+ import { CommandsRegistry } from '../../../../platform/commands/common/commands.js';
+ import { IViewsService } from '../../../services/views/common/viewsService.js';
+ import { ChatViewId } from '../../chat/browser/chat.js';
++import { isUntitledChatSession } from '../../chat/common/model/chatUri.js';
+ import type { ChatViewPane } from '../../chat/browser/widgetHosts/viewPane/chatViewPane.js';
+ 
+ export const prepareProjectChatCommand = 'pine.workbench.prepareProjectChat';
+@@ -25,7 +26,13 @@ CommandsRegistry.registerCommand(prepareProjectChatCommand, async (accessor, mai
+ 	// The primary uses native pin state/grouping, never invented activity times or a duplicate home button.
+ 	await sessions.model.resolve('pine-computer');
+ 	sessions.getSession(URI.parse(mainResource))?.setPinned(true);
+-	return view.widget?.viewModel?.sessionResource.toString();
++	const widget = view.widget;
++	const resource = widget?.viewModel?.sessionResource;
++	if (!resource) { return undefined; }
++	// New Chat has no provider history before first send. Preserve its native input, including attachment-only drafts.
++	const isUntitledDraft = resource.scheme === 'pine-computer' && isUntitledChatSession(resource)
++		&& (widget.getInput().length > 0 || widget.attachmentModel.attachments.length > 0);
++	return { resource: resource.toString(), isUntitledDraft };
+ });
+ 
+ // Native setup/welcome can hide the list even after Show Agent Sessions Sidebar changes its layout.
+diff --git a/src/vs/workbench/contrib/pine/test/browser/pineProjectChat.test.ts b/src/vs/workbench/contrib/pine/test/browser/pineProjectChat.test.ts
+index d7f1b597aa7..e20ddc2346a 100644
+--- a/src/vs/workbench/contrib/pine/test/browser/pineProjectChat.test.ts
++++ b/src/vs/workbench/contrib/pine/test/browser/pineProjectChat.test.ts
+@@ -16,10 +16,11 @@ import type { ChatViewPane } from '../../../chat/browser/widgetHosts/viewPane/ch
+ import type { ChatWidget } from '../../../chat/browser/widget/chatWidget.js';
+ import { ChatViewId, type IChatWidgetViewModelChangeEvent } from '../../../chat/browser/chat.js';
+ import { prepareProjectChatCommand } from '../../browser/pineProjectChat.js';
++import { getNewChatSessionResource } from '../../../chat/common/model/chatUri.js';
+ import { pineWelcomeStartEntries } from '../../browser/pineWelcome.js';
+ 
+ suite('Pine project entry', () => {
+-	test('Welcome dispatches the two existing project commands without replacing native Recent', () => {
++	test('Welcome declares the two existing project commands without replacing native Recent', () => {
+ 		assert.deepStrictEqual(pineWelcomeStartEntries.map(entry => entry.content.command), ['command:pineDrama.newProject', 'command:pineDrama.openProject']);
+ 	});
+ 
+@@ -43,10 +44,31 @@ suite('Pine project entry', () => {
+ 			const selected = service.invokeFunction(accessor => CommandsRegistry.getCommand(prepareProjectChatCommand)!.handler(accessor, 'pine-computer:/main'));
+ 			await Promise.resolve(); assert.deepStrictEqual(calls, ['open', 'restore']);
+ 			resolveRestore();
+-			assert.strictEqual(await selected, 'pine-computer:/episode');
++			assert.deepStrictEqual(await selected, { resource: 'pine-computer:/episode', isUntitledDraft: false });
+ 			assert.deepStrictEqual(calls, ['open', 'restore', 'list', 'pin']);
+ 		} finally { service.dispose(); }
+ 	});
++	for (const input of ['text', 'attachments', 'empty', 'other-provider'] as const) {
++		test(`native untitled restoration reports ${input} without materializing a saved Chat`, async () => {
++			const service = new TestInstantiationService();
++			const resource = getNewChatSessionResource(input === 'other-provider' ? 'other-provider' : 'pine-computer');
++			const view = upcastPartial<ChatViewPane>({
++				whenSessionRestored: async () => {},
++				widget: upcastPartial<ChatWidget>({
++					viewModel: upcastPartial<NonNullable<ChatWidget['viewModel']>>({ sessionResource: resource }),
++					getInput: () => input === 'text' || input === 'other-provider' ? 'OFFLINE unsent draft' : '',
++					attachmentModel: upcastPartial<ChatWidget['attachmentModel']>({ attachments: input === 'attachments' ? [upcastPartial<ChatWidget['attachmentModel']['attachments'][number]>({ id: 'offline-script' })] : [] }),
++				}),
++			});
++			service.stub(IViewsService, upcastPartial<IViewsService>({ openView: async <T>() => view as T }));
++			service.stub(IAgentSessionsService, upcastPartial<IAgentSessionsService>({ model: upcastPartial<IAgentSessionsService['model']>({ resolve: async () => {} }), getSession: () => undefined }));
++			try {
++				const restored = await service.invokeFunction(accessor => CommandsRegistry.getCommand(prepareProjectChatCommand)!.handler(accessor, 'pine-computer:/main'));
++				assert.deepStrictEqual(restored, { resource: resource.toString(), isUntitledDraft: input === 'text' || input === 'attachments' });
++			} finally { service.dispose(); }
++		});
++	}
++
+ 	test('explicit Sessions navigation temporarily reveals the native list without replacing Chat', async () => {
+ 		const service = new TestInstantiationService();
+ 		const changed = new Emitter<IChatWidgetViewModelChangeEvent>();

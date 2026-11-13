@@ -1,0 +1,54 @@
+{
+	"observed_at": "2026-11-12T11:12:00Z",
+	"objects": {
+		"episodes/EP001": {
+			"type": "episode",
+			"name": "EP001 The Interview",
+			"segment": null,
+			"usable": true,
+			"from_add": null
+		},
+		"episodes/EP001/breakdown": {
+			"type": "breakdown",
+			"name": "EP001 breakdown",
+			"segment": null,
+			"usable": true,
+			"from_add": null
+		},
+		"episodes/EP001/keyframe/seg01/shot01": {
+			"type": "keyframe",
+			"name": "seg01 shot01",
+			"segment": "seg01",
+			"usable": true,
+			"from_add": null
+		},
+		"episodes/EP001/segments/seg01": {
+			"type": "take",
+			"name": "seg01",
+			"segment": "seg01",
+			"usable": true,
+			"prompt": "Image 1 is the first frame. Lin turns from the window.",
+			"from_add": null
+		},
+		"episodes/EP001/segments/seg02": {
+			"type": "take",
+			"name": "seg02",
+			"segment": "seg02",
+			"usable": false,
+			"why": "Its keyframe is not drawn yet.",
+			"prompt": "Lin opens the umbrella in the street.",
+			"inputs": [
+				"assets/props/umbrella",
+				"assets/scenes/street"
+			],
+			"from_add": null
+		}
+	},
+	"edges": [
+		{
+			"from": "episodes/EP001",
+			"to": "assets/props/umbrella",
+			"kind": "needs"
+		}
+	]
+}

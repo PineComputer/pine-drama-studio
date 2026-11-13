@@ -1,0 +1,158 @@
+/* The episode canvas, on the workbench's colours only (--vscode-* tokens), so it follows every theme. Corners by role
+   (open-pinedrama D67, as rules): a surface 12 px, a card's picture 8 px, things inside 6 px, pills round. One
+   type scale: 13 px titles, 12 px body, 11 px meta. */
+html, body, #root { margin: 0; padding: 0; height: 100%; width: 100%; overflow: hidden; }
+body { background: var(--vscode-editor-background); color: var(--vscode-foreground); font-family: var(--vscode-font-family); font-size: 12px; }
+button { font: inherit; color: inherit; }
+/* The origin chip's place, which the empty state's text clears (it sits over the board, above the text). */
+.shell { position: relative; height: 100%; --origin-top: 12px; --origin-height: 24px; }
+.canvas { position: absolute; inset: 0; }
+.empty { padding: calc(var(--origin-top) + var(--origin-height) + 12px) 24px 24px; color: var(--vscode-descriptionForeground); }
+.error { padding: 24px; max-width: 760px; }
+.error p { white-space: pre-wrap; word-break: break-word; }
+.error .detail { color: var(--vscode-descriptionForeground); }
+
+/* Where the data came from (design rule 4, D7): a quiet chip, full source in its tooltip. */
+.origin { position: absolute; top: var(--origin-top); left: 12px; z-index: 6; box-sizing: border-box; height: var(--origin-height); display: flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; font-size: 11px; color: var(--vscode-descriptionForeground); background: color-mix(in srgb, var(--vscode-editorWidget-background) 85%, transparent); border: 1px solid var(--vscode-widget-border, var(--vscode-panel-border)); user-select: none; }
+.origin .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--vscode-editorWarning-foreground); }
+.origin.live .dot { background: var(--vscode-testing-iconPassed, var(--vscode-charts-green)); }
+.origin.stale .newer { color: var(--vscode-editorWarning-foreground); }
+/* drama-cli status not read (#390): below the source label, never over it (Codex on #394), in the warning colour. */
+
+/* React Flow on the workbench's colours (its documented --xy-* variables, @xyflow/react dist/style.css). */
+.react-flow {
+  --xy-background-color: var(--vscode-editor-background);
+  --xy-background-pattern-color: color-mix(in srgb, var(--vscode-foreground) 22%, transparent);
+  --xy-node-background-color: transparent;
+  --xy-node-border: none;
+  --xy-node-boxshadow-selected: none;
+  --xy-edge-stroke: var(--vscode-descriptionForeground);
+  --xy-minimap-background-color: var(--vscode-editorWidget-background);
+  --xy-minimap-mask-background-color: color-mix(in srgb, var(--vscode-editor-background) 60%, transparent);
+  --xy-selection-background-color: color-mix(in srgb, var(--vscode-focusBorder) 12%, transparent);
+  --xy-selection-border: 1px solid color-mix(in srgb, var(--vscode-focusBorder) 60%, transparent);
+  --xy-attribution-background-color: transparent;
+  color: var(--vscode-foreground);
+}
+.react-flow__node { padding: 0; border: 0; background: transparent; box-shadow: none; }
+.react-flow__attribution { font-size: 10px; opacity: 0.6; }
+.react-flow__attribution a { color: var(--vscode-descriptionForeground); }
+.react-flow__minimap { border-radius: 12px; overflow: hidden; border: 1px solid var(--vscode-widget-border, var(--vscode-panel-border)); }
+/* In the minimap a card reads as a light block on the frames' faint outline, in every theme. */
+.react-flow__minimap-node.mini-card { fill: color-mix(in srgb, var(--vscode-foreground) 55%, transparent); }
+.react-flow__minimap-node.mini-frame { fill: color-mix(in srgb, var(--vscode-foreground) 6%, transparent); stroke: color-mix(in srgb, var(--vscode-foreground) 25%, transparent); stroke-width: 8; }
+
+/* Frames: a faint surface, the group's name in muted 13 px. */
+.frame { box-sizing: border-box; width: 100%; height: 100%; border-radius: 16px; border: 1px solid color-mix(in srgb, var(--vscode-panel-border) 70%, transparent); background: color-mix(in srgb, var(--vscode-editorWidget-background) 45%, transparent); }
+.frame-title { padding: 14px 18px; font-size: 13px; font-weight: 600; color: var(--vscode-descriptionForeground); }
+.react-flow__node-frame.selected .frame { border-color: var(--vscode-focusBorder); }
+
+/* Cards: the picture leads; a label row above, a version line below. */
+.card { position: relative; display: flex; flex-direction: column; box-sizing: border-box; color: var(--vscode-foreground); pointer-events: all; }
+.card .label { height: 26px; display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--vscode-descriptionForeground); }
+.card .label .codicon { font-size: 13px; opacity: 0.8; }
+.card .label .name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--vscode-foreground); font-weight: 600; }
+.card .label .dims { font-family: var(--vscode-editor-font-family); font-size: 10.5px; opacity: 0.75; }
+.card .media { position: relative; flex: 1; border-radius: 8px; overflow: hidden; background: var(--vscode-editorWidget-background); outline: 1px solid color-mix(in srgb, var(--vscode-panel-border) 80%, transparent); outline-offset: -1px; display: flex; align-items: center; justify-content: center; transition: outline-color 120ms ease, box-shadow 120ms ease; }
+.card:hover .media { outline-color: color-mix(in srgb, var(--vscode-focusBorder) 50%, transparent); }
+.card.selected .media { outline: 2px solid var(--vscode-focusBorder); outline-offset: -2px; box-shadow: 0 0 0 4px color-mix(in srgb, var(--vscode-focusBorder) 18%, transparent); }
+.card.stale .media { outline: 1.5px solid var(--vscode-errorForeground); outline-offset: -1.5px; }
+.card .media img, .card .media video { width: 100%; height: 100%; object-fit: contain; pointer-events: none; display: block; }
+.card .media .play { position: absolute; width: 34px; height: 34px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: color-mix(in srgb, var(--vscode-editor-background) 65%, transparent); color: var(--vscode-foreground); pointer-events: none; backdrop-filter: blur(4px); }
+.card .media:hover .play { display: none; }
+.card .placeholder { padding: 12px; color: var(--vscode-descriptionForeground); font-size: 12px; text-align: center; word-break: break-word; }
+.card .foot { height: 24px; display: flex; align-items: center; gap: 4px; font-size: 11px; white-space: nowrap; overflow: hidden; color: var(--vscode-descriptionForeground); }
+.card .foot .accepted { color: var(--vscode-testing-iconPassed); }
+/* The assets canvas's card (canvas-card.md, section 3; Pippit 734): no label row; a footer in sizes read zoomed out
+   (24 px name and 18 px line in canvas units: about 6.7 and 5 screen pixels at 28 %); an undrawn picture holds Import. */
+/* The footer holds a name of up to two lines (the person, 756: "Cathedral Hall · Toward th…" twice), then its line: ASSET_FOOT_H. */
+.card.asset .asset-foot { height: 84px; box-sizing: border-box; padding-top: 4px; display: flex; flex-direction: column; justify-content: flex-start; min-width: 0; }
+.card.asset .asset-name { font-size: 24px; line-height: 28px; font-weight: 600; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
+.card.asset .asset-line { font-size: 18px; line-height: 22px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--vscode-descriptionForeground); }
+.card.asset .asset-line .warn { color: var(--vscode-editorWarning-foreground); }
+.card.asset .asset-line .chip { font-size: 15px; line-height: 20px; }
+.card.asset .face-import { font-size: 18px; padding: 8px 16px; }
+.card.asset .face-import .codicon { font-size: 20px; }
+/* The assets canvas's group frames carry the asset's name, read zoomed out as the footer is. */
+.assets-canvas .frame-title { font-size: 24px; }
+.chip { margin-left: 6px; padding: 0 7px; border-radius: 999px; font-size: 10.5px; line-height: 17px; }
+.chip.stale { color: var(--vscode-errorForeground); background: color-mix(in srgb, var(--vscode-errorForeground) 12%, transparent); }
+.muted { color: var(--vscode-descriptionForeground); }
+
+/* drama-cli's links: thin and quiet; the picked card's own stand out. */
+.react-flow__edge.link path { stroke: var(--vscode-descriptionForeground); stroke-opacity: 0.32; stroke-width: 1; }
+.react-flow__edge.link.lit path { stroke: var(--vscode-focusBorder); stroke-opacity: 0.95; stroke-width: 1.5; }
+
+/* Floating surfaces: one recipe (widget background, border, shadow, 12 px). */
+.bar, .detail, .menu { background: var(--vscode-editorWidget-background); color: var(--vscode-editorWidget-foreground, var(--vscode-foreground)); border: 1px solid var(--vscode-editorWidget-border, var(--vscode-widget-border, var(--vscode-panel-border))); box-shadow: 0 6px 24px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.36)); }
+button.icon { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 6px; background: transparent; cursor: pointer; color: var(--vscode-foreground); }
+/* A labeled button, the seg editor's own (seg.css `button`): the toggle between an episode's two views. */
+button.labeled { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border: 0; border-radius: 4px; cursor: pointer; white-space: nowrap; color: var(--vscode-button-secondaryForeground); background: var(--vscode-button-secondaryBackground); }
+button.labeled:hover { background: var(--vscode-button-secondaryHoverBackground); }
+.to-seg { position: absolute; top: var(--origin-top); right: 12px; z-index: 6; }
+button.icon:hover { background: var(--vscode-toolbar-hoverBackground); }
+button.icon[aria-pressed="true"], button.icon[aria-expanded="true"] { background: var(--vscode-toolbar-activeBackground, var(--vscode-toolbar-hoverBackground)); }
+button.icon .codicon { font-size: 16px; }
+
+.bar { position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 6; display: flex; align-items: center; gap: 2px; padding: 4px; border-radius: 999px; }
+.bar .zoom { min-width: 52px; height: 28px; padding: 0 6px; border: 0; border-radius: 6px; background: transparent; font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; cursor: pointer; }
+.bar .zoom:hover { background: var(--vscode-toolbar-hoverBackground); }
+.bar .sep { width: 1px; height: 16px; margin: 0 4px; background: var(--vscode-widget-border, var(--vscode-panel-border)); }
+.menu { position: absolute; bottom: calc(100% + 8px); right: 0; min-width: 180px; padding: 4px; border-radius: 8px; display: flex; flex-direction: column; }
+.menu button { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border: 0; border-radius: 4px; background: transparent; text-align: left; cursor: pointer; color: var(--vscode-menu-foreground, var(--vscode-foreground)); }
+.menu button:hover { background: var(--vscode-menu-selectionBackground, var(--vscode-list-hoverBackground)); color: var(--vscode-menu-selectionForeground, inherit); }
+.notice { position: absolute; bottom: calc(100% + 8px); left: 50%; transform: translateX(-50%); white-space: nowrap; padding: 5px 12px; border-radius: 999px; font-size: 11px; background: var(--vscode-editorWidget-background); border: 1px solid var(--vscode-widget-border, var(--vscode-panel-border)); color: var(--vscode-descriptionForeground); }
+
+/* The read-only detail panel: references, prompt, model and settings, cost. */
+.detail { width: 460px; max-height: 60vh; overflow: auto; border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; cursor: default; }
+.detail-head { display: flex; align-items: center; gap: 8px; }
+.detail-title { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.detail-version { flex: 1; font-size: 11px; color: var(--vscode-descriptionForeground); white-space: nowrap; overflow: hidden; }
+.detail-note { color: var(--vscode-descriptionForeground); }
+/* The assets card's box names its card in one line, the link to the node it derives from beside it (canvas-card.md, section 1c). */
+.box-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.box-title { flex: 1; min-width: 0; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.box-head .link.from { flex: none; white-space: nowrap; }
+.detail .prompt { max-height: 220px; overflow: auto; }
+.record-text { width: 100%; box-sizing: border-box; resize: vertical; font: inherit; line-height: 1.45; color: var(--vscode-input-foreground); background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border, transparent); border-radius: 4px; padding: 6px 8px; }
+.record-text:focus { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
+/* The box's prompt (D65): who wrote it, and the images its text numbers. */
+.prompt-head { font-size: 11px; color: var(--vscode-descriptionForeground); }
+.record-actions { display: flex; align-items: center; gap: 6px; }
+.record-actions .spacer { flex: 1; }
+.variant-draft { display: flex; flex-direction: column; gap: 6px; }
+.link.from { padding: 0; border: 0; background: none; color: var(--vscode-textLink-foreground); cursor: pointer; font: inherit; }
+.link.from:hover { color: var(--vscode-textLink-activeForeground); text-decoration: underline; }
+.error-text { color: var(--vscode-errorForeground); }
+.picture-state { display: flex; flex-direction: column; gap: 6px; font-size: 12px; }
+/* The picture's versions as Pippit's strip: Main on the one in use, Delete on hover (design.md, record panel versions). */
+.strip { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 2px; }
+.strip .version { position: relative; display: flex; flex-direction: column; gap: 2px; flex: 0 0 auto; }
+.strip .thumb { position: relative; width: 84px; height: 84px; padding: 0; border: 1px solid var(--vscode-widget-border, transparent); border-radius: 6px; overflow: hidden; cursor: pointer; background: var(--vscode-editor-background); display: flex; align-items: center; justify-content: center; }
+.strip .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.strip .version.chosen .thumb { outline: 2px solid var(--vscode-focusBorder); outline-offset: -2px; }
+.strip .main { position: absolute; top: 4px; left: 4px; font-size: 10px; padding: 0 6px; border-radius: 999px; color: var(--vscode-badge-foreground); background: var(--vscode-badge-background); }
+.strip .delete { position: absolute; top: 4px; right: 4px; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 50%; cursor: pointer; opacity: 0; color: var(--vscode-foreground); background: var(--vscode-editorWidget-background); }
+.strip .version:hover .delete, .strip .delete:focus-visible { opacity: 1; }
+.strip .label { font-size: 11px; color: var(--vscode-descriptionForeground); }
+/* The assets canvas: a variant drawn from its base, dashed (Pippit 647). */
+.react-flow__edge.dashed .react-flow__edge-path { stroke-dasharray: 6 4; }
+/* The assets canvas's region headings: characters, scenes, props (the person, 652). */
+.region-heading { font-size: 28px; font-weight: 600; color: var(--vscode-foreground); white-space: nowrap; pointer-events: none; }
+/* The canvas's dot grid (the person, 658): the editor's whitespace colour, visible in light and dark themes. */
+.react-flow__background.dots .react-flow__background-pattern.dots { fill: var(--vscode-editorWhitespace-foreground, var(--vscode-editorIndentGuide-activeBackground1)); }
+button.labeled:disabled { opacity: 0.5; cursor: default; }
+
+/* The tools' cursors (canvas-tools.md): Select an arrow, Hand an open hand, closed while it pans. React Flow's own CSS
+   gives a pane that pans on drag `grab`, `grabbing` while it pans, and `pointer` where a drag selects; with Select the
+   pane keeps the arrow until it pans (the middle button, or Space held), and with Hand a card shows the hand too. */
+.tool-select .react-flow__pane { cursor: default; }
+.tool-select .react-flow__pane.dragging { cursor: grabbing; }
+.tool-hand .react-flow__node { cursor: grab; }
+/* An episode card's prompt in its box (D65): the same field as an asset box's, spaced as the panel's other parts. */
+.episode-prompt { display: flex; flex-direction: column; gap: 8px; margin: 8px 0; }
+
+/* A card's marks of the person's choices (design.md, section 15). */
+.card .mark { position: absolute; top: 6px; right: 6px; z-index: 2; padding: 2px; border-radius: 4px; background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); }
+.card .mark-line { padding: 2px 8px; font-size: 11px; color: var(--vscode-descriptionForeground); }
+.card .mark-line.warn { color: var(--vscode-editorWarning-foreground); }

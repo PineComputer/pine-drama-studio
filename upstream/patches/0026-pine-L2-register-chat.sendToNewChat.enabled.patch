@@ -1,0 +1,37 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Pine Drama Studio Authors <authors@example.invalid>
+Date: Sat, 7 Nov 2026 13:33:53 -0800
+Subject: [PATCH 26/31] pine(L2): register chat.sendToNewChat.enabled
+
+A generic setting, default true, for whether Chat offers Send to New Chat. The Studio's extension sets it false
+: the person's reply to a session waiting for their answer went to a new session and a new
+Computer, twice, through Send to New Chat, which they did not mean to use.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+diff --git a/src/vs/workbench/contrib/pine/browser/pine.contribution.ts b/src/vs/workbench/contrib/pine/browser/pine.contribution.ts
+index df5e0a0d4ba..8522dca0065 100644
+--- a/src/vs/workbench/contrib/pine/browser/pine.contribution.ts
++++ b/src/vs/workbench/contrib/pine/browser/pine.contribution.ts
+@@ -42,6 +42,21 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
+ 	},
+ });
+ 
++// Whether Chat offers Send to New Chat (chatExecuteActions.ts SendToNewChatAction: Ctrl/Cmd+Shift+Enter, and the Send
++// button's alternative while Alt is held, or Shift with the pointer over it; menuEntryActionViewItem.ts). It sends the
++// typed message to a new conversation instead of the one shown. The Studio's extension turns it off (pine-drama-studio
++// a reply meant for a waiting session started a new session and a new Computer instead.
++Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).registerConfiguration({
++	id: 'chat',
++	properties: {
++		'chat.sendToNewChat.enabled': {
++			type: 'boolean',
++			default: true,
++			description: 'Controls whether Chat offers Send to New Chat (its keybinding and the Send button\'s alternative).',
++		},
++	},
++});
++
+ /**
+  * The Studio ships no GitHub Copilot, so Copilot's status bar entry (chatStatusEntry.ts, 'chat.statusBarEntry': its
+  * sign-in and quota dashboard) is hidden, as the person's own "Hide" on the entry would hide it. No setting removes the

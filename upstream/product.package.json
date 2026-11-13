@@ -1,0 +1,17 @@
+{
+	"nameShort": "Pine Drama Studio",
+	"nameLong": "Pine Drama Studio",
+	"applicationName": "pine-drama-studio",
+	"dataFolderName": ".pine-drama-studio",
+	"sharedDataFolderName": ".pine-drama-studio-shared",
+	"darwinBundleIdentifier": "ai.19pine.dramastudio",
+	"urlProtocol": "pine-drama-studio",
+	"reportIssueUrl": "https://github.com/PineComputer/pine-drama-studio/issues/new",
+	"licenseName": "Apache-2.0",
+	"licenseUrl": "https://www.apache.org/licenses/LICENSE-2.0",
+	"serverLicenseUrl": "",
+	"pineShipsNoCopilot": true,
+	"quality": "stable",
+	"updateUrl": "https://raw.githubusercontent.com/PineComputer/pine-drama-studio/main/updates",
+	"pineReleasesUrl": "https://github.com/PineComputer/pine-drama-studio/releases"
+}

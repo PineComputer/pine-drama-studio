@@ -1,0 +1,47 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Pine Drama Studio Authors <authors@example.invalid>
+Date: Thu, 5 Nov 2026 15:29:00 -0800
+Subject: [PATCH 23/31] pine(L2): the review gate banner only reveals the card
+
+The banner's action no longer submits a Review: it opens the review card
+(pineDrama.review.openMessage), which alone submits.
+The gate no longer carries ready. The composer's input lock stays.
+
+diff --git a/src/vs/workbench/contrib/pine/browser/pineReview.ts b/src/vs/workbench/contrib/pine/browser/pineReview.ts
+index 6bf6e794d13..159e5f5efe2 100644
+--- a/src/vs/workbench/contrib/pine/browser/pineReview.ts
++++ b/src/vs/workbench/contrib/pine/browser/pineReview.ts
+@@ -1,5 +1,6 @@
+ /*---------------------------------------------------------------------------------------------
+  * Pine review gating uses the native composer and read-only banner; it never clears a draft.
++ * The banner only reveals the review card; the card alone submits.
+  *--------------------------------------------------------------------------------------------*/
+ import { Emitter } from '../../../../base/common/event.js';
+ import { Disposable, MutableDisposable } from '../../../../base/common/lifecycle.js';
+@@ -7,13 +8,13 @@ import { CommandsRegistry, ICommandService } from '../../../../platform/commands
+ import { IChatWidget } from '../../chat/browser/chat.js';
+ import { ChatWidget, IChatWidgetContrib } from '../../chat/browser/widget/chatWidget.js';
+ 
+-interface ReviewGate { resource: string; reviewId: string; ready: boolean }
++interface ReviewGate { resource: string; reviewId: string }
+ const gates = new Map<string, ReviewGate>();
+ const changed = new Emitter<void>();
+ 
+ CommandsRegistry.registerCommand('pine.workbench.setReviewGates', (_accessor, values: ReviewGate[]) => {
+ 	if (!Array.isArray(values) || values.some(v => typeof v.resource !== 'string' || !v.resource.startsWith('pine-computer:')
+-		|| typeof v.reviewId !== 'string' || typeof v.ready !== 'boolean')) { throw new Error('Invalid Pine review gate.'); }
++		|| typeof v.reviewId !== 'string')) { throw new Error('Invalid Pine review gate.'); }
+ 	gates.clear();
+ 	for (const value of values) { gates.set(value.resource, value); }
+ 	changed.fire();
+@@ -47,8 +48,8 @@ class PineReviewGate extends Disposable implements IChatWidgetContrib {
+ 			if (gate && !model?.isReadOnly.get()) {
+ 				this.gated = true;
+ 				(this.widget as ChatWidget).setReadOnly(true, false, { kind: 'live', message: 'Review before continuing',
+-					action: { label: gate.ready ? 'Submit and continue' : 'Review items', run: async () => {
+-						await this.commands.executeCommand(gate.ready ? 'pineDrama.review.submit' : 'pineDrama.review.openMessage', gate.resource, gate.reviewId);
++					action: { label: 'Review items', run: async () => {
++						await this.commands.executeCommand('pineDrama.review.openMessage', gate.resource, gate.reviewId);
+ 					} } });
+ 			} else if (this.gated) {
+ 				this.gated = false;

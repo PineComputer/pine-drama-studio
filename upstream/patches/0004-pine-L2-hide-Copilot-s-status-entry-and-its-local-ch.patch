@@ -1,0 +1,59 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Pine Drama Studio Authors <authors@example.invalid>
+Date: Mon, 2 Nov 2026 16:00:44 -0800
+Subject: [PATCH 04/31] pine(L2): hide Copilot's status entry and its local
+ chat harness
+
+Registers chat.editor.localAgent.enabled false, so upstream's local
+(Copilot) chat is not offered and a new chat opens on Pine Computer, and
+hides the 'chat.statusBarEntry' status bar entry, as the person's own
+Hide would. The Studio ships no Copilot.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+diff --git a/src/vs/workbench/contrib/pine/browser/pine.contribution.ts b/src/vs/workbench/contrib/pine/browser/pine.contribution.ts
+index 4035ed19cec..5d4d7d98088 100644
+--- a/src/vs/workbench/contrib/pine/browser/pine.contribution.ts
++++ b/src/vs/workbench/contrib/pine/browser/pine.contribution.ts
+@@ -2,14 +2,40 @@
+  *  Pine Drama Studio: workbench defaults the extension API cannot set (layer 2).
+  *--------------------------------------------------------------------------------------------*/
+ 
++import { Disposable } from '../../../../base/common/lifecycle.js';
+ import { Extensions as ConfigurationExtensions, IConfigurationRegistry } from '../../../../platform/configuration/common/configurationRegistry.js';
+ import { Registry } from '../../../../platform/registry/common/platform.js';
++import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
++import { IStatusbarService } from '../../../services/statusbar/browser/statusbar.js';
+ import { ChatConfiguration } from '../../chat/common/constants.js';
+ 
+ // The Studio ships no GitHub Copilot CLI, so the Command Palette's "Shell Command: Install '<app>' and optionally
+ // 'copilot' commands in PATH" (terminalInstallActions.ts, registerInstallShellScriptWithCopilotMenu) is shown without the
+ // Copilot variant. The setting is application-scoped, which an extension's configurationDefaults cannot set
+ // (configurationExtensionPoint.ts), hence a registry default here.
++// The local harness is upstream's Copilot chat: with it off, the session type picker does not offer it and a new chat
++// opens on the first other type, Pine Computer (constants.ts, isEditorLocalAgentEnabled, getComputedDefaultSessionType).
++// The setting is not registered with the configuration registry, so only a registry default sets it reliably.
+ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).registerDefaultConfigurations([{
+-	overrides: { [ChatConfiguration.CopilotCliCommandEnabled]: false },
++	overrides: {
++		[ChatConfiguration.CopilotCliCommandEnabled]: false,
++		[ChatConfiguration.EditorLocalAgentEnabled]: false,
++	},
+ }]);
++
++/**
++ * The Studio ships no GitHub Copilot, so Copilot's status bar entry (chatStatusEntry.ts, 'chat.statusBarEntry': its
++ * sign-in and quota dashboard) is hidden, as the person's own "Hide" on the entry would hide it. No setting removes the
++ * entry: it is added whenever chat setup is not hidden, and hiding chat setup would hide the Chat view, which the
++ * Studio's sessions live in.
++ */
++class PineHideCopilotStatus extends Disposable implements IWorkbenchContribution {
++	static readonly ID = 'workbench.contrib.pineHideCopilotStatus';
++
++	constructor(@IStatusbarService statusbarService: IStatusbarService) {
++		super();
++		statusbarService.updateEntryVisibility('chat.statusBarEntry', false);
++	}
++}
++
++registerWorkbenchContribution2(PineHideCopilotStatus.ID, PineHideCopilotStatus, WorkbenchPhase.AfterRestored);

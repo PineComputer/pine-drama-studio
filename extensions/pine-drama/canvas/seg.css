@@ -1,0 +1,38 @@
+/* The seg editor (canvas/seg.tsx): a header, the chosen seg's take playing above its request, and the seg strip at the
+   bottom. Workbench colours only, so it follows the theme. */
+html, body, #root { height: 100%; margin: 0; }
+body { background: var(--vscode-editor-background); color: var(--vscode-foreground); font-family: var(--vscode-font-family); font-size: var(--vscode-font-size); }
+.muted { color: var(--vscode-descriptionForeground); }
+.error { color: var(--vscode-errorForeground); padding: 16px; }
+.editor { display: grid; grid-template-rows: auto 1fr auto; grid-template-columns: minmax(0, 1fr); height: 100%; }
+header { display: flex; align-items: baseline; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--vscode-panel-border); }
+header h1 { font-size: 18px; font-weight: 600; margin: 0; }
+header .actions { margin-left: auto; display: inline-flex; gap: 8px; }
+button:disabled { opacity: 0.5; cursor: default; }
+button { font: inherit; color: var(--vscode-button-secondaryForeground); background: var(--vscode-button-secondaryBackground); border: 0; border-radius: 4px; padding: 4px 10px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+button:hover { background: var(--vscode-button-secondaryHoverBackground); }
+main { overflow: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+.player { width: 100%; max-width: 960px; max-height: 60vh; background: #000; border-radius: 6px; }
+select { font: inherit; color: var(--vscode-dropdown-foreground); background: var(--vscode-dropdown-background); border: 1px solid var(--vscode-dropdown-border, transparent); border-radius: 4px; padding: 3px 6px; }
+.request { max-width: 960px; display: flex; flex-direction: column; gap: 10px; }
+.request .prompt { font-size: 13px; padding: 12px; border-radius: 6px; background: var(--vscode-textCodeBlock-background); }
+.request .ref { width: 72px; height: 72px; }
+.planned { display: flex; flex-direction: column; gap: 8px; }
+.planned-head { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--vscode-descriptionForeground); }
+.planned-text { margin: 0; white-space: pre-wrap; font-family: inherit; font-size: 13px; padding: 12px; border-radius: 6px; background: var(--vscode-textCodeBlock-background); }
+.chip { padding: 2px 8px; border-radius: 10px; background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); font-size: 12px; }
+/* The strip scrolls sideways within the window (the person, 2026-11-08: it cut off after seg06): the grid column may
+   shrink below its content (minmax(0, 1fr) above), each seg keeps its width, and the scrollbar shows. */
+.strip { display: flex; gap: 8px; min-width: 0; overflow-x: auto; overflow-y: hidden; padding: 10px 16px 6px; border-top: 1px solid var(--vscode-panel-border); scrollbar-width: thin; scrollbar-color: var(--vscode-scrollbarSlider-background) transparent; }
+.strip::-webkit-scrollbar { height: 10px; }
+.strip::-webkit-scrollbar-thumb { background: var(--vscode-scrollbarSlider-background); border-radius: 5px; }
+.strip::-webkit-scrollbar-thumb:hover { background: var(--vscode-scrollbarSlider-hoverBackground); }
+.seg { flex: 0 0 auto; flex-direction: column; align-items: stretch; width: 132px; padding: 6px; gap: 4px; }
+.seg .thumb { display: flex; align-items: center; justify-content: center; width: 100%; aspect-ratio: 16 / 9; border-radius: 4px; overflow: hidden; background: var(--vscode-editor-background); }
+.seg .thumb video, .seg .thumb img { width: 100%; height: 100%; object-fit: cover; }
+.seg .name { text-align: left; }
+.badge { align-self: flex-start; font-size: 11px; padding: 0 6px; border-radius: 8px; color: var(--vscode-descriptionForeground); border: 1px solid var(--vscode-widget-border, var(--vscode-panel-border)); }
+.badge.accepted { color: var(--vscode-testing-iconPassed, var(--vscode-charts-green)); border-color: currentColor; }
+.badge.review { color: var(--vscode-editorWarning-foreground); border-color: currentColor; }
+.seg .codicon { font-size: 20px; }
+.seg.chosen { outline: 2px solid var(--vscode-focusBorder); }

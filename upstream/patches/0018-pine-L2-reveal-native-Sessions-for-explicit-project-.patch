@@ -1,0 +1,121 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Pine Drama Studio Authors <authors@example.invalid>
+Date: Wed, 4 Nov 2026 21:39:40 -0800
+Subject: [PATCH 18/31] pine(L2): reveal native Sessions for explicit project
+ navigation
+
+
+diff --git a/src/vs/workbench/contrib/pine/browser/pineProjectChat.ts b/src/vs/workbench/contrib/pine/browser/pineProjectChat.ts
+index e092963fc98..1353db33fbb 100644
+--- a/src/vs/workbench/contrib/pine/browser/pineProjectChat.ts
++++ b/src/vs/workbench/contrib/pine/browser/pineProjectChat.ts
+@@ -1,8 +1,12 @@
+ /*---------------------------------------------------------------------------------------------
+  * Native Chat restoration bridge for Pine. Private extension API exposes local-provider sessions only.
+  *--------------------------------------------------------------------------------------------*/
++import { DisposableStore } from '../../../../base/common/lifecycle.js';
++import { Event } from '../../../../base/common/event.js';
+ import { URI } from '../../../../base/common/uri.js';
+ import { IAgentSessionsService } from '../../chat/browser/agentSessions/agentSessionsService.js';
++import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
++import { ChatConfiguration } from '../../chat/common/constants.js';
+ import { CommandsRegistry } from '../../../../platform/commands/common/commands.js';
+ import { IViewsService } from '../../../services/views/common/viewsService.js';
+ import { ChatViewId } from '../../chat/browser/chat.js';
+@@ -23,3 +27,25 @@ CommandsRegistry.registerCommand(prepareProjectChatCommand, async (accessor, mai
+ 	sessions.getSession(URI.parse(mainResource))?.setPinned(true);
+ 	return view.widget?.viewModel?.sessionResource.toString();
+ });
++
++// Native setup/welcome can hide the list even after Show Agent Sessions Sidebar changes its layout.
++// An explicit navigation reveal lasts only until selection or hiding the view, preserving the selected Chat/draft.
++CommandsRegistry.registerCommand('pine.workbench.showProjectSessions', async accessor => {
++	const configuration = accessor.get(IConfigurationService);
++	const views = accessor.get(IViewsService);
++	const view = await views.openView<ChatViewPane>(ChatViewId, true);
++	if (!view) { return; }
++	await view.whenSessionRestored();
++	if (!view.isBodyVisible()) { return; }
++	const reveal = new DisposableStore();
++	reveal.add(view.revealSessionsList());
++	reveal.add(Event.once(view.widget.onDidChangeViewModel)(() => reveal.dispose()));
++	if (view.agentSessionsControl) { reveal.add(Event.once(view.agentSessionsControl.onDidOpenSession)(() => reveal.dispose())); }
++	reveal.add(configuration.onDidChangeConfiguration(event => {
++		const disabled = event.affectsConfiguration(ChatConfiguration.ChatViewSessionsEnabled) && !configuration.getValue<boolean>(ChatConfiguration.ChatViewSessionsEnabled);
++		const stacked = event.affectsConfiguration(ChatConfiguration.ChatViewSessionsOrientation) && configuration.getValue<string>(ChatConfiguration.ChatViewSessionsOrientation) === 'stacked';
++		if (disabled || stacked) { reveal.dispose(); }
++	}));
++	reveal.add(Event.filter(view.onDidChangeBodyVisibility, visible => !visible)(() => reveal.dispose()));
++	view.focusSessions();
++});
+diff --git a/src/vs/workbench/contrib/pine/test/browser/pineProjectChat.test.ts b/src/vs/workbench/contrib/pine/test/browser/pineProjectChat.test.ts
+index 2486f1658b5..d7f1b597aa7 100644
+--- a/src/vs/workbench/contrib/pine/test/browser/pineProjectChat.test.ts
++++ b/src/vs/workbench/contrib/pine/test/browser/pineProjectChat.test.ts
+@@ -3,16 +3,18 @@
+  *  Licensed under the MIT License. See License.txt in the project root for license information.
+  *--------------------------------------------------------------------------------------------*/
+ import assert from 'assert';
++import { IConfigurationService, type IConfigurationChangeEvent, type IConfigurationOverrides } from '../../../../../platform/configuration/common/configuration.js';
+ import { CommandsRegistry } from '../../../../../platform/commands/common/commands.js';
+ import { TestInstantiationService } from '../../../../../platform/instantiation/test/common/instantiationServiceMock.js';
+ import { upcastPartial } from '../../../../../base/test/common/mock.js';
++import { Emitter } from '../../../../../base/common/event.js';
+ import { URI } from '../../../../../base/common/uri.js';
+ import { IViewsService } from '../../../../services/views/common/viewsService.js';
+ import { IAgentSessionsService } from '../../../chat/browser/agentSessions/agentSessionsService.js';
+ import type { IAgentSession } from '../../../chat/browser/agentSessions/agentSessionsModel.js';
+ import type { ChatViewPane } from '../../../chat/browser/widgetHosts/viewPane/chatViewPane.js';
+ import type { ChatWidget } from '../../../chat/browser/widget/chatWidget.js';
+-import { ChatViewId } from '../../../chat/browser/chat.js';
++import { ChatViewId, type IChatWidgetViewModelChangeEvent } from '../../../chat/browser/chat.js';
+ import { prepareProjectChatCommand } from '../../browser/pineProjectChat.js';
+ import { pineWelcomeStartEntries } from '../../browser/pineWelcome.js';
+ 
+@@ -45,4 +47,46 @@ suite('Pine project entry', () => {
+ 			assert.deepStrictEqual(calls, ['open', 'restore', 'list', 'pin']);
+ 		} finally { service.dispose(); }
+ 	});
++	test('explicit Sessions navigation temporarily reveals the native list without replacing Chat', async () => {
++		const service = new TestInstantiationService();
++		const changed = new Emitter<IChatWidgetViewModelChangeEvent>();
++		const visibility = new Emitter<boolean>();
++		const opened = new Emitter<URI>();
++		const configuration = new Emitter<IConfigurationChangeEvent>();
++		let reveals = 0; let focused = 0; let orientation = 'sideBySide'; let enabled = true; let bodyVisible = true;
++		let restoreReady: Promise<void> = Promise.resolve();
++		const resource = URI.parse('pine-computer:/episode');
++		const view = upcastPartial<ChatViewPane>({
++			whenSessionRestored: async () => { await restoreReady; },
++			revealSessionsList: () => { reveals++; return { dispose: () => { reveals--; } }; },
++			focusSessions: () => { focused++; return true; },
++			onDidChangeBodyVisibility: visibility.event, isBodyVisible: () => bodyVisible,
++			agentSessionsControl: upcastPartial<NonNullable<ChatViewPane['agentSessionsControl']>>({ onDidOpenSession: opened.event }),
++			widget: upcastPartial<ChatWidget>({ onDidChangeViewModel: changed.event, viewModel: upcastPartial<NonNullable<ChatWidget['viewModel']>>({ sessionResource: resource }) }),
++		});
++		service.stub(IViewsService, upcastPartial<IViewsService>({ openView: async <T>() => view as T }));
++		service.stub(IConfigurationService, upcastPartial<IConfigurationService>({ onDidChangeConfiguration: configuration.event, getValue: <T>(key?: string | IConfigurationOverrides) => (key === 'chat.viewSessions.enabled' ? enabled : orientation) as T }));
++		const show = () => service.invokeFunction(accessor => CommandsRegistry.getCommand('pine.workbench.showProjectSessions')!.handler(accessor));
++		try {
++			await show(); assert.strictEqual(reveals, 1); assert.strictEqual(focused, 1);
++			assert.strictEqual(view.widget.viewModel!.sessionResource, resource);
++			changed.fire({ previousSessionResource: resource, currentSessionResource: URI.parse('pine-computer:/main') });
++			assert.strictEqual(reveals, 0);
++			await show(); assert.strictEqual(reveals, 1);
++			visibility.fire(false); assert.strictEqual(reveals, 0);
++			await show(); opened.fire(resource); assert.strictEqual(reveals, 0, 'opening the current row also ends navigation');
++			await show(); configuration.fire(upcastPartial<IConfigurationChangeEvent>({ affectsConfiguration: name => name === 'chat.viewSessions.orientation' }));
++			assert.strictEqual(reveals, 1, 'the delayed Show Sidebar sideBySide event does not end its own reveal');
++			orientation = 'stacked'; configuration.fire(upcastPartial<IConfigurationChangeEvent>({ affectsConfiguration: name => name === 'chat.viewSessions.orientation' }));
++			assert.strictEqual(reveals, 0, 'native Hide Sessions changes layout without hiding Chat');
++			await show(); enabled = false; configuration.fire(upcastPartial<IConfigurationChangeEvent>({ affectsConfiguration: name => name === 'chat.viewSessions.enabled' }));
++			assert.strictEqual(reveals, 0, 'disabling the list releases the reveal too');
++			let completeRestore!: () => void; restoreReady = new Promise<void>(resolve => { completeRestore = resolve; });
++			const opening = show(); await Promise.resolve(); bodyVisible = false; visibility.fire(false); completeRestore(); await opening;
++			assert.strictEqual(reveals, 0, 'hiding the body during restoration never acquires a late reveal');
++			assert.strictEqual(opened.hasListeners(), false); assert.strictEqual(configuration.hasListeners(), false);
++			assert.strictEqual(changed.hasListeners(), false); assert.strictEqual(visibility.hasListeners(), false);
++		} finally { changed.dispose(); visibility.dispose(); opened.dispose(); configuration.dispose(); service.dispose(); }
++	});
++
+ });

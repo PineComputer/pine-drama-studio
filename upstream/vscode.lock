@@ -1,0 +1,5 @@
+# The Code-OSS commit our changes are based on, and the branch that holds them (D11).
+# Read by scripts/upstream-export.sh and scripts/upstream-check.sh.
+repository=https://github.com/microsoft/vscode
+base=235ceeb5f82f09812ec72c905c2a9ef6f04bba1e
+branch=pine/main

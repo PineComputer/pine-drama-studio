@@ -1,0 +1,13 @@
+Pine Drama Studio
+Copyright 2026 19pine corp.
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+This product is built on Code-OSS (https://github.com/microsoft/vscode), Copyright (c) Microsoft Corporation, licensed
+under the MIT License. The changes made to Code-OSS are the patches in upstream/patches/.
+
+The Fountain grammar in extensions/pine-drama/syntaxes/ comes from Better Fountain, Copyright (c) 2018 Piers
+Deseilligny, licensed under the MIT License (extensions/pine-drama/syntaxes/LICENSE-betterfountain.md).
+
+The Studio's third-party npm dependencies are listed in extensions/pine-drama/package.json and come under their own
+licenses.

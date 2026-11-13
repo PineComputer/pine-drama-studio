@@ -1,0 +1,16 @@
+.DS_Store
+node_modules
+.build/
+vscode/
+.dev/
+extensions/*/out/
+# Pine environment credentials (doc/development.md); only the example is committed.
+.env
+.env.*
+!.env.example
+extensions/*/media/canvas/
+.claude/worktrees/
+
+# Packaged app, zip and build record (scripts/package-macos.sh)
+/dist/
+__pycache__/

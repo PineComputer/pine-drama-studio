@@ -1,0 +1,33 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Pine Drama Studio Authors <authors@example.invalid>
+Date: Tue, 3 Nov 2026 12:22:35 -0800
+Subject: [PATCH 07/31] pine(L3): Chat's Cancel follows
+ chat.requestCancellation.enabled
+
+CancelAction's Chat menu entry and its keybinding (Ctrl/Cmd+Esc) show only while the setting is on. A visible Stop that
+does not stop would be false: the Studio's v1 cannot cancel a turn. The when clauses have no
+condition a setting or the extension API controls, and an extension cannot remove a keybinding (keybindingService.ts,
+removal rules come from user settings only).
+
+diff --git a/src/vs/workbench/contrib/chat/browser/actions/chatExecuteActions.ts b/src/vs/workbench/contrib/chat/browser/actions/chatExecuteActions.ts
+index ea71d74b261..f97e8888c7c 100644
+--- a/src/vs/workbench/contrib/chat/browser/actions/chatExecuteActions.ts
++++ b/src/vs/workbench/contrib/chat/browser/actions/chatExecuteActions.ts
+@@ -935,6 +935,7 @@ export class CancelAction extends Action2 {
+ 					ContextKeyExpr.or(ChatContextKeys.hasActiveRequest, ChatContextKeys.transcriptProgressActive),
+ 					ChatContextKeys.remoteJobCreating.negate(),
+ 					ChatContextKeys.currentlyEditing.negate(),
++					ContextKeyExpr.has('config.chat.requestCancellation.enabled'), // pine: see contrib/pine/browser/pine.contribution.ts
+ 				),
+ 				order: 4,
+ 				group: 'navigation',
+@@ -953,7 +954,8 @@ export class CancelAction extends Action2 {
+ 				primary: KeyMod.CtrlCmd | KeyCode.Escape,
+ 				when: ContextKeyExpr.and(
+ 					ContextKeyExpr.or(ChatContextKeys.hasActiveRequest, ChatContextKeys.transcriptProgressActive),
+-					ChatContextKeys.remoteJobCreating.negate()
++					ChatContextKeys.remoteJobCreating.negate(),
++					ContextKeyExpr.has('config.chat.requestCancellation.enabled'), // pine: see contrib/pine/browser/pine.contribution.ts
+ 				),
+ 				mac: { primary: KeyMod.WinCtrl | KeyCode.Escape },
+ 				win: { primary: KeyMod.Alt | KeyCode.Backspace },

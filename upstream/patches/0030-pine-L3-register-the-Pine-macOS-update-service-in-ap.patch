@@ -1,0 +1,29 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Pine Drama Studio Authors <authors@example.invalid>
+Date: Wed, 11 Nov 2026 19:05:07 -0800
+Subject: [PATCH 30/31] pine(L3): register the Pine macOS update service in
+ app.ts
+
+
+diff --git a/src/vs/code/electron-main/app.ts b/src/vs/code/electron-main/app.ts
+index 924824f20fe..fd98ca87984 100644
+--- a/src/vs/code/electron-main/app.ts
++++ b/src/vs/code/electron-main/app.ts
+@@ -89,7 +89,7 @@ import { getPiiPathsFromEnvironment, getTelemetryLevel, getUserContentPathsFromE
+ import { IUpdateService } from '../../platform/update/common/update.js';
+ import { UpdateChannel } from '../../platform/update/common/updateIpc.js';
+ import { NotAvailableUpdateDialog } from '../../platform/update/electron-main/notAvailableUpdateDialog.js';
+-import { DarwinUpdateService } from '../../platform/update/electron-main/updateService.darwin.js';
++import { PineDarwinUpdateService } from '../../platform/update/electron-main/pine/pineUpdateService.darwin.js';
+ import { LinuxUpdateService } from '../../platform/update/electron-main/updateService.linux.js';
+ import { SnapUpdateService } from '../../platform/update/electron-main/updateService.snap.js';
+ import { Win32UpdateService } from '../../platform/update/electron-main/updateService.win32.js';
+@@ -1235,7 +1235,7 @@ export class CodeApplication extends Disposable {
+ 				break;
+ 
+ 			case 'darwin':
+-				services.set(IUpdateService, new SyncDescriptor(DarwinUpdateService));
++				services.set(IUpdateService, new SyncDescriptor(PineDarwinUpdateService)); // pine(L3): static update feed on GitHub
+ 				break;
+ 		}
+ 

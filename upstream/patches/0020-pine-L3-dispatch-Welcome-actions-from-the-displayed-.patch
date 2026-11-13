@@ -1,0 +1,78 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Pine Drama Studio Authors <authors@example.invalid>
+Date: Wed, 4 Nov 2026 22:53:14 -0800
+Subject: [PATCH 20/31] pine(L3): dispatch Welcome actions from the displayed
+ Start entries
+
+
+diff --git a/src/vs/workbench/contrib/pine/test/browser/pineWelcome.test.ts b/src/vs/workbench/contrib/pine/test/browser/pineWelcome.test.ts
+new file mode 100644
+index 00000000000..9738313755a
+--- /dev/null
++++ b/src/vs/workbench/contrib/pine/test/browser/pineWelcome.test.ts
+@@ -0,0 +1,48 @@
++/*---------------------------------------------------------------------------------------------
++ *  Copyright (c) Microsoft Corporation. All rights reserved.
++ *  Licensed under the MIT License. See License.txt in the project root for license information.
++ *--------------------------------------------------------------------------------------------*/
++import assert from 'assert';
++import { $ } from '../../../../../base/browser/dom.js';
++import { Event } from '../../../../../base/common/event.js';
++import { DisposableStore, MutableDisposable } from '../../../../../base/common/lifecycle.js';
++import { ContextKeyExpr } from '../../../../../platform/contextkey/common/contextkey.js';
++import { GettingStartedPage, type IWelcomePageStartEntry } from '../../../welcomeGettingStarted/browser/gettingStarted.js';
++import type { GettingStartedIndexList } from '../../../welcomeGettingStarted/browser/gettingStartedList.js';
++import { pineWelcomeStartEntries } from '../../browser/pineWelcome.js';
++
++suite('Pine Welcome commands', () => {
++	test('native Start dispatch uses the entries its renderer displays', async () => {
++		// Exercise the real native renderer/dispatcher with Pine rows, even under the upstream test product.
++		// Only services unrelated to this route are stubbed; no production test hook or alternate dispatcher.
++		const page = Object.create(GettingStartedPage.prototype) as GettingStartedPage;
++		const calls: string[] = [];
++		const resources = new DisposableStore();
++		Object.assign(page, {
++			container: $('div'), startList: resources.add(new MutableDisposable<GettingStartedIndexList<IWelcomePageStartEntry>>()),
++			dispatchListeners: resources.add(new DisposableStore()),
++			contextService: { contextMatchesRules: () => true, onDidChangeContext: Event.None },
++			keybindingService: { lookupKeybinding: () => undefined },
++			commandService: { executeCommand: async (id: string) => { calls.push(id); } },
++			telemetryService: { publicLog2: () => {} },
++		});
++		const list = page['buildStartList']();
++		const displayed = list['entries']!;
++		const original = [...displayed];
++		try {
++			displayed.splice(0, displayed.length, ...pineWelcomeStartEntries.map((entry, order) => ({
++				id: entry.id, title: entry.title, description: entry.description, command: entry.content.command,
++				order, icon: { type: 'icon' as const, icon: entry.icon }, when: ContextKeyExpr.true(),
++			})));
++			list.rerender();
++			for (const entry of pineWelcomeStartEntries) {
++				assert.ok(list.getDomElement().querySelector(`[x-dispatch="selectStartEntry:${entry.id}"]`));
++				await page['runDispatchCommand']('selectStartEntry', entry.id);
++			}
++			assert.deepStrictEqual(calls, ['workbench.action.keepEditor', 'pineDrama.newProject', 'workbench.action.keepEditor', 'pineDrama.openProject']);
++		} finally {
++			displayed.splice(0, displayed.length, ...original);
++			resources.dispose();
++		}
++	});
++});
+diff --git a/src/vs/workbench/contrib/welcomeGettingStarted/browser/gettingStarted.ts b/src/vs/workbench/contrib/welcomeGettingStarted/browser/gettingStarted.ts
+index 0ec443517b2..02dd8ea2a56 100644
+--- a/src/vs/workbench/contrib/welcomeGettingStarted/browser/gettingStarted.ts
++++ b/src/vs/workbench/contrib/welcomeGettingStarted/browser/gettingStarted.ts
+@@ -477,10 +477,10 @@ export class GettingStartedPage extends EditorPane {
+ 				break;
+ 			}
+ 			case 'selectStartEntry': {
+-				const selected = startEntries.find(e => e.id === argument);
++				const selected = parsedStartEntries.find(e => e.id === argument);
+ 				if (selected) {
+ 					this.telemetryService.publicLog2<GettingStartedActionEvent, GettingStartedActionClassification>('gettingStarted.ActionExecuted', { command: 'selectStartEntry', argument, walkthroughId: this.currentWalkthrough?.id });
+-					this.runStepCommand(selected.content.command);
++					this.runStepCommand(selected.command);
+ 				} else {
+ 					throw Error('could not find start entry with id: ' + argument);
+ 				}

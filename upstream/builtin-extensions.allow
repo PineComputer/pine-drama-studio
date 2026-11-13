@@ -1,0 +1,13 @@
+# Built-in Code-OSS extensions the Studio keeps; every other one is left out (M0 S3).
+# An allowlist, so an extension upstream adds later is out until someone adds it here.
+# Dev mode disables the rest with --disable-extension (scripts/dev-launch.sh); packaging (M1) leaves them out.
+vscode.theme-defaults
+vscode.vscode-theme-seti
+vscode.configuration-editing
+vscode.json
+vscode.json-language-features
+vscode.yaml
+vscode.markdown
+vscode.markdown-language-features
+vscode.search-result
+vscode.log
