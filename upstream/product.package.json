@@ -11,6 +11,7 @@
 	"licenseUrl": "https://www.apache.org/licenses/LICENSE-2.0",
 	"serverLicenseUrl": "",
 	"pineShipsNoCopilot": true,
+	"pineNoNodeCompileCache": true,
 	"quality": "stable",
 	"updateUrl": "https://raw.githubusercontent.com/PineComputer/pine-drama-studio/main/updates",
 	"pineReleasesUrl": "https://github.com/PineComputer/pine-drama-studio/releases"

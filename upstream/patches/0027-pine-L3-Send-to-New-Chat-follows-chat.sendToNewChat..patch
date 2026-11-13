@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Pine Drama Studio Authors <authors@example.invalid>
 Date: Sat, 7 Nov 2026 13:33:53 -0800
-Subject: [PATCH 27/31] pine(L3): Send to New Chat follows
+Subject: [PATCH 27/32] pine(L3): Send to New Chat follows
  chat.sendToNewChat.enabled
 
 SendToNewChatAction's precondition, so its keybinding (Ctrl/Cmd+Shift+Enter) too, and the Send button's alternative

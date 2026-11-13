@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Pine Drama Studio Authors <authors@example.invalid>
 Date: Wed, 4 Nov 2026 22:53:07 -0800
-Subject: [PATCH 19/31] pine(L2): retain restored native New Chat inputs before
+Subject: [PATCH 19/32] pine(L2): retain restored native New Chat inputs before
  defaulting
 
 

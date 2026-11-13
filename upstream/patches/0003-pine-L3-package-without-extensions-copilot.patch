@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Pine Drama Studio Authors <authors@example.invalid>
 Date: Mon, 2 Nov 2026 15:34:47 -0800
-Subject: [PATCH 03/31] pine(L3): package without extensions/copilot
+Subject: [PATCH 03/32] pine(L3): package without extensions/copilot
 
 At this pin, a local package build strips @github/copilot from the
 packaged extensions (build/.moduleignore) and then requires its SDK to

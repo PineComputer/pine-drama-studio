@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Pine Drama Studio Authors <authors@example.invalid>
 Date: Wed, 4 Nov 2026 20:01:33 -0800
-Subject: [PATCH 09/31] pine(L2): add the Pine Computer Accounts action
+Subject: [PATCH 09/32] pine(L2): add the Pine Computer Accounts action
 
 
 diff --git a/src/vs/workbench/contrib/pine/browser/pineAccounts.ts b/src/vs/workbench/contrib/pine/browser/pineAccounts.ts

@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Pine Drama Studio Authors <authors@example.invalid>
 Date: Wed, 4 Nov 2026 20:59:36 -0800
-Subject: [PATCH 12/31] pine(L3): restore native Welcome with Pine entry policy
+Subject: [PATCH 12/32] pine(L3): restore native Welcome with Pine entry policy
 
 
 diff --git a/src/vs/workbench/contrib/welcomeGettingStarted/browser/gettingStarted.ts b/src/vs/workbench/contrib/welcomeGettingStarted/browser/gettingStarted.ts

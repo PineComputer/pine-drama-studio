@@ -1,0 +1,25 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Pine Drama Studio Authors <authors@example.invalid>
+Date: Thu, 12 Nov 2026 23:38:39 -0800
+Subject: [PATCH 32/32] pine(L3): package without the bundled Node compile
+ cache when the product says so
+
+With a product quality set, packaging launches the app to generate a Node compile cache and then checks its folder
+names against `v<node>-<arch>-<hash>`. On macOS, Node names the folder with the builder's uid as well
+(v24.22.0-arm64-60e4fe36-502), so validateNodeCompileCache refuses it and the package fails. A cache tagged with one
+uid would be ignored for every other user anyway. A product with pineNoNodeCompileCache skips the step; nothing
+changes at run time.
+
+diff --git a/build/gulpfile.vscode.ts b/build/gulpfile.vscode.ts
+index f89333e453d..66d6a7c8281 100644
+--- a/build/gulpfile.vscode.ts
++++ b/build/gulpfile.vscode.ts
+@@ -613,7 +613,7 @@ BUILD_TARGETS.forEach(buildTarget => {
+ 		if (platform === 'win32') {
+ 			packageTasks.push(patchWin32DependenciesTask(destinationFolderName));
+ 		}
+-		if (shouldGenerateNodeCompileCache(platform, arch, product)) {
++		if (shouldGenerateNodeCompileCache(platform, arch, product) && !(product as { pineNoNodeCompileCache?: boolean }).pineNoNodeCompileCache) { // pine: Node names its cache folder with the builder's uid on POSIX, which validateNodeCompileCache refuses
+ 			packageTasks.push(generateNodeCompileCacheTask(platform, destinationFolderName));
+ 		}
+ 

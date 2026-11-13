@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Pine Drama Studio Authors <authors@example.invalid>
 Date: Thu, 5 Nov 2026 15:29:00 -0800
-Subject: [PATCH 23/31] pine(L2): the review gate banner only reveals the card
+Subject: [PATCH 23/32] pine(L2): the review gate banner only reveals the card
 
 The banner's action no longer submits a Review: it opens the review card
 (pineDrama.review.openMessage), which alone submits.

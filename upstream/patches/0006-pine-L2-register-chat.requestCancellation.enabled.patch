@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Pine Drama Studio Authors <authors@example.invalid>
 Date: Tue, 3 Nov 2026 12:22:35 -0800
-Subject: [PATCH 06/31] pine(L2): register chat.requestCancellation.enabled
+Subject: [PATCH 06/32] pine(L2): register chat.requestCancellation.enabled
 
 A generic setting, default true, for whether Chat offers to cancel a running request. The Studio's extension sets it
 false: its chats cannot be cancelled in v1, and the product ships no other chat.
