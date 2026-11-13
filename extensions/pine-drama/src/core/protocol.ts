@@ -3,8 +3,6 @@
 // `date-time`. The schema checks each document alone; the rules that span documents are the
 // callers' (doc/protocol.md, section 6.1). No vscode import.
 
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import Ajv2020 from 'ajv/dist/2020';
 import addFormats from 'ajv-formats';
 
@@ -175,23 +173,27 @@ export class UnsupportedMajor extends Error {
 	}
 }
 
-/** Where the schema ships: protocol/v1 beside the compiled out/ folder of this extension. */
-export const SCHEMA_FILE = join(__dirname, '..', '..', 'protocol', 'v1', 'protocol.schema.json');
+/**
+ * The schema, protocol/v1 at the extension's root, loaded by a static `require` of its JSON (Node: "require() can load
+ * .json files"): compiled by tsc, out/core/protocol.js finds it two folders up; in a release, esbuild bundles it into the
+ * one extension.js (its default json loader), so no path has to survive the bundling.
+ */
+// A require, not an import: tsc refuses to import a file outside rootDir (src/).
+const SCHEMA = require('../../protocol/v1/protocol.schema.json') as { readonly $id: string };
 
 let ajv: Ajv2020 | undefined;
 let schemaId = '';
 
 function validator(def: keyof Defs) {
 	if (!ajv) {
-		const schema = JSON.parse(readFileSync(SCHEMA_FILE, 'utf8')) as { $id: string };
 		ajv = new Ajv2020({ allErrors: true, strict: false });
 		addFormats(ajv);
-		ajv.addSchema(schema);
-		schemaId = schema.$id;
+		ajv.addSchema(SCHEMA);
+		schemaId = SCHEMA.$id;
 	}
 	const validate = ajv.getSchema(`${schemaId}#/$defs/${def}`);
 	if (!validate) {
-		throw new Error(`protocol schema has no $defs/${def} (${SCHEMA_FILE})`);
+		throw new Error(`protocol schema has no $defs/${def} (${schemaId})`);
 	}
 	return validate;
 }

@@ -54,7 +54,7 @@ stage_extension() {
 	(cd "$EXT" && npm run --silent compile)
 	stage="$(mktemp -d)/pine-drama"
 	mkdir -p "$stage"
-	cp -R "$EXT/package.json" "$EXT/package-lock.json" "$EXT/out" "$EXT/media" "$EXT/syntaxes" "$EXT/resources" "$stage/"
+	cp -R "$EXT/package.json" "$EXT/package-lock.json" "$EXT/out" "$EXT/media" "$EXT/syntaxes" "$EXT/protocol" "$stage/"
 	rm -rf "$stage/out/test"
 	if [ "$(release)" = yes ]; then
 		# A release ships the extension as one minified bundle, without comments or source maps: tsc's output is the
