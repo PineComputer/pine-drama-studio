@@ -44,11 +44,11 @@ test('the start says how long Pine may wait', async () => {
 
 // As the person cut it: only what was observed, the message given back in its line
 // (unsentLine), no Stop and no cause. Sending it again is the ordinary Send.
-test('a start that runs out of time gives the message back, says what was seen, and the next send starts it again', async () => {
+test('a start that runs out of time gives the message back with one line to try again, and the next send starts it again', async () => {
 	const { pine, store, service, logs } = setup();
 	pine.fail('ensureComputer', new StartTimeoutError('sbx-1', 'pending'));
 	const updates = await send(service, 'hello');
-	assert.equal(markdown(updates), "\n\n_Your message was not sent: the Pine Computer did not start in time (it was last `pending`). Here it is, to send again:_\n\n```text\nhello\n```\n\n");
+	assert.equal(markdown(updates), "\n\n_Your message was not sent: Pine had no Computer ready in time. Try again in a minute. Here it is, to send again:_\n\n```text\nhello\n```\n\n");
 	assert.equal(store.chat(KEY)!.computer_state, 'creating');
 	assert.equal(pine.calls.run ?? 0, 0, 'nothing was sent');
 	assert.ok(logs.some(line => line.includes('did not start within 300s (sandbox sbx-1, last state pending)')));

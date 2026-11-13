@@ -107,7 +107,7 @@ test('a start that timed out but committed later: the resend starts on the Compu
 		f.store.insertChat({ key: 'main', label: 'Project Chat', env: 'pine', endpoint: 'https://offline.invalid', secret_ref: 'main' });
 		f.pine.fail('ensureComputer', new StartTimeoutError('sandbox-late', 'starting'));
 		const out = await drain(f.service.submit('main', 'start the drama', 'Project Chat', f.root));
-		assert.match(said(out), /did not start in time/);
+		assert.match(said(out), /Pine had no Computer ready in time\. Try again in a minute/);
 		// Pine finishes that start after the Studio stopped waiting.
 		const id = f.store.chat('main')!.computer_id!;
 		f.pine.computers.set(id, { id, state: 'running', binding: `bind-${id}-late`, revision: 1, idleTimeout: 3600, sessions: new Map() });

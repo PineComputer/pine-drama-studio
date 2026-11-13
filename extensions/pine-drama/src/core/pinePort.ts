@@ -111,7 +111,7 @@ export class NoSuchFileError extends Error {
 export class StartTimeoutError extends Error {
 	readonly name = 'StartTimeoutError';
 	constructor(readonly sandboxId: string, readonly lastState: string) {
-		super(`Pine did not start a Computer within ${START_WAIT_SECONDS / 60} minutes; it was still "${lastState}".`);
+		super(`Pine had no Computer ready within ${START_WAIT_SECONDS / 60} minutes. Try again in a minute`);
 	}
 }
 
@@ -127,6 +127,34 @@ export class StartNotConfirmedError extends Error {
 	readonly name = 'StartNotConfirmedError';
 	constructor(detail: string) {
 		super(`Pine did not confirm this start of the Computer (${detail}).`);
+	}
+}
+
+/** Where the person checks their Pine account: keys, permissions, credits and limits. */
+export const PINE_ACCOUNT_URL = 'https://console.pinecomputer.io';
+
+/** The Pine account problems the person can fix, each with its one line (AccountError). */
+export type AccountProblem = 'key' | 'permission' | 'noMedia' | 'credits' | 'spendLimit' | 'suspended' | 'rateLimited' | 'capacity';
+
+const ACCOUNT_LINES: Record<AccountProblem, string> = {
+	key: `Pine does not accept this project's API key: it is unknown or was revoked. Check the key in your Pine account at ${PINE_ACCOUNT_URL}`,
+	permission: `this project's API key is not allowed to do this. Check the key's permissions in your Pine account at ${PINE_ACCOUNT_URL}`,
+	noMedia: `this Pine project cannot generate media, so the agent cannot make a drama. Turn on media generation for the project in your Pine account at ${PINE_ACCOUNT_URL}`,
+	credits: `your Pine organization is out of credits. Add credits in your Pine account at ${PINE_ACCOUNT_URL}`,
+	spendLimit: `this Pine project has reached its monthly spend limit. Raise the limit in your Pine account at ${PINE_ACCOUNT_URL}`,
+	suspended: `this Pine project is suspended. See your Pine account at ${PINE_ACCOUNT_URL}`,
+	rateLimited: 'Pine is receiving too many requests from this project. Try again in a minute',
+	capacity: 'this Pine project already runs as many Computers as it may at once. Try again in a minute, once one has stopped',
+};
+
+/**
+ * A problem with the person's Pine account or project that only they can fix (the console) or that passes (a rate limit).
+ * Its message is the one line the person reads; nothing is retried by itself, and a refused paid call is never repeated.
+ */
+export class AccountError extends Error {
+	readonly name = 'AccountError';
+	constructor(readonly problem: AccountProblem) {
+		super(ACCOUNT_LINES[problem]);
 	}
 }
 

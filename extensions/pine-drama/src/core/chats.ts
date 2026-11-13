@@ -28,7 +28,7 @@ import { REVIEW_APPROVAL_STATEMENT } from './reviewCardProtocol';
 
 import { CHANGED_TARGET_NOTE, standingParagraph, withStandingInstructions } from './instructions';
 import { createHash, randomUUID } from 'node:crypto';
-import { ConnectionLostError, IDLE_WAITING_SECONDS, IDLE_WORKING_SECONDS, MissingError, NoPineError, OtherPineError, START_WAIT_SECONDS, StartNotConfirmedError, StartTimeoutError, UnconfirmedError, endpointHost, type ComputerSecrets, type IdlePolicy, type PineConnection, type PineEvent, type PinePort, type SecretVault, type PineSession, type TurnView } from './pinePort';
+import { AccountError, ConnectionLostError, IDLE_WAITING_SECONDS, IDLE_WORKING_SECONDS, MissingError, NoPineError, OtherPineError, START_WAIT_SECONDS, StartNotConfirmedError, StartTimeoutError, UnconfirmedError, endpointHost, type ComputerSecrets, type IdlePolicy, type PineConnection, type PineEvent, type PinePort, type SecretVault, type PineSession, type TurnView } from './pinePort';
 import { Library } from './library';
 import { hashFile, projectIdentity, projectPlaceOf, projectRootOf } from './projectPlace';
 import { entryFor, type Entry } from './binding';
@@ -348,6 +348,8 @@ export class ChatService {
 				}
 			} catch (error) {
 				if (!ending.op && !shown.given) { yield unsentLine(text, files, (error as Error).message.replace(/[.\s]+$/, '')); }
+				// A Pine account problem is said in that one line, which tells the person where to fix it; nothing is retried.
+				if (error instanceof AccountError) { this.log(`${key}: ${error.problem}: ${error.message}`); return; }
 				throw error;
 			}
 			if (!ending.op && !shown.given) { yield unsentLine(text, files, 'the line above says why'); }
@@ -911,7 +913,7 @@ export class ChatService {
 				// Only what was observed: the SDK gives the last state, not why. The message is given
 				// back (untilEnded), and the session stays "creating", so sending it again starts the Computer again.
 				this.log(`${key}: Computer ${conv.computer_id} did not start within ${START_WAIT_SECONDS}s (sandbox ${error.sandboxId}, last state ${error.lastState})`);
-				yield { kind: 'notStarted', text: `the Pine Computer did not start in time (it was last \`${error.lastState}\`)` };
+				yield { kind: 'notStarted', text: 'Pine had no Computer ready in time. Try again in a minute' };
 				return undefined;
 			}
 			secrets.binding = binding;
@@ -1844,7 +1846,7 @@ export class ChatService {
 	 * (StartNotConfirmedError). Any other error is the caller's.
 	 */
 	private restartNotStarted(key: string, conv: Chat, error: unknown): Update {
-		if (!(error instanceof StartNotConfirmedError || error instanceof StartTimeoutError)) { throw error; }
+		if (!(error instanceof StartNotConfirmedError || error instanceof StartTimeoutError || error instanceof AccountError)) { throw error; }
 		this.log(`${key}: Computer ${conv.computer_id} was not started again: ${error.message}`);
 		return { kind: 'markdown', text: `**The agent was not started again:** ${error.message}` };
 	}

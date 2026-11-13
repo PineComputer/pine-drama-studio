@@ -4,7 +4,7 @@
 // gone) and ConnectionLostError (a read got no answer); everything else passes through.
 
 import type { ArtifactStore } from './core/taskArtifacts';
-import { ConnectionLostError, MissingError, NoSuchFileError, START_WAIT_SECONDS, StartNotConfirmedError, StartTimeoutError, UnconfirmedError, type FolderEntry, type IdlePolicy, type PineConnection, type PineEvent, type PinePort, type PineSession, type TurnFile, type TurnView } from './core/pinePort';
+import { AccountError, ConnectionLostError, MissingError, NoSuchFileError, START_WAIT_SECONDS, StartNotConfirmedError, StartTimeoutError, UnconfirmedError, type FolderEntry, type IdlePolicy, type PineConnection, type PineEvent, type PinePort, type PineSession, type TurnFile, type TurnView } from './core/pinePort';
 
 const importSdk = () => import('@pinesandbox/computer');
 type Sdk = Awaited<ReturnType<typeof importSdk>>;
@@ -77,7 +77,7 @@ export class SdkPort implements PinePort {
 			if (isLost(error, s)) {
 				throw unconfirmed === 'none' ? new ConnectionLostError((error as Error).message) : new UnconfirmedError((error as Error).message);
 			}
-			throw error;
+			throw accountProblem(error, s) ?? error;
 		}
 	}
 
@@ -123,7 +123,7 @@ export class SdkPort implements PinePort {
 			if (error instanceof s.AttachAuthorizationCommittedError) {
 				throw new StartNotConfirmedError(`Pine committed binding revision ${error.bindingRevision} for sandbox ${error.sandboxId}, but the attach did not complete`);
 			}
-			throw error;
+			throw accountProblem(error, s) ?? error;
 		}
 	}
 
@@ -132,9 +132,17 @@ export class SdkPort implements PinePort {
 	}
 
 	async createSession(env: PineConnection, credentials: string, binding: string, label: string) {
-		// The agent reads and writes the Computer's artifacts: a task's input set and result travel through them (local-first, 11.1).
-		const session = await (await this.computer(env, credentials, binding)).createSession({ label, artifactAccess: 'read_write' });
-		return { name: session.name, token: session.token };
+		return this.mapped(async () => {
+			const computer = await this.computer(env, credentials, binding);
+			// The drama-workflow skill comes with media generation: without it the agent would make up a drama of its own at
+			// the project's expense, so no session starts (open-pinedrama 58b1eb0 scheduler.ts:157-185, offersDramaSkill;
+			// PineSandbox apps/portal/app/services/playground.rb:24, the media.generate opt-in).
+			const skills = await computer.skills.list();
+			if (!skills.some(skill => skill.name === DRAMA_SKILL && skill.enabled !== false)) { throw new AccountError('noMedia'); }
+			// The agent reads and writes the Computer's artifacts: a task's request and return travel through them (doc/protocol.md, 4.1).
+			const session = await computer.createSession({ label, artifactAccess: 'read_write' });
+			return { name: session.name, token: session.token };
+		}, 'none');
 	}
 
 	async sessionTask(env: PineConnection, s: PineSession) {
@@ -324,4 +332,32 @@ function turnView(turn: { turnId: string; state: string; question: string; nextT
 		terminalReason: turn.result?.terminalReason ?? '',
 		cost: cost ? { total: cost.total, currency: cost.currency } : null,
 	};
+}
+
+/** The skill that makes a drama on the Computer (open-pinedrama 58b1eb0 goals.ts:7, DRAMA_SKILL). */
+const DRAMA_SKILL = 'drama-workflow';
+
+/**
+ * The Pine account problem an SDK error is, if any (AccountError). The codes and statuses are Pine's: Portal answers 401
+ * INVALID_API_KEY and 403 INSUFFICIENT_SCOPE before any key-scoped call (PineSandbox 567ed28ec
+ * apps/portal/app/controllers/api/base_controller.rb:19-31), 403 PROJECT_ACCESS_DENIED (project_policies_controller.rb:12),
+ * and on attach 403 with reason spend_limit_reached, project_suspended or api_access_disabled
+ * (attach_credentials_controller.rb:85-95), whose spend-limit message says which of the two limits it is
+ * (attach_credential_mint.rb:48-54); the lifecycle API answers 429 COMPUTER_CAPACITY_EXCEEDED or
+ * COMPUTER_CREATE_RATE_LIMITED (sdks/pine-computer/typescript/src/internal/lifecycle.ts:215-216).
+ */
+export function accountProblem(error: unknown, s: Sdk): AccountError | undefined {
+	if (error instanceof AccountError) { return error; }
+	if (error instanceof s.InvalidClientKeyError || error instanceof s.UnauthorizedError) { return new AccountError('key'); }
+	if (error instanceof s.InsufficientScopeError || error instanceof s.ProjectAccessDeniedError || error instanceof s.ForbiddenError) { return new AccountError('permission'); }
+	if (error instanceof s.RateLimitedError || error instanceof s.CreateRateLimitedError) { return new AccountError('rateLimited'); }
+	if (error instanceof s.CapacityExceededError) { return new AccountError('capacity'); }
+	if (error instanceof s.PortalError) {
+		if (error.status === 401) { return new AccountError('key'); }
+		if (error.status === 429) { return new AccountError('rateLimited'); }
+		if (error.reason === 'spend_limit_reached') { return new AccountError(/monthly spend limit/.test(error.message) ? 'spendLimit' : 'credits'); }
+		if (error.reason === 'project_suspended') { return new AccountError('suspended'); }
+		if (error.reason === 'api_access_disabled') { return new AccountError('permission'); }
+	}
+	return undefined;
 }
