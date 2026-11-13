@@ -2036,8 +2036,10 @@ export class ChatService {
 						tell(`The Computer refused this task: ${back.error?.message ?? 'it gave no reason'}${back.error?.action ? ` ${back.error.action}` : ''}`, true);
 						continue;
 					}
+					let installed: number;
 					try {
 						const done = await this.held(key, epoch, () => installReturn({ root, record, kept: join(proto.storage, 'kept'), store, request: sent.request, ret: back }));
+						installed = Object.keys(done.versions).length;
 						returned.push(...Object.keys(done.versions));
 						// The Computer that returned them holds them: the next task copies from it rather than uploading.
 						await this.holders().set([...Object.values(done.versions), ...Object.values(done.reviews), ...(done.private_state ? [done.private_state] : [])], sent.computer);
@@ -2048,7 +2050,11 @@ export class ChatService {
 						continue;
 					}
 					// A run that broke off returns what it finished, installed above, and why it broke off (doc/protocol.md, 4.3).
-					if (back.state === 'failed') { tell(`The task broke off: ${back.error?.message ?? 'no reason was given'}${back.error?.action ? ` ${back.error.action}` : ''} What it finished is in your project.`, true); }
+					// It may have finished no version: then saying its work is in the project sends the person looking for none.
+					if (back.state === 'failed') {
+						tell(`The task broke off: ${back.error?.message ?? 'no reason was given'}${back.error?.action ? ` ${back.error.action}` : ''} ${installed
+							? 'What it finished is in your project.' : 'No new version was added to your project. To go on, ask it to continue in a new message.'}`, true);
+					}
 					for (const problem of back.problems ?? []) { tell(`${problem.ref}: ${problem.error.message}`); }
 					review.push(...(back.review ?? []));
 				}

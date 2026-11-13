@@ -203,6 +203,16 @@ test('a task that broke off installs what it finished and says why', async () =>
 	} finally { f.store.close(); }
 });
 
+test('a task that broke off before finishing a version says no new version is in the project, and how to go on', async () => {
+	const f = fixture();
+	try {
+		f.pine.plans = [{ state: 'completed', text: 'not finished', failed: 'only episode 1 has a draft' }];
+		const said = f.said(await f.send('convert the screenplay'));
+		assert.match(said, /The task broke off: only episode 1 has a draft[^]*No new version was added to your project\. To go on, ask it to continue in a new message\./);
+		assert.doesNotMatch(said, /What it finished is in your project/);
+	} finally { f.store.close(); }
+});
+
 test('a session on another Computer gets the project\'s versions by Pine\'s copy from the Computer that returned them, not by upload', async () => {
 	const f = fixture();
 	try {
