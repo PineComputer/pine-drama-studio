@@ -46,8 +46,23 @@ const SHOWN: Readonly<Record<string, readonly string[]>> = {
 	'video:mulerouter': ['resolution', 'ratio', 'duration'],
 };
 
-/** The planned request's fields shown before a node is drawn, by drama-cli's own names (its prompt record's `request`). */
-const PLANNED: readonly string[] = ['aspect', 'resolution', 'quality', 'count'];
+/**
+ * The planned request's fields shown before a node is drawn, by the provider its model names (`<provider>:<model>`):
+ * an image's `aspect`, then from its `parameters`, which drama-cli fills by the provider's own names from the code that
+ * builds the request (short_drama doc/drama-cli/prompts-before-pictures.md), its size, image_size or resolution and
+ * quality; a video's resolution, ratio and duration. A field the record lacks (one written before `parameters`) is
+ * left out. Each call makes one image or one video, so no count. A Map, so only these providers are found.
+ */
+const PLANNED: ReadonlyMap<string, readonly string[]> = new Map(Object.entries({
+	openai: ['aspect', 'parameters.size', 'parameters.quality'],
+	openai_compatible: ['aspect', 'parameters.size', 'parameters.quality'],
+	seedream: ['aspect', 'parameters.size'],
+	gemini: ['aspect', 'parameters.image_size'],
+	wavespeed: ['aspect', 'parameters.resolution'],
+	ark: ['parameters.resolution', 'parameters.ratio', 'parameters.duration'],
+	dashscope: ['parameters.resolution', 'parameters.ratio', 'parameters.duration'],
+	mulerouter: ['parameters.resolution', 'parameters.ratio', 'parameters.duration'],
+}));
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
 
@@ -58,7 +73,6 @@ const readJson = (path: string): Promise<unknown> => readFile(path, 'utf8').then
 const LABEL: Readonly<Record<string, (value: string | number) => string>> = {
 	size: value => String(value).replace('x', '×'),
 	n: value => `${value} image${value === 1 ? '' : 's'}`,
-	count: value => `${value} image${value === 1 ? '' : 's'}`,
 	duration: value => `${value} s`,
 };
 
@@ -98,5 +112,8 @@ export async function plannedWith(folder: string): Promise<MadeWith | null> {
 	if (!isRecord(request) || typeof request.model !== 'string') {
 		return null;
 	}
-	return { model: request.model, settings: settingsOf(request, PLANNED) };
+	// `<provider>:<model>`, shown as the model alone, as a drawn version's is.
+	const colon = request.model.indexOf(':');
+	const provider = request.model.slice(0, Math.max(colon, 0));
+	return { model: request.model.slice(colon + 1), settings: settingsOf(request, PLANNED.get(provider) ?? []) };
 }

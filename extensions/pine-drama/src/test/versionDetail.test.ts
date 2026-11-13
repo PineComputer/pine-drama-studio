@@ -86,8 +86,9 @@ test("a version's model and settings come from its saved job and request, in eac
 		// MuleRouter's body names no model: it is in the task path, and job.json records it.
 		[{ kind: 'video', provider: 'mulerouter', model: 'berry-1.0' }, { prompt: 'p', resolution: '1080p', ratio: '16:9', duration: 5 },
 			{ model: 'berry-1.0', settings: ['1080p', '16:9', '5 s'] }],
-		// A field the request lacks is left out.
+		// A field the request lacks is left out; more than one image reads in the plural.
 		[{ kind: 'image', provider: 'openai', model: 'm' }, { size: '1024x1024' }, { model: 'm', settings: ['1024×1024'] }],
+		[{ kind: 'image', provider: 'openai', model: 'm' }, { n: 2 }, { model: 'm', settings: ['2 images'] }],
 		// Nothing for: an import (no files), a text call, an unknown provider, no request, a malformed request.
 		[undefined, undefined, null],
 		[{ kind: 'text', provider: 'openai', model: 'gpt-6.1-terra' }, { model: 'gpt-6.1-terra', messages: [] }, null],
@@ -111,12 +112,21 @@ test("a node not drawn yet shows the model and settings its latest prompt record
 		return dir;
 	};
 	const record = (request: unknown) => ({ by: 'template', text: 't', request });
-	// The latest by number (v10 after v2), and only the fields it states.
+	// The latest by number (v10 after v2); a record written before `parameters` shows its aspect alone; the model is
+	// shown without its provider.
 	assert.deepEqual(await plannedWith(object({ v2: record({ model: 'old', aspect: '1:1' }), v10: record({ model: 'openai:gpt-image-2.5-sunburst', aspect: '9:16', images: [] }) })),
-		{ model: 'openai:gpt-image-2.5-sunburst', settings: ['9:16'] });
-	assert.deepEqual(await plannedWith(object({ v1: record({ model: 'm', aspect: '16:9', resolution: '2k', quality: 'high', count: 1 }) })),
-		{ model: 'm', settings: ['16:9', '2k', 'high', '1 image'] });
-	assert.deepEqual((await plannedWith(object({ v1: record({ model: 'm', count: 2 }) })))?.settings, ['2 images']);
+		{ model: 'gpt-image-2.5-sunburst', settings: ['9:16'] });
+	// `parameters` by the provider's own names (short_drama#1178); what is not shown (thinking_level, generate_audio) is left out.
+	const planned = async (model: string, parameters: Record<string, unknown>) =>
+		(await plannedWith(object({ v1: record({ model, aspect: '9:16', images: [], parameters }) })))?.settings;
+	assert.deepEqual(await planned('openai:gpt-image-2.5-sunburst', { size: '1152x2048', quality: 'high' }), ['9:16', '1152×2048', 'high']);
+	assert.deepEqual(await planned('seedream:dola-seedream-5-0-pro-260628', { size: '1440x2560' }), ['9:16', '1440×2560']);
+	assert.deepEqual(await planned('gemini:gemini-3-pro-image', { image_size: '2K', thinking_level: 'high' }), ['9:16', '2K']);
+	assert.deepEqual(await planned('ark:sd25', { resolution: '480p', ratio: '16:9', duration: 15, generate_audio: true }), ['480p', '16:9', '15 s'], 'a video\'s own ratio');
+	assert.deepEqual(await planned('dashscope:wan3.0-video', { resolution: '720P', ratio: '9:16', duration: 10 }), ['720P', '9:16', '10 s']);
+	for (const unknown of ['somewhere:x', 'constructor:x', 'toString:x', 'x']) {
+		assert.deepEqual(await planned(unknown, { resolution: '1k' }), [], `${unknown}: an unknown provider shows its model alone`);
+	}
 	assert.equal(await plannedWith(object({})), null, 'no prompt record');
 	assert.equal(await plannedWith(object({ v1: record({ aspect: '9:16' }) })), null, 'no model');
 	assert.equal(await plannedWith(object({ v1: '{not json' })), null, 'malformed');
