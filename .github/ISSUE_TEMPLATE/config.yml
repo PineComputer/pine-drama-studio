@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions and discussion
+    url: https://discord.gg/jBRrXmQHT
+    about: Ask and discuss on the community Discord.
+  - name: Report a security vulnerability
+    url: mailto:security@19pine.ai
+    about: Please report security issues privately, never in a public issue (see SECURITY.md).
