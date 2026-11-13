@@ -40,6 +40,18 @@ export function validateBuild(info, tag) {
 const SIGNED = /\.(exe|dll|node|ps1|psm1|psd1|ps1xml)$/i;
 export const filesToSign = files => files.filter(f => SIGNED.test(f)).sort();
 
+// CodeSignTool signs only the extensions it lists (1.3.2's BatchSignCommand: cab, cat, dll, exe, jar, js, msi, nupkg,
+// ocx, ps1, ps1xml, sys, vbs) and refuses the rest of the batch. A native module is a DLL under Node's own extension
+// (nodejs.org/api/addons.html), and a PowerShell module or manifest is a PowerShell script signed the same way as .ps1
+// (learn.microsoft.com, about_Signing; Code-OSS signs .node with the PE files and .psm1/.psd1 with the scripts,
+// build/azure-pipelines/win32/codesign.ts). Each is signed under the kind's name the tool takes, then put back; step 3
+// verifies every signature where the file ships.
+const SIGNED_AS = { node: 'dll', psm1: 'ps1', psd1: 'ps1' };
+const signedName = name => {
+	const as = SIGNED_AS[name.split('.').pop().toLowerCase()];
+	return as ? `${name}.${as}` : name;
+};
+
 /**
  * The definitions upstream's gulp task gives code.iss for a user setup (build/gulpfile.vscode.win32.ts, buildWin32Setup),
  * with the Studio's version where it gives Code-OSS's, and no Windows 11 context-menu package: that appx is built only
@@ -127,13 +139,13 @@ export async function releaseWin32(options, dependencies = {}) {
 	const env = { ...given, CREDENTIAL_ID: await credentialId({ run, env: given, tool, log }) };
 
 	// 1. Every file of the list, in one batch: one eSigner session, one one-time password. batch_sign signs the files of
-	// one folder, so they are laid out flat under numbered names and put back where they came from.
+	// one folder, so they are laid out flat under numbered names it takes and put back where they came from.
 	const files = filesToSign(await filesBelow(app));
 	if (!files.length) throw new Error('The app folder holds nothing to sign.');
 	const unsigned = join(output, 'sign-in'), signed = join(output, 'sign-out');
 	await mkdir(unsigned);
 	await mkdir(signed);
-	const flat = files.map((rel, i) => `${String(i).padStart(4, '0')}-${basename(rel)}`);
+	const flat = files.map((rel, i) => signedName(`${String(i).padStart(4, '0')}-${basename(rel)}`));
 	await Promise.all(files.map((rel, i) => cp(join(app, rel), join(unsigned, flat[i]))));
 	log(`Signing ${files.length} files in the app with SSL.com eSigner.`);
 	await codesign('batch_sign', [`-input_dir_path=${unsigned}`, `-output_dir_path=${signed}`], { run, env, tool });

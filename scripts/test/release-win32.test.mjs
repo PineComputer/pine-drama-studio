@@ -13,6 +13,8 @@ const PRODUCT = {
 	win32MutexName: 'pinedramastudio', win32TunnelMutex: 'pinedramastudio-tunnel', win32TunnelServiceMutex: 'pinedramastudio-tunnelservice',
 	tunnelApplicationName: 'pine-drama-studio-tunnel', win32AppUserModelId: '19pine.PineDramaStudio', win32x64AppId: '{{A}', win32x64UserAppId: '{{B}',
 };
+// The kinds CodeSignTool 1.3.2's batch_sign takes (its BatchSignCommand); it refuses a batch holding any other.
+const CODESIGNTOOL_KINDS = ['cab', 'cat', 'dll', 'exe', 'jar', 'js', 'msi', 'nupkg', 'ocx', 'ps1', 'ps1xml', 'sys', 'vbs'];
 const SHIPPED = ['Pine Drama Studio.exe', 'ffmpeg.dll', 'tools/inno_updater.exe', 'resources/app/node_modules/x/build/x.node', 'resources/app/out/y.ps1', 'resources/app/out/README.md'];
 
 test('release refuses a package that is not the minified Windows x64 one, another version, or uncommitted changes', () => {
@@ -59,6 +61,11 @@ async function fixture(t, { env = CREDENTIALS, ids = `Credential ID(s): ${ID}`, 
 		}
 		if (basename(file) === 'java.exe') {
 			const value = name => args.find(a => a.startsWith(`-${name}=`))?.slice(name.length + 2);
+			// Like CodeSignTool, a file of a kind it does not list refuses the whole batch, on exit code 0.
+			const refused = (await readdir(value('input_dir_path'))).find(name => !CODESIGNTOOL_KINDS.includes(name.split('.').pop().toLowerCase()));
+			if (refused) {
+				return `Error: File extension not allowed: ${refused}`;
+			}
 			for (const name of (await readdir(value('input_dir_path')))) {
 				await writeFile(join(value('output_dir_path'), name), `signed ${await readFile(join(value('input_dir_path'), name), 'utf8')}`);
 			}
@@ -115,6 +122,23 @@ test('the signed files go back where they came from, each replaced by its signed
 	};
 	await releaseWin32(f.options, f.dependencies);
 	assert.equal(seen, 'signed unsigned resources/app/node_modules/x/build/x.node');
+});
+
+test('native modules and PowerShell modules and manifests, kinds CodeSignTool does not list, are signed and go back under their own names', async t => {
+	const f = await fixture(t);
+	for (const rel of ['resources/app/out/m.psm1', 'resources/app/out/m.psd1']) {
+		await writeFile(join(f.input, 'app', rel), `unsigned ${rel}`);
+	}
+	let seen;
+	const run = f.dependencies.run;
+	f.dependencies.run = async (file, args, opts) => {
+		if (basename(file) === 'ISCC.exe') {
+			seen = await Promise.all(['resources/app/node_modules/x/build/x.node', 'resources/app/out/m.psm1', 'resources/app/out/m.psd1'].map(rel => readFile(join(f.output, 'app', rel), 'utf8')));
+		}
+		return run(file, args, opts);
+	};
+	await releaseWin32(f.options, f.dependencies);
+	assert.deepEqual(seen, ['signed unsigned resources/app/node_modules/x/build/x.node', 'signed unsigned resources/app/out/m.psm1', 'signed unsigned resources/app/out/m.psd1']);
 });
 
 for (const [name, options, error] of [
