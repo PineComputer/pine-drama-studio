@@ -1,7 +1,8 @@
 // A task's start on the Studio's side (doc/protocol.md, 4.1 and 4.2): the request, built from the drama's folder and the
 // returns installed in it, and the message that starts it. No vscode import.
 
-import { existsSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { existsSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { writeWhole } from './choices';
@@ -141,6 +142,16 @@ export class DramaRecord {
 
 	latest(chat: string): Installed | undefined { return readJson<Installed>(this.sessionPath(chat)); }
 
+	/** The version folders and review files found on disk with no return naming them, each kept by its hash (adoptLoose). */
+	adopted(): { readonly path: string; readonly hash: string; readonly kind: 'version' | 'review' }[] {
+		const dir = join(this.dir, 'adopted');
+		return existsSync(dir) ? readdirSync(dir).filter(n => n.endsWith('.json')).map(n => readJson<{ path: string; hash: string; kind: 'version' | 'review' }>(join(dir, n))!) : [];
+	}
+
+	adopt(path: string, hash: string, kind: 'version' | 'review'): Promise<void> {
+		return writeJson(join(this.dir, 'adopted', `${sha256(path)}.json`), { path, hash, kind });
+	}
+
 	/** The previews of running tasks (resultImporter.ts, previewProgress): each version's folder in `previews/<hash>/`. */
 	previews(): { readonly object: string; readonly version: string; readonly hash: string; readonly task: string; readonly dir: string }[] {
 		const dir = join(this.dir, 'previews');
@@ -190,13 +201,71 @@ export function clientFiles(root: string): Record<string, string> {
 	return files;
 }
 
+/** Every file of a folder, by its path relative to it, sorted, leaving out `reviews/` (a version's archive, 4.1). */
+function archivedFiles(dir: string, prefix = ''): string[] {
+	return readdirSync(join(dir, prefix)).sort().flatMap(name => {
+		const rel = prefix ? `${prefix}/${name}` : name;
+		if (!prefix && name === 'reviews') { return []; }
+		return statSync(join(dir, rel)).isDirectory() ? archivedFiles(dir, rel) : [rel];
+	});
+}
+
+/**
+ * The version folders under `root`, by path: each folder holding a `version.json` (2.1), outside hidden ones and the client
+ * files, and each `config/<version id>`, the Computer side's config, which has none (section 1).
+ */
+function versionFolders(root: string, prefix = ''): string[] {
+	if (prefix === 'config') {
+		return readdirSync(join(root, prefix), { withFileTypes: true }).filter(e => e.isDirectory() && !e.name.startsWith('.')).map(e => `config/${e.name}`);
+	}
+	return readdirSync(join(root, prefix), { withFileTypes: true }).filter(e => e.isDirectory() && !e.name.startsWith('.') && !(!prefix && ['imports', 'inputs'].includes(e.name)))
+		.flatMap(e => {
+			const rel = prefix ? `${prefix}/${e.name}` : e.name;
+			return existsSync(join(root, rel, 'version.json')) ? [rel] : versionFolders(root, rel);
+		});
+}
+
+/**
+ * Keeps what the folder holds that no return named (4.1, "Archive hashes"): a version folder made outside the client is
+ * archived once, with system tar, its names sorted and its `reviews/` left out, and a review file is kept by its hash.
+ * Each is recorded, and from then on it is held like an installed one.
+ */
+async function adoptLoose(root: string, record: DramaRecord, kept: string): Promise<void> {
+	const named = new Set([...record.returns().flatMap(r => [...Object.keys(r.versions), ...Object.keys(r.reviews)]), ...record.adopted().map(a => a.path)]);
+	for (const folder of existsSync(root) ? versionFolders(root) : []) {
+		if (!named.has(folder)) {
+			const temp = join(kept, `.pine-adopt-${sha256(folder)}.tar`);
+			await mkdir(dirname(temp), { recursive: true });
+			execFileSync('tar', ['-cf', temp, '-C', join(root, folder), ...archivedFiles(join(root, folder))]);
+			const bytes = readFileSync(temp);
+			rmSync(temp);
+			await mkdir(dirname(join(kept, versionKey(sha256(bytes)))), { recursive: true });
+			await writeWhole(join(kept, versionKey(sha256(bytes))), bytes);
+			await record.adopt(folder, sha256(bytes), 'version');
+		}
+		const reviews = join(root, folder, 'reviews');
+		for (const name of existsSync(reviews) ? readdirSync(reviews).filter(n => n.endsWith('.json')) : []) {
+			const path = `${folder}/reviews/${name}`;
+			if (named.has(path)) { continue; }
+			const bytes = readFileSync(join(root, path));
+			await mkdir(dirname(join(kept, fileKey(sha256(bytes)))), { recursive: true });
+			await writeWhole(join(kept, fileKey(sha256(bytes))), bytes);
+			await record.adopt(path, sha256(bytes), 'review');
+		}
+	}
+}
+
 /** Builds the request: every version folder and review file still in the folder, the client files, the session's private state. */
-export function requestOf(root: string, record: DramaRecord, task: string, scope: Request['scope'], chat: string, choices: Choices | null, notes: readonly Note[]): Request {
+export async function requestOf(root: string, record: DramaRecord, kept: string, task: string, scope: Request['scope'], chat: string, choices: Choices | null, notes: readonly Note[]): Promise<Request> {
+	await adoptLoose(root, record, kept);
 	const versions: Record<string, string> = {};
 	const reviews: Record<string, string> = {};
 	for (const done of record.returns()) {
 		for (const [folder, hash] of Object.entries(done.versions)) { if (existsSync(join(root, folder))) { versions[folder] = hash; } }
 		for (const [path, hash] of Object.entries(done.reviews)) { if (existsSync(join(root, path))) { reviews[path] = hash; } }
+	}
+	for (const { path, hash, kind } of record.adopted()) {
+		if (existsSync(join(root, path))) { (kind === 'version' ? versions : reviews)[path] = hash; }
 	}
 	return { schema: 1, turn: task, scope, choices, versions, reviews, files: clientFiles(root), private_state: record.latest(chat)?.private_state ?? null, notes };
 }

@@ -194,7 +194,7 @@ The person's own files live under two folders, and only the client writes them:
 2. if there is no such Computer, or the copy fails, it uploads it from its own copy.
 
 **What the client keeps.**
-- **Archive hashes.** For every installed version folder, the hash of the archive it came from, recorded before the folder is renamed into place. The client sends that hash and never archives a folder again.
+- **Archive hashes.** For every installed version folder, the hash of the archive it came from, recorded before the folder is renamed into place. The client sends that hash and never archives a folder again. A version folder, or a `config/<version id>` folder, found on disk with no archive, such as one made outside the client, is archived once, on its first use, and is then kept like an installed one.
 - **Copies.** A copy of every archive and file it installed or sent, private state included, kept by hash.
 - **A cache.** For each hash, one Computer that holds it. This only saves an upload: correctness never depends on it, because a Computer is disposable.
 - **Pruning.** The client MAY delete a copy once no installed version and no pending request names it.

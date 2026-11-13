@@ -1903,7 +1903,7 @@ export class ChatService {
 		// such as a send to a session that had ended, ran nothing and is not waited for.
 		const waiting = record.unhandled(key).filter(t => { const op = this.store.savedSend(t.request.turn); return !!op?.turn_id && op.state !== 'failed'; });
 		if (waiting.length) { throw new Error(`the result of the previous task (${waiting.map(t => t.request.turn).join(', ')}) is not installed yet`); }
-		const request = requestOf(root, record, task, scope, key, await readChoices(root), []);
+		const request = await requestOf(root, record, join(proto.storage, 'kept'), task, scope, key, await readChoices(root), []);
 		const target = await this.held(key, epoch, () => this.port.artifacts(env, conv.computer_id!));
 		const kept = join(proto.storage, 'kept');
 		const clientFile = new Map(Object.entries(request.files).map(([path, hash]) => [`files/${hash}`, join(root, path)]));

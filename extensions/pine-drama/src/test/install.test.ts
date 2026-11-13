@@ -8,7 +8,7 @@ import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { readChoices, updateChoices } from '../core/choices';
 import type { Request, Return } from '../core/protocol';
-import { installReturn, InvalidReturn, previewProgress } from '../core/resultImporter';
+import { archiveNames, installReturn, InvalidReturn, previewProgress } from '../core/resultImporter';
 import { fileKey, Holders, putAll, sha256, stateKey, versionKey, type ArtifactStore } from '../core/taskArtifacts';
 import { dramaRecordOf, previewVersions, requestKeys, requestOf, taskMessage } from '../core/taskRun';
 
@@ -48,7 +48,7 @@ async function drama(scope: 'project' | 'episodes' = 'project') {
 	const record = dramaRecordOf(storage, root);
 	const store = memoryStore();
 	const send = async (task: string, at: string) => {
-		const request: Request = requestOf(root, record, task, scope, 'chat-1', await readChoices(root), []);
+		const request: Request = await requestOf(root, record, join(storage, 'kept'), task, scope, 'chat-1', await readChoices(root), []);
 		await record.sentRequest(request, 'computer-1', 'chat-1', new Date(at));
 		return request;
 	};
@@ -68,7 +68,7 @@ test('a return installs whole: its version folders and reviews land, and the nex
 	assert.equal(readFileSync(join(d.root, 'assets/characters/lin/v1/image-1.png'), 'utf8'), 'lin');
 	assert.deepEqual(readFileSync(join(d.root, 'assets/characters/lin/v1/reviews/r1.json')), review);
 	assert.deepEqual(readdirSync(join(d.root, 'assets/characters/lin')).filter(n => n.startsWith('.')), [], 'no temporary sibling is left');
-	const next = requestOf(d.root, d.record, 'task-0002', 'project', 'chat-1', null, []);
+	const next = await requestOf(d.root, d.record, join(d.storage, 'kept'), 'task-0002', 'project', 'chat-1', null, []);
 	assert.deepEqual(next.versions, { 'assets/characters/lin/v1': hash });
 	assert.deepEqual(next.reviews, { 'assets/characters/lin/v1/reviews/r1.json': sha256(review) });
 	assert.equal(next.private_state, sha256(state));
@@ -218,4 +218,29 @@ test('before a task, a file the store holds cut short is put again', async () =>
 	const put = await putAll(target, 'computer-1', holders, ['versions/a.tar'], () => Buffer.from('partial'), () => 7);
 	assert.deepEqual(put, { copied: 0, uploaded: 1 });
 	assert.deepEqual(target.files.get('versions/a.tar'), Buffer.from('partial'));
+});
+
+test('a version folder written straight to disk goes out in the next request with its hash, archived once; its review too', async () => {
+	const d = await drama();
+	mkdirSync(join(d.root, 'assets/props/cup/v1/reviews'), { recursive: true });
+	writeFileSync(join(d.root, 'assets/props/cup/v1/version.json'), version());
+	writeFileSync(join(d.root, 'assets/props/cup/v1/image-1.png'), 'cup');
+	writeFileSync(join(d.root, 'assets/props/cup/v1/reviews/r1.json'), '{"schema":1,"accepted_at":"2026-11-12T10:00:00Z","reason":"ok"}');
+	const first = await d.send('task-0001', '2026-11-12T10:00:00Z');
+	const hash = first.versions['assets/props/cup/v1'];
+	assert.ok(hash, 'the folder goes out with its archive\'s hash');
+	assert.deepEqual(archiveNames(join(d.storage, 'kept', versionKey(hash))).sort(), ['image-1.png', 'version.json'], 'reviews/ is left out');
+	assert.equal(sha256(readFileSync(join(d.storage, 'kept', versionKey(hash)))), hash);
+	assert.ok(first.reviews['assets/props/cup/v1/reviews/r1.json']);
+	const second = await d.send('task-0002', '2026-11-12T10:01:00Z');
+	assert.equal(second.versions['assets/props/cup/v1'], hash, 'archived once: the same hash');
+	assert.equal(d.record.adopted().filter(a => a.kind === 'version').length, 1);
+});
+
+test('the Computer side\'s config written to disk, config/<version id> with no version.json, goes out the same way', async () => {
+	const d = await drama();
+	mkdirSync(join(d.root, 'config/v1'), { recursive: true });
+	writeFileSync(join(d.root, 'config/v1/drama-cli.cfg.yaml'), 'project: .');
+	const request = await d.send('task-0001', '2026-11-12T10:00:00Z');
+	assert.deepEqual(archiveNames(join(d.storage, 'kept', versionKey(request.versions['config/v1']))), ['drama-cli.cfg.yaml']);
 });

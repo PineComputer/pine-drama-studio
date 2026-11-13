@@ -100,7 +100,7 @@ async function installNow(o: {
 	if (outside.length) { throw new InvalidReturn(`${outside.join(', ')} ${outside.length === 1 ? 'is' : 'are'} outside the task's scope, ${request.scope}`); }
 
 	// New folders only: one already here is skipped when it holds the same archive, and refuses the return otherwise.
-	const known = new Map(record.returns().flatMap(r => Object.entries(r.versions)));
+	const known = new Map([...record.returns().flatMap(r => Object.entries(r.versions)), ...record.adopted().map(a => [a.path, a.hash] as const)]);
 	const clash = Object.entries(versions).filter(([folder, hash]) => existsSync(join(root, folder)) && known.get(folder) !== hash);
 	if (clash.length) {
 		throw new InvalidReturn(`another session made ${clash.map(([f]) => f).join(', ')} while this task ran, so its result would clash with that work; you can run this work again in a new message`);
