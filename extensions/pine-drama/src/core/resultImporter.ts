@@ -3,6 +3,7 @@
 // extracts each archive into a temporary sibling, and rename() moves it into place whole. No vscode import.
 
 import { execFileSync } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { readChoices, updateChoices, withObject, writeWhole } from './choices';
@@ -31,7 +32,7 @@ function objectOf(path: string): string {
 	return parts.at(-2) === 'reviews' ? parts.slice(0, -3).join('/') : parts.slice(0, -1).join('/');
 }
 
-/** The prefix of an install's temporary siblings (doc/protocol.md, 4.4): `.pine-install-<hash>`. */
+/** The prefix of an install's temporary siblings (doc/protocol.md, 4.4). */
 const TEMP = '.pine-install-';
 
 /** Removes the temporary siblings an install cut off left in `dir`. */
@@ -122,9 +123,10 @@ async function installNow(o: {
 
 	// Pass 1: everything fetched, checked and laid beside its place.
 	const staged: { readonly temp: string; readonly target: string }[] = [];
-	// Temporary siblings are named by what they hold, `.pine-install-<hash>`; one an earlier run left behind is removed
-	// before its name is used again, with any other leftover beside the places this return writes.
-	const temp = (target: string, hash: string) => join(dirname(target), `${TEMP}${hash}`);
+	// Each temporary sibling has a name of its own, `.pine-install-<random UUID>`, as writeWhole names its file: two places
+	// of one folder can hold the same bytes (an identical import, two identical review files), and a name built from a
+	// place's own could pass the file system's limit. Leftovers of an earlier run are found by the prefix and removed.
+	const temp = (target: string) => join(dirname(target), `${TEMP}${randomUUID()}`);
 	for (const dir of new Set(paths.map(p => dirname(join(root, p))))) { removeLeftovers(dir); }
 	try {
 		for (const [folder, hash] of Object.entries(versions).filter(([folder]) => !existsSync(join(root, folder)))) {
@@ -133,8 +135,7 @@ async function installNow(o: {
 			archiveNames(archive);
 			const target = join(root, folder);
 			mkdirSync(dirname(target), { recursive: true });
-			// Two folders of one parent with the same archive (an identical import) get the version id too, so neither removes the other's.
-			const dir = staged.some(st => st.temp === temp(target, hash)) ? `${temp(target, hash)}-${basename(target)}` : temp(target, hash);
+			const dir = temp(target);
 			staged.push({ temp: dir, target });
 			mkdirSync(dir);
 			execFileSync('tar', ['-xf', archive, '-C', dir]);
@@ -155,7 +156,7 @@ async function installNow(o: {
 				continue;
 			}
 			mkdirSync(dirname(target), { recursive: true });
-			const file = temp(target, hash);
+			const file = temp(target);
 			staged.push({ temp: file, target });
 			writeFileSync(file, bytes, { flush: true });
 		}

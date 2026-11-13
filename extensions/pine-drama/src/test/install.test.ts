@@ -75,6 +75,17 @@ test('a return installs whole: its version folders and reviews land, and the nex
 	assert.deepEqual(requestKeys(next).sort(), [fileKey(sha256(review)), stateKey(sha256(state)), versionKey(hash)].sort());
 });
 
+// Two places in one folder can hold the same bytes: their temporary siblings are named apart (Codex on B9).
+test('two identical review files for an installed version both land', async () => {
+	const d = await drama();
+	const hash = archive(d.store, { 'version.json': version(), 'image-1.png': 'lin' });
+	await d.install(await d.send('task-0001', '2026-11-12T10:00:00Z'), { versions: { 'assets/characters/lin/v1': hash }, reviews: {} });
+	const review = Buffer.from('{"schema":1,"accepted_at":"2026-11-12T10:00:00Z","reason":"ok"}');
+	d.store.files.set(fileKey(sha256(review)), review);
+	await d.install(await d.send('task-0002', '2026-11-12T10:05:00Z'), { versions: {}, reviews: { 'assets/characters/lin/v1/reviews/r1.json': sha256(review), 'assets/characters/lin/v1/reviews/r2.json': sha256(review) } });
+	assert.deepEqual(readdirSync(join(d.root, 'assets/characters/lin/v1/reviews')).sort(), ['r1.json', 'r2.json']);
+});
+
 test('any bad part refuses the whole return before the first rename: nothing of it is in the folder', async () => {
 	const cases: [string, (d: Awaited<ReturnType<typeof drama>>) => Omit<Return, 'schema' | 'turn' | 'state'>][] = [
 		['a folder of another scope', d => ({ versions: { 'episodes/EP001/breakdown/v1': archive(d.store, { 'version.json': version() }) } })],

@@ -2,6 +2,7 @@
 // whole: a temporary file, fsync, then rename, which the OS makes atomic. Versions and reviews are read from the folder
 // itself, never from an index of ours. No vscode import.
 
+import { randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
 import { copyFile, mkdir, open, readdir, readFile, rename, unlink } from 'node:fs/promises';
 import { dirname, extname, join } from 'node:path';
@@ -27,9 +28,13 @@ export async function readChoices(root: string): Promise<Choices | null> {
 	return check('choices', JSON.parse(text), join(root, CHOICES_FILE));
 }
 
-/** Writes `file` whole: a sibling temporary file, fsync, then rename. */
+/**
+ * Writes `file` whole: a sibling temporary file, fsync, then rename. The temporary file's name is unique to the write
+ * (a random UUID, as npm's write-file-atomic makes one per call): two writes in the same folder at the same millisecond,
+ * such as two sessions recording the same holder (B9), named one file, so one rename found it gone.
+ */
 export async function writeWhole(file: string, text: string | Uint8Array): Promise<void> {
-	const temp = join(dirname(file), `.${process.pid}.${Date.now()}.tmp`);
+	const temp = join(dirname(file), `.${randomUUID()}.tmp`);
 	const handle = await open(temp, 'w');
 	try {
 		await handle.writeFile(text);

@@ -3,7 +3,8 @@ import { cp, mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { readChoices, readVersions, resolve, updateChoices, withObject } from '../core/choices';
+import { readChoices, readVersions, resolve, updateChoices, withObject, writeWhole } from '../core/choices';
+import { Holders } from '../core/taskArtifacts';
 import { check, ProtocolDocumentError, UnsupportedMajor, type Choices } from '../core/protocol';
 
 // The protocol's rules that can lose the person's decision (doc/protocol.md, section 3.2), on a fixture drama in protocol
@@ -79,4 +80,22 @@ test('a choice without the words it needs, or naming a version the client lacks,
 	assert.equal(resolve(versions, choices({ version: 'v2' }), 'o').accepted, 'v1', 'v2 needs words: the agent\'s review stands');
 	assert.equal(resolve(versions, choices({ version: 'v2', words: 'Yes.' }), 'o').accepted, 'v2');
 	assert.equal(resolve(versions, choices({ version: 'v7', words: 'Yes.' }), 'o').current, 'v2', 'an unknown version is no choice');
+});
+
+// B9: two sessions preparing at once record holders in one folder at the same moment. Each write's temporary file must
+// be its own: when two shared a name, one rename found the file gone ("ENOENT … holders/.<pid>.<ms>.tmp") and the
+// other could put one write's bytes under the other's name.
+test('writes started together in one folder each land whole, under their own name', async t => {
+	const dir = await mkdtemp(join(tmpdir(), 'write-whole-'));
+	// One millisecond for every write, so that a name made of the time can only collide.
+	t.mock.method(Date, 'now', () => 1_794_573_115_577);
+	const names = Array.from({ length: 20 }, (_, i) => `file-${i}`);
+	await Promise.all(names.map(name => writeWhole(join(dir, name), `text of ${name}`)));
+	for (const name of names) {
+		assert.equal(await readFile(join(dir, name), 'utf8'), `text of ${name}`);
+	}
+	assert.deepEqual((await readdir(dir)).sort(), [...names].sort(), 'no temporary file is left');
+	const holders = new Holders(join(dir, 'holders'));
+	await Promise.all([holders.set(['a', 'b'], 'computer-1'), holders.set(['c', 'd'], 'computer-2')]);
+	assert.deepEqual(['a', 'b', 'c', 'd'].map(hash => holders.get(hash)), ['computer-1', 'computer-1', 'computer-2', 'computer-2']);
 });

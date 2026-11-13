@@ -259,7 +259,7 @@ A choice about an object outside the turn's scope is never an error. That object
 ### 4.4 Installing a return (client)
 
 The client installs one return at a time, finishing one before it starts the next, so two returns never pass their checks together. It installs every returned version folder and review file; nothing returned is left out. It works in two passes:
-1. **Check everything first.** Before the first rename, the client fetches and checks every archive and file (4.1), and extracts each archive into a temporary sibling folder named `.pine-install-<hash>`, so that at start the client can find such folders and delete them. It compares paths without regard to case.
+1. **Check everything first.** Before the first rename, the client fetches and checks every archive and file (4.1), and extracts each archive into a temporary sibling folder whose name starts with `.pine-install-` and is its own (two places in one folder can hold the same bytes), so that at start the client can find such folders and delete them. It compares paths without regard to case.
    - **Already there.** A folder that already exists with the same archive hash (the one the client keeps for it, 4.1) is skipped. So is a review file with the same hash.
    - **Refused whole.** The client refuses the whole return, installs nothing and shows `invalid` if anything:
      - lies outside the turn's scope;
