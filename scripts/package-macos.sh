@@ -84,6 +84,14 @@ place_icon() {
 	touch "$app"
 }
 
+# The Studio's version where Finder's Get Info shows one: Info.plist's CFBundleShortVersionString, which packaging sets
+# from Code-OSS's package.json (@vscode/gulp-electron, darwin.js). Code-OSS never reads it (no app.getVersion call). The
+# version it checks extensions' `engines.vscode` against is product.json's (extensionsScannerService.ts,
+# getProductVersion), and that stays Code-OSS's. Both paths set it, since an extension-only build changes the version.
+set_version() {
+	plutil -replace CFBundleShortVersionString -string "$(version)" "$1/Contents/Info.plist"
+}
+
 # Code-OSS refuses a changed install ("appears to be corrupt") when a file product.json lists under `checksums` no longer
 # hashes as recorded (integrityService.ts; checksumService.ts: sha256, base64 without padding). Packaging writes them;
 # nothing after it may change those files, and this proves it before a build is zipped.
@@ -169,6 +177,7 @@ if [ "$MODE" = extension ]; then
 	cp -cR "$LATEST/$APP_NAME.app" "$OUT_DIR/$APP_NAME.app"
 	stage_extension "$OUT_DIR/$APP_NAME.app"
 	place_icon "$OUT_DIR/$APP_NAME.app"
+	set_version "$OUT_DIR/$APP_NAME.app"
 	verify_checksums "$OUT_DIR/$APP_NAME.app"
 	zip=$(zip_app "$OUT_DIR" "$build")
 	dmg=$(make_dmg "$OUT_DIR")
@@ -242,9 +251,9 @@ for manifest in "$OUT_DIR/$APP_NAME.app"/Contents/Resources/app/extensions/*/pac
 done
 stage_extension "$OUT_DIR/$APP_NAME.app"
 # Upstream writes Microsoft's copyright into Info.plist (build/lib/electron.ts, `copyright`), which Finder's Get Info shows.
-# The bundle is unsigned, so it is rewritten here rather than by a patch. CFBundleShortVersionString stays Code-OSS's:
-# extensions check their `engines.vscode` against it.
+# The bundle is unsigned, so it is rewritten here rather than by a patch.
 place_icon "$OUT_DIR/$APP_NAME.app"
+set_version "$OUT_DIR/$APP_NAME.app"
 # A release build ships no source maps (about 270 MB): upstream's own builds publish theirs to a CDN instead
 # (build/gulpfile.vscode.ts, useCdnSourceMapsForPackagingTasks). No file product.json checksums is a map.
 [ "$(release)" = yes ] && find "$OUT_DIR/$APP_NAME.app/Contents/Resources/app/out" -name '*.map' -delete
