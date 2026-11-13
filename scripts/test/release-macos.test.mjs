@@ -29,6 +29,8 @@ async function fixture(t, rejection, target = 'vscode-darwin-arm64-min') {
 	await mkdir(join(vscode, '.build/electron'), { recursive: true });
 	await writeFile(join(vscode, '.build/electron/version'), 'v43.8.3\n');
 	await writeFile(join(input, 'build-info.json'), JSON.stringify({ target, version: '1.2.3', build: '1', extensionFrom: 'abc123' }));
+	await mkdir(join(input, 'Pine Drama Studio.app/Contents/Resources/app'), { recursive: true });
+	await writeFile(join(input, 'Pine Drama Studio.app/Contents/Resources/app/product.json'), JSON.stringify({ commit: 'c0ffee', pineReleasesUrl: 'https://example.invalid/releases' }));
 	const calls = [];
 	return { output, calls, options: { input, output, vscode, identity: 'Developer ID fixture', profile: 'fixture', keychain: '/fixture/keychain', tag: 'v1.2.3' }, dependencies: {
 		log: () => {},
@@ -59,7 +61,13 @@ test('staples the app before making a DMG, verifies both, and only then writes p
 	assert.equal(f.calls.filter(([cmd]) => cmd === 'spctl').length, 2);
 	assert.equal(f.calls[1][1].preAutoEntitlements, false);
 	assert.equal(f.calls[1][1].optionsForFile('/A').hardenedRuntime, true);
-	assert.match(await readFile(join(f.output, 'SHA256SUMS'), 'utf8'), /^[a-f0-9]{64}  Pine-Drama-Studio-1\.2\.3-darwin-arm64\.dmg\n$/);
+	assert.match(await readFile(join(f.output, 'SHA256SUMS'), 'utf8'), /^[a-f0-9]{64}  Pine-Drama-Studio-1\.2\.3-darwin-arm64\.dmg\n[a-f0-9]{64}  Pine-Drama-Studio-1\.2\.3-darwin-arm64\.zip\n$/);
+	// The update zip is made from the stapled app, after the app's notarization and Gatekeeper.
+	const zipCall = f.calls.findIndex(([cmd, args]) => cmd === 'ditto' && args.at(-1).endsWith('-darwin-arm64.zip'));
+	assert.ok(zipCall > f.calls.findIndex(([cmd]) => cmd === 'spctl'));
+	const feed = JSON.parse(await readFile(join(f.output, 'update-darwin-arm64.json'), 'utf8'));
+	assert.deepEqual({ ...feed, sha256hash: undefined }, { url: 'https://example.invalid/releases/download/v1.2.3/Pine-Drama-Studio-1.2.3-darwin-arm64.zip', name: '1.2.3', version: 'c0ffee', productVersion: '1.2.3', sha256hash: undefined });
+	assert.match(feed.sha256hash, /^[a-f0-9]{64}$/);
 	const info = JSON.parse(await readFile(join(f.output, 'build-info.json'), 'utf8'));
 	assert.equal(info.signing.notarization, 'Accepted');
 	assert.equal(info.signing.stapled, true);
@@ -72,7 +80,10 @@ test('an Intel (x64) build is released as its own disk image, named for its arch
 	const f = await fixture(t, undefined, 'vscode-darwin-x64-min');
 	const dmg = await releaseMacos(f.options, f.dependencies);
 	assert.equal(basename(dmg), 'Pine-Drama-Studio-1.2.3-darwin-x64.dmg');
-	assert.match(await readFile(join(f.output, 'SHA256SUMS'), 'utf8'), /^[a-f0-9]{64}  Pine-Drama-Studio-1\.2\.3-darwin-x64\.dmg\n$/);
+	assert.match(await readFile(join(f.output, 'SHA256SUMS'), 'utf8'), /^[a-f0-9]{64}  Pine-Drama-Studio-1\.2\.3-darwin-x64\.dmg\n[a-f0-9]{64}  Pine-Drama-Studio-1\.2\.3-darwin-x64\.zip\n$/);
+	// An Intel build answers the asset id the client asks for on x64 (pineUpdateService.darwin.ts): 'darwin'.
+	const feed = JSON.parse(await readFile(join(f.output, 'update-darwin.json'), 'utf8'));
+	assert.equal(feed.url, 'https://example.invalid/releases/download/v1.2.3/Pine-Drama-Studio-1.2.3-darwin-x64.zip');
 });
 
 for (const rejection of ['notary-app.zip', 'Pine-Drama-Studio-1.2.3-darwin-arm64.dmg', 'gatekeeper', 'dmg-gatekeeper', 'signing', 'app-stapler', 'dmg-stapler']) {
@@ -81,6 +92,7 @@ for (const rejection of ['notary-app.zip', 'Pine-Drama-Studio-1.2.3-darwin-arm64
 		await assert.rejects(releaseMacos(f.options, f.dependencies), /notarization was Invalid|Gatekeeper rejected|Signing rejected|Stapler rejected/);
 		await assert.rejects(access(join(f.output, 'build-info.json')));
 		await assert.rejects(access(join(f.output, 'SHA256SUMS')));
+		await assert.rejects(access(join(f.output, 'update-darwin-arm64.json')));
 		if (rejection === 'notary-app.zip') assert.equal(f.calls.some(([cmd]) => cmd === 'hdiutil'), false);
 	});
 }

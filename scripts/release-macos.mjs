@@ -5,7 +5,7 @@ import { execFile as execFileCallback, execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { createReadStream, statSync } from 'node:fs';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { parseArgs, promisify } from 'node:util';
 
@@ -87,15 +87,33 @@ export async function releaseMacos(options, dependencies = {}) {
 	log('Assessing application and DMG with Gatekeeper.');
 	await run('/usr/sbin/spctl', ['--assess', '--type', 'execute', '--verbose=2', app]);
 	await run('/usr/sbin/spctl', ['--assess', '--type', 'open', '--context', 'context:primary-signature', '--verbose=2', dmg]);
-	const hash = createHash('sha256');
-	for await (const chunk of createReadStream(dmg)) hash.update(chunk);
-	const digest = hash.digest('hex');
-	await writeFile(join(output, 'SHA256SUMS'), `${digest}  ${dmg.slice(output.length + 1)}\n`);
+	// The update: the stapled app as a zip, the archive Squirrel.Mac downloads and unpacks (Squirrel.Mac README, "Update
+	// Server JSON Format": the url names a zip of the app). ditto makes it as Finder's Compress does (ditto(1)).
+	const update = join(output, `Pine-Drama-Studio-${options.tag.slice(1)}-darwin-${arch}.zip`);
+	await run('/usr/bin/ditto', ['-c', '-k', '--sequesterRsrc', '--keepParent', app, update]);
+	const sha256 = async file => {
+		const hash = createHash('sha256');
+		for await (const chunk of createReadStream(file)) hash.update(chunk);
+		return hash.digest('hex');
+	};
+	const digest = await sha256(dmg), updateDigest = await sha256(update);
+	await writeFile(join(output, 'SHA256SUMS'), `${digest}  ${basename(dmg)}\n${updateDigest}  ${basename(update)}\n`);
+	// The update feed entry for this architecture, in the fields upstream's update server answers with
+	// (common/pine/pineUpdateFeed.ts in the patch series): the release's zip, its commit and its version. Its name is the
+	// asset id the client asks for (pineUpdateService.darwin.ts: 'darwin' on x64, 'darwin-arm64' on arm64). It is
+	// committed to updates/stable/ once the release that holds the zip is published.
+	const product = JSON.parse(await readFile(join(input, appName, 'Contents/Resources/app/product.json'), 'utf8'));
+	if (!product.commit || !product.pineReleasesUrl) throw new Error('The app\'s product.json has no commit or pineReleasesUrl; no update feed entry can name it.');
+	const assetId = arch === 'x64' ? 'darwin' : 'darwin-arm64';
+	await writeFile(join(output, `update-${assetId}.json`), JSON.stringify({
+		url: `${product.pineReleasesUrl}/download/${options.tag}/${basename(update)}`, name: info.version, version: product.commit,
+		productVersion: info.version, sha256hash: updateDigest,
+	}, null, '\t') + '\n');
 	await writeFile(join(output, 'build-info.json'), JSON.stringify({ ...info, tag: options.tag, signing: {
 		identity: options.identity, hardenedRuntime: true, notarization: 'Accepted', appSubmission, dmgSubmission,
 		stapled: true, gatekeeper: 'accepted',
-	}, dmgSha256: digest }, null, 2) + '\n');
-	log('Verification passed; release checksum and build receipt written.');
+	}, dmgSha256: digest, updateSha256: updateDigest }, null, 2) + '\n');
+	log('Verification passed; release checksums, update feed entry and build receipt written.');
 	return dmg;
 }
 
