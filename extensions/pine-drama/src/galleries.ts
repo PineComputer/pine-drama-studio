@@ -113,9 +113,6 @@ export function registerGalleries(context: vscode.ExtensionContext, views: Proje
 				await send(panel, pages.get(panel) ?? page);
 			} else if (message?.type === 'open') {
 				// A card opens the global assets canvas on it (Pippit 587-588; 592).
-				const object = (await project.drama()).objects.get(message.stagePath);
-				await views.inspect(message.stagePath, object?.name ?? message.stagePath, object?.type === 'character' ? 'character' : object?.type === 'scene' ? 'location' : 'prop')
-					.catch(error => output.appendLine(`gallery: ${(error as Error).message}`));
 				await vscode.commands.executeCommand('pineDrama.openAssetsCanvas', message.stagePath);
 			} else if (message?.type === 'entry') {
 				let error: string | null = null;

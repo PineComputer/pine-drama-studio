@@ -1,11 +1,12 @@
-import { isAbsolute, relative, sep } from 'node:path';
+import { readFile } from 'node:fs/promises';
+import { isAbsolute, join, relative, sep } from 'node:path';
 import * as vscode from 'vscode';
 import { Latest } from './core/latest';
 import { PROJECT_VIEW_ID, startOnProduction } from './productionStart';
 import { ProjectFinder, PROJECT_FILES } from './core/projectFinder';
-import { DramaProject, describeStage, NOTE_ATTACH, NOTE_INTAKE, reviewText, versionHolding, type OutlineNode, type PreviewsOf, type Role, type SnapshotOf, type TasksOf, type StageDetail, type Version } from './core/project';
+import { DramaProject, describeStage, NOTE_ATTACH, NOTE_INTAKE, reviewText, versionHolding, type Drama, type OutlineNode, type PreviewsOf, type Role, type SnapshotOf, type TasksOf, type StageDetail, type Version } from './core/project';
 import { holdsNoProject } from './core/binding';
-import { decomposition, detachedStage, kindRow, lockOf, openSteps } from './core/threeSteps';
+import { decomposition, detachedStage, kindRow, lockOf, openSteps, sectionLines } from './core/threeSteps';
 
 // The Production view container, after the practice of the Docker, Kubernetes, GitLens and npm
 // extensions: a project seen by what it holds rather than by its files. Project groups a
@@ -22,11 +23,24 @@ const ICONS: Partial<Record<Role, string>> = {
 	'script-episode': 'list-ordered', 'script-later': 'list-ordered', voices: 'mic', motion: 'run', note: 'info',
 };
 
+/** A project file's URI: a path in the project, or an absolute one (a downloaded preview, core/project.ts). */
+function fileUri(root: string, path: string): vscode.Uri {
+	return vscode.Uri.file(isAbsolute(path) ? path : join(root, ...path.split('/')));
+}
+
+/** The file a row opens, and the line to reveal in it: an episode's section of the screenplay. */
+export interface RowFile {
+	readonly uri: unknown;
+	readonly line?: number;
+}
+
 /**
- * What a row opens on the person's click or Enter, never on a selection the Studio makes.
- * A group with nothing to open has no command, so clicking its label expands it.
+ * What a row opens on the person's click or Enter, never on a selection the Studio makes. A row that stands for a file
+ * opens it with the editor's own open, as the Explorer does (`file`): 1. Script the screenplay, an episode under it the
+ * screenplay at that episode's section (#73), any other stage its approved version, else its current one. A group with
+ * nothing to open has no command, so clicking its label expands it.
  */
-export function rowCommand(node: OutlineNode, initialized = true): vscode.Command | undefined {
+export function rowCommand(node: OutlineNode, initialized = true, file?: RowFile): vscode.Command | undefined {
 	// An empty Script's next action: the project's main Chat, where the screenplay and brief are attached.
 	if (node.id === NOTE_ATTACH || node.id === NOTE_INTAKE) {
 		return { command: 'pineDrama.openSessionProject', title: 'Open the project Chat' };
@@ -36,20 +50,21 @@ export function rowCommand(node: OutlineNode, initialized = true): vscode.Comman
 	if (!initialized) {
 		return undefined;
 	}
-	// 2. Assets opens nothing: it expands like a folder.
-	if (node.kind === 'stage' || ['characters', 'scenes', 'props'].includes(node.role)) {
-		return { command: 'pineDrama.openNode', title: 'Open', arguments: [node] };
+	if (node.role === 'characters' || node.role === 'scenes' || node.role === 'props') {
+		return { command: 'pineDrama.openGallery', title: 'Open', arguments: [node.role] };
 	}
-	// A Script episode not broken down yet opens the screenplay, as the Script row does (the person, 650: a row that looks
-	// clickable must act), at the episode's first line once status gives it (getTreeItem).
-	if (node.role === 'script-episode') {
-		return { command: 'pineDrama.openScript', title: 'Open the screenplay' };
+	if (node.stagePath && (node.role === 'character' || node.role === 'location')) {
+		return { command: 'pineDrama.openAssetsCanvas', title: 'Open in the assets canvas', arguments: [node.stagePath] };
 	}
 	// An episode opens its seg editor, its main view; the editor's toggle opens its canvas.
 	if (node.role === 'episode') {
 		return { command: 'pineDrama.openSegEditor', title: 'Open Seg Editor', arguments: [node] };
 	}
-	return undefined;
+	if (!file) {
+		return undefined;
+	}
+	const at = file.line === undefined ? {} : { selection: { start: { line: file.line, character: 0 }, end: { line: file.line, character: 0 } } };
+	return { command: 'vscode.open', title: 'Open', arguments: [file.uri, { preview: true, ...at }] };
 }
 
 class ProjectProvider implements vscode.TreeDataProvider<OutlineNode> {
@@ -59,6 +74,8 @@ class ProjectProvider implements vscode.TreeDataProvider<OutlineNode> {
 	private readonly parents = new Map<string, OutlineNode | undefined>();
 	/** Undefined while the window's folder holds no project: the view is empty and shows its welcome. */
 	project: DramaProject | undefined;
+	/** The screenplay's section lines, by the drama read they belong to (fileOf). */
+	private readonly sections = new WeakMap<Drama, Promise<number[]>>();
 	/**
 	 * The window's folders, for the empty folder New Project opened, which awaits its first request
 	 * (core/projectEntry.ts): the three steps show there too.
@@ -105,6 +122,35 @@ class ProjectProvider implements vscode.TreeDataProvider<OutlineNode> {
 		return chain.at(-1);
 	}
 
+	/**
+	 * The file a row opens: an episode under 1. Script the screenplay at its section (the Nth top-level section is the
+	 * Nth episode, else the top), any other stage its approved version, else its current one, else its first.
+	 */
+	async fileOf(node: OutlineNode): Promise<RowFile | undefined> {
+		const project = this.project!;
+		const drama = await project.drama();
+		const path = await this.stageOf(node);
+		const detail = path ? await project.detail(path) : undefined;
+		const name = detail && (detail.pointers.accepted ?? detail.pointers.current);
+		const rel = detail && (detail.versions.find(v => v.name === name) ?? detail.versions[0])?.file;
+		if (!rel) { return undefined; }
+		const uri = fileUri(project.root, rel);
+		if (!node.episode) { return { uri }; }
+		// One read per drama read (DramaProject.drama: until the folder changes), not one per row and redraw.
+		let sections = this.sections.get(drama);
+		if (!sections) {
+			sections = readFile(uri.fsPath, 'utf8').then(sectionLines, () => []);
+			this.sections.set(drama, sections);
+		}
+		const episodes = [...drama.objects.values()].filter(o => o.type === 'episode').map(o => o.id).sort();
+		return { uri, line: (await sections)[episodes.indexOf(node.episode)] ?? 0 };
+	}
+
+	/** The stage a row stands for: an episode under 1. Script the screenplay, any other row its own. */
+	async stageOf(node: OutlineNode): Promise<string | undefined> {
+		return node.episode ? [...(await this.project!.drama()).objects.values()].find(o => o.type === 'screenplay')?.id : node.stagePath;
+	}
+
 	/** The row's lock, when it is a step not reached or a feature not built (threeSteps.ts `lockOf`). */
 	private async lock(id: string) {
 		const shown = this.shown();
@@ -132,9 +178,7 @@ class ProjectProvider implements vscode.TreeDataProvider<OutlineNode> {
 		item.contextValue = node.kind === 'group' ? `group ${node.role}` : node.kind;
 		if (node.stagePath && this.project) {
 			const detail = await this.project.detail(node.stagePath);
-			const { pointers } = detail;
-			// Menus show "open accepted" only where there is one.
-			item.contextValue = ['stage', pointers.accepted ? 'accepted' : ''].filter(Boolean).join(' ');
+			item.contextValue = 'stage';
 			item.description = describeStage(detail);
 			item.tooltip = `${node.stagePath}\n${item.description}`;
 		}
@@ -163,25 +207,25 @@ class ProjectProvider implements vscode.TreeDataProvider<OutlineNode> {
 		if (node.role === 'note') {
 			item.tooltip = node.label;
 		}
-		item.command = rowCommand(node, !!this.project);
+		item.command = rowCommand(node, !!this.project, this.project && await this.fileOf(node));
 		return item;
 	}
 }
 
 type TimelineEntry =
-	| { kind: 'version'; version: Version; detail: StageDetail; role: Role }
+	| { kind: 'version'; version: Version; detail: StageDetail }
 	| { kind: 'review'; text: string; tooltip: string }
 	| { kind: 'note'; text: string };
 
 class TimelineProvider implements vscode.TreeDataProvider<TimelineEntry> {
 	private readonly changed = new vscode.EventEmitter<void>();
 	readonly onDidChangeTreeData = this.changed.event;
-	private selection: { detail: StageDetail; role: Role } | undefined;
+	private selection: { detail: StageDetail } | undefined;
 	/** The project the selection is of; undefined while the folder holds none (the selection is then cleared). */
 	project: DramaProject | undefined;
 
-	show(detail: StageDetail, role: Role): void {
-		this.selection = { detail, role };
+	show(detail: StageDetail): void {
+		this.selection = { detail };
 		this.changed.fire();
 	}
 
@@ -192,9 +236,9 @@ class TimelineProvider implements vscode.TreeDataProvider<TimelineEntry> {
 
 	/** The row of the shown stage's version `name`, for `reveal`. */
 	entryOf(name: string): TimelineEntry | undefined {
-		const { detail, role } = this.selection ?? {};
+		const detail = this.selection?.detail;
 		const version = detail?.versions.find(v => v.name === name);
-		return detail && role && version ? { kind: 'version', version, detail, role } : undefined;
+		return detail && version ? { kind: 'version', version, detail } : undefined;
 	}
 
 	/** `reveal` needs it (vscode.d.ts, TreeView.reveal); only version rows, which are the roots, are revealed. */
@@ -207,7 +251,7 @@ class TimelineProvider implements vscode.TreeDataProvider<TimelineEntry> {
 			return [];
 		}
 		if (!entry) {
-			return this.selection.detail.versions.map(version => ({ kind: 'version', version, detail: this.selection!.detail, role: this.selection!.role }));
+			return this.selection.detail.versions.map(version => ({ kind: 'version', version, detail: this.selection!.detail }));
 		}
 		if (entry.kind !== 'version') {
 			return [];
@@ -231,8 +275,8 @@ class TimelineProvider implements vscode.TreeDataProvider<TimelineEntry> {
 			item.description = [tags.join(' · '), shortDate(version.createdAt)].filter(Boolean).join('  ');
 			item.iconPath = new vscode.ThemeIcon(tags.includes('accepted') ? 'pass-filled' : 'circle-small');
 			item.tooltip = version.path;
-			if (version.file) {
-				item.command = { command: 'pineDrama.openVersionFile', title: 'Open', arguments: [version.file] };
+			if (version.file && this.project) {
+				item.command = { command: 'vscode.open', title: 'Open', arguments: [fileUri(this.project.root, version.file), { preview: true }] };
 			}
 			return item;
 		}
@@ -252,11 +296,10 @@ function shortDate(iso?: string): string {
 	return iso ? iso.slice(0, 16).replace('T', ' ') : '';
 }
 
-/** A stage to show in Versions: its path, the label for the title, and its role. */
+/** A stage to show in Versions: its path, and the label for the title. */
 export interface StageRef {
 	readonly stagePath: string;
 	readonly label: string;
-	readonly role: Role;
 }
 
 /**
@@ -272,7 +315,7 @@ export interface Subject {
 export interface ProjectViews {
 	readonly project: DramaProject;
 	/** Shows a stage in Versions; the person picked it, so it wins over a lookup still running. */
-	readonly inspect: (stagePath: string, label: string, role: Role) => Promise<unknown>;
+	readonly inspect: (stagePath: string, label: string) => Promise<unknown>;
 	/** Adds what a kind of webview panel shows while one of its panels is active. */
 	readonly follow: (source: () => Subject | undefined) => void;
 	/** The active tab may have changed: select its item in the tree, and its stage in Versions. */
@@ -311,34 +354,20 @@ export async function registerProjectViews(context: vscode.ExtensionContext, out
 		}
 		return projectTree.project;
 	};
-	const uri = (path: string) => isAbsolute(path) ? vscode.Uri.file(path) : vscode.Uri.joinPath(vscode.Uri.file(current().root), ...path.split('/'));
-	const open = async (rel: string) => {
-		output.appendLine(`project: open ${rel}`);
-		await vscode.commands.executeCommand('vscode.open', uri(rel), { preview: true });
-	};
-	const openAccepted = async (node: OutlineNode | undefined) => {
-		if (!node?.stagePath) {
-			return;
-		}
-		const detail = await current().detail(node.stagePath);
-		const file = detail.versions.find(v => v.name === detail.pointers.accepted)?.file;
-		if (file) {
-			await open(file);
-		}
-	};
+	const uri = (path: string) => fileUri(current().root, path);
 	const latest = new Latest();
 	// Shows a stage in Versions without opening anything, unless a newer request came first.
 	const show = async (stage: StageRef, latestOnly: () => boolean) => {
 		const detail = await current().detail(stage.stagePath);
 		if (latestOnly()) {
-			versions.show(detail, stage.role);
+			versions.show(detail);
 			await vscode.commands.executeCommand('setContext', 'pineDrama.versionsShown', true);
 			versionsView.title = `Versions · ${stage.label}`;
 			versionsView.description = describeStage(detail);
 		}
 		return detail;
 	};
-	const inspect = (stagePath: string, label: string, role: Role) => show({ stagePath, label, role }, latest.next());
+	const inspect = (stagePath: string, label: string) => show({ stagePath, label }, latest.next());
 	const clearVersions = async () => {
 		versions.clear();
 		await vscode.commands.executeCommand('setContext', 'pineDrama.versionsShown', false);
@@ -378,7 +407,7 @@ export async function registerProjectViews(context: vscode.ExtensionContext, out
 		if (!current() || !node) {
 			return;
 		}
-		const stage = subject.versions === 'node' ? (node.stagePath ? { stagePath: node.stagePath, label: node.label, role: node.role } : undefined)
+		const stage = subject.versions === 'node' ? (node.stagePath ? { stagePath: node.stagePath, label: node.label } : undefined)
 			: subject.versions === 'none' ? undefined : subject.versions;
 		if (stage) {
 			const detail = await show(stage, current);
@@ -401,36 +430,13 @@ export async function registerProjectViews(context: vscode.ExtensionContext, out
 	};
 	const follow = () => void followActive().catch(error => output.appendLine(`project: following the active tab: ${(error as Error).message}`));
 
-	const select = async (node: OutlineNode) => {
-		const detail = await inspect(node.stagePath!, node.label, node.role);
-		const name = detail.pointers.accepted ?? detail.pointers.current;
-		const file = (detail.versions.find(v => v.name === name) ?? detail.versions[0])?.file;
-		if (file) {
-			await open(file);
-		}
-	};
-
 	context.subscriptions.push(
 		projectView,
 		versionsView,
-		vscode.commands.registerCommand('pineDrama.openVersionFile', (rel: string) => open(rel)),
-		// What a row opens: a collection its gallery, a character or a location its page (and Versions), the
-		// script its page, any other stage its file.
-		vscode.commands.registerCommand('pineDrama.openNode', (node: OutlineNode) => {
-			output.appendLine(`project: open ${node.id}`);
-			if (node.kind === 'group') {
-				return vscode.commands.executeCommand('pineDrama.openGallery', node.role);
-			}
-			// The Script row opens the Script page: the version to review and its review (script.ts).
-			if (node.role === 'script') {
-				return vscode.commands.executeCommand('pineDrama.openScript');
-			}
-			if (node.stagePath && (node.role === 'character' || node.role === 'location')) {
-				void inspect(node.stagePath, node.label, node.role).catch(error => output.appendLine(`project: ${(error as Error).message}`));
-				// A character or a scene opens the global assets canvas on it.
-				return vscode.commands.executeCommand('pineDrama.openAssetsCanvas', node.stagePath);
-			}
-			return node.stagePath && select(node).catch(error => output.appendLine(`project: ${(error as Error).message}`));
+		// Versions shows the row the person selects, as it did when a row's click inspected it; a row with no file too.
+		projectView.onDidChangeSelection(async ({ selection: [node] }) => {
+			const path = node && await projectTree.stageOf(node);
+			if (path) { await inspect(path, node.episode ? '1. Script' : node.label).catch(error => output.appendLine(`project: ${(error as Error).message}`)); }
 		}),
 		vscode.commands.registerCommand('pineDrama.refreshProject', () => projectTree.invalidate()),
 		// The same episode under Episodes, where it is produced (section 11a: one id, two steps).
@@ -440,20 +446,12 @@ export async function registerProjectViews(context: vscode.ExtensionContext, out
 			if (found) { await projectView.reveal(found, { select: true, focus: true, expand: true }); }
 			else if (ep) { void vscode.window.showInformationMessage(`Pine: ${ep} has nothing under Episodes yet.`); }
 		}),
-		// The screenplay is a text version: its row, and a Script episode not broken down yet, open its file (protocol 2.1).
-		vscode.commands.registerCommand('pineDrama.openScript', async () => {
-			const screenplay = [...(await current().drama()).objects.values()].find(o => o.type === 'screenplay');
-			if (screenplay) {
-				await select({ id: screenplay.id, label: '1. Script', kind: 'stage', role: 'script', stagePath: screenplay.id, hasChildren: false }).catch(error => output.appendLine(`project: open screenplay: ${(error as Error).message}`));
-			}
-		}),
+		// The bible has no row of its own; Script's menu opens its file as a row would.
 		vscode.commands.registerCommand('pineDrama.openBible', async () => {
 			const bible = [...(await current().drama()).objects.values()].find(o => o.type === 'bible');
-			if (bible) {
-				await select({ id: bible.id, label: 'Bible', kind: 'stage', role: 'bible', stagePath: bible.id, hasChildren: false }).catch(error => output.appendLine(`project: open bible: ${(error as Error).message}`));
-			}
+			const file = bible && await projectTree.fileOf({ id: bible.id, label: 'Bible', kind: 'stage', role: 'bible', stagePath: bible.id, hasChildren: false });
+			if (file) { await vscode.commands.executeCommand('vscode.open', file.uri, { preview: true }); }
 		}),
-		vscode.commands.registerCommand('pineDrama.openAccepted', (node?: OutlineNode) => openAccepted(node ?? selected())),
 		vscode.commands.registerCommand('pineDrama.revealInFiles', (node?: OutlineNode) => {
 			const target = node ?? selected();
 			return target?.stagePath && vscode.commands.executeCommand('revealInExplorer', uri(target.stagePath));

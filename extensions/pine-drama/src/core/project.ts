@@ -245,7 +245,7 @@ export function variantRoot(drama: Pick<Drama, 'edges'>, id: string): string {
 	return at;
 }
 
-/** Script's row of each episode, in episode order: its breakdown, which opens its shot list, once it has one. */
+/** Script's row of each episode, in episode order: its breakdown once it has one, which the row describes; it opens the screenplay. */
 function scriptRows(drama: Drama): OutlineNode[] {
 	const objects = [...drama.objects.values()].sort((a, b) => (a.id < b.id ? -1 : 1));
 	return objects.filter(ep => ep.type === 'episode').map(ep => {

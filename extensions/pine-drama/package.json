@@ -3,7 +3,7 @@
   "displayName": "Pine Drama Studio",
   "description": "Pine Drama Studio's built-in extension.",
   "publisher": "pine",
-  "version": "0.2.4",
+  "version": "0.2.3",
   "private": true,
   "license": "UNLICENSED",
   "engines": {
@@ -81,12 +81,6 @@
         "icon": "$(refresh)"
       },
       {
-        "command": "pineDrama.openAccepted",
-        "title": "Open Approved Version",
-        "category": "Pine",
-        "icon": "$(pass)"
-      },
-      {
         "command": "pineDrama.revealInFiles",
         "title": "Reveal in Files",
         "category": "Pine",
@@ -105,11 +99,6 @@
       {
         "command": "pineDrama.openEpisodeCanvasToSide",
         "title": "Open Canvas to the Side",
-        "category": "Pine"
-      },
-      {
-        "command": "pineDrama.openNode",
-        "title": "Open",
         "category": "Pine"
       },
       {
@@ -135,11 +124,6 @@
       {
         "command": "pineDrama.canvas.selectAll",
         "title": "Canvas: Select All Cards",
-        "category": "Pine"
-      },
-      {
-        "command": "pineDrama.openScript",
-        "title": "Open Script",
         "category": "Pine"
       },
       {
@@ -238,10 +222,6 @@
     "menus": {
       "commandPalette": [
         {
-          "command": "pineDrama.openAccepted",
-          "when": "false"
-        },
-        {
           "command": "pineDrama.revealInFiles",
           "when": "false"
         },
@@ -258,10 +238,6 @@
           "when": "pineDrama.projectOpen"
         },
         {
-          "command": "pineDrama.openNode",
-          "when": "false"
-        },
-        {
           "command": "pineDrama.canvas.zoomIn",
           "when": "activeWebviewPanelId == 'pineDrama.episodeCanvas'"
         },
@@ -276,10 +252,6 @@
         {
           "command": "pineDrama.canvas.selectAll",
           "when": "activeWebviewPanelId == 'pineDrama.episodeCanvas'"
-        },
-        {
-          "command": "pineDrama.openScript",
-          "when": "pineDrama.projectOpen"
         },
         {
           "command": "pineDrama.review.submit",
@@ -310,16 +282,6 @@
           "command": "pineDrama.openEpisodeCanvasToSide",
           "when": "view == pine.project && viewItem =~ /\\bepisode\\b/",
           "group": "navigation@0"
-        },
-        {
-          "command": "pineDrama.openAccepted",
-          "when": "view == pine.project && viewItem =~ /accepted/",
-          "group": "inline@1"
-        },
-        {
-          "command": "pineDrama.openAccepted",
-          "when": "view == pine.project && viewItem =~ /accepted/",
-          "group": "1_open@1"
         },
         {
           "command": "pineDrama.revealInFiles",

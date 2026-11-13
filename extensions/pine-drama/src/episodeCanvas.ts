@@ -28,7 +28,7 @@ export function registerEpisodeCanvas(context: vscode.ExtensionContext, views: P
 	// The card picked on each canvas, so that coming back to a canvas shows it in Versions again.
 	const picks = new CanvasPicks<StageRef>({
 		isActive: episode => panels.get(episode)?.active === true,
-		showInVersions: pick => views.inspect(pick.stagePath, pick.label, pick.role).then(() => undefined, error => output.appendLine(`canvas: ${(error as Error).message}`)),
+		showInVersions: pick => views.inspect(pick.stagePath, pick.label).then(() => undefined, error => output.appendLine(`canvas: ${(error as Error).message}`)),
 		followActive: () => views.followActive(),
 	});
 	// The person's arrangement, per project and episode, in workspace state: UI state, not a project file (canvasProtocol.ts,
@@ -210,6 +210,9 @@ export function registerEpisodeCanvas(context: vscode.ExtensionContext, views: P
 		vscode.commands.registerCommand('pineDrama.openAssetsCanvas', async (stagePath?: unknown) => {
 			if (typeof stagePath === 'string' && /^assets\//.test(stagePath)) {
 				focus.set(ASSETS_CANVAS, stagePath);
+				// Versions shows the asset it opens on, whichever row, card or editor opened it.
+				void views.inspect(stagePath, (await project.drama()).objects.get(stagePath)?.name ?? stagePath)
+					.catch(error => output.appendLine(`canvas: ${(error as Error).message}`));
 			}
 			const existing = panels.get(ASSETS_CANVAS);
 			await open(ASSETS_CANVAS);

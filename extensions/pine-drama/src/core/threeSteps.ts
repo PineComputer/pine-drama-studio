@@ -27,6 +27,16 @@ export function startEpisodeRequest(episode: string): string {
 	return `Make episode ${episode}.`;
 }
 
+/**
+ * The lines, from 0, where the screenplay's top-level sections start: Fountain marks a section with `#` and a subsection
+ * with `##` (https://fountain.io/syntax#sections-synopses), and ignores its boneyard, the commented-out text (#boneyard). The
+ * Nth is the Nth episode's, by order, whatever its words.
+ */
+export function sectionLines(text: string): number[] {
+	const live = text.replace(/\/\*[\s\S]*?\*\//g, boneyard => boneyard.replace(/[^\n]/g, ''));
+	return live.split(/\r?\n/).flatMap((line, i) => /^\s*#(?!#)/.test(line) ? [i] : []);
+}
+
 /** Which of the later steps are reached (DESIGN-2026-11-08; the flow; 11). */
 interface OpenSteps {
 	readonly assets: boolean;
