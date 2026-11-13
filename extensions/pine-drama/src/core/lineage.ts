@@ -4,7 +4,7 @@
 // 5.2). Nothing is judged here. No vscode import.
 
 import type { ObjectType } from './protocol';
-import { episodeIn, versionFile, type Drama, type DramaObject } from './project';
+import { directInputs, episodeIn, versionFile, type Drama, type DramaObject } from './project';
 
 /** The object types in pipeline order (doc/protocol.md, section 5.1): a card's column. */
 export const TYPES: readonly ObjectType[] = [
@@ -85,17 +85,20 @@ function stageOf(drama: Drama, object: DramaObject): LineageStage {
 	};
 }
 
-/** The objects each object's current version was made from; a planned object's planned inputs. */
-function inputsOf(object: DramaObject): string[] {
+/**
+ * The objects each object's current version was made from, all of them (`direct` false: which cards an episode's canvas
+ * holds) or only those made from directly (the lines it draws); a planned object's planned inputs.
+ */
+function inputsOf(drama: Drama, object: DramaObject, direct: boolean): string[] {
 	const current = object.versions.find(v => v.id === object.resolved.current);
-	return current ? [...new Set(current.record.inputs.map(i => i.object))] : [...object.plannedInputs];
+	return current ? [...new Set((direct ? directInputs(drama, current.record.inputs) : current.record.inputs).map(i => i.object))] : [...object.plannedInputs];
 }
 
 /** The lineage of `kept` objects, with the lines among them, its groups in the canvas's order. */
 function lineageOf(drama: Drama, kept: readonly DramaObject[]): Lineage {
 	const ids = new Set(kept.map(o => o.id));
 	const stages = kept.map(o => stageOf(drama, o)).sort((a, b) => a.column - b.column || (a.id < b.id ? -1 : 1));
-	const links = kept.flatMap(o => inputsOf(o).filter(from => ids.has(from)).map(from => ({ from, to: o.id })));
+	const links = kept.flatMap(o => inputsOf(drama, o, true).filter(from => ids.has(from)).map(from => ({ from, to: o.id })));
 	const head = ['Text', 'Characters', 'Locations', 'Props'];
 	const rest = [...new Set(stages.map(s => s.section))].filter(s => !head.includes(s)).sort((a, b) => Number(a.endsWith(' cut')) - Number(b.endsWith(' cut')) || (a < b ? -1 : 1));
 	return { stages, links, sections: [...head, ...rest].filter(title => stages.some(s => s.section === title)) };
@@ -107,7 +110,7 @@ function lineageOf(drama: Drama, kept: readonly DramaObject[]): Lineage {
  */
 export function episodeLineage(drama: Drama, episode: string): Lineage {
 	const own = [...drama.objects.values()].filter(o => episodeIn(o.id) === episode && o.type !== 'episode');
-	const used = new Set(own.flatMap(inputsOf));
+	const used = new Set(own.flatMap(o => inputsOf(drama, o, false)));
 	return lineageOf(drama, [...own, ...[...drama.objects.values()].filter(o => episodeIn(o.id) !== episode && used.has(o.id))]);
 }
 
