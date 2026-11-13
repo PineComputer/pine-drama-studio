@@ -507,9 +507,8 @@ function EpisodePrompt({ card, prompt }: { card: CanvasCard; prompt: CanvasPromp
 }
 
 /**
- * The read-only detail of the picked card's version (detail panel): the references in the order the
- * model got them, the prompt, the model and the settings sent, and the cost, from drama-cli's records
- * (versionDetail.ts). Nothing here changes anything: a change is asked of the agent.
+ * The read-only detail of the picked card's version (detail panel): the versions it was made from and
+ * its prompt, from its record (versionDetail.ts). Nothing here changes anything: a change is asked of the agent.
  * Version history stays in the Versions view.
  */
 function DetailPanel({ card, cards, assets, reply, onGo, onClose, importNow = false, onImport = () => undefined }: { card: CanvasCard; cards: readonly CanvasCard[]; assets: boolean; reply: DetailMessage | undefined; onGo: (stageId: string) => void; onClose: () => void; importNow?: boolean; onImport?: () => void }) {

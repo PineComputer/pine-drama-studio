@@ -72,7 +72,7 @@ The Computer side MUST NOT put lock files, records of a paid call still in progr
 |---|---|
 | `made_at` | When it was finished. |
 | `file` | The file it shows (image, video or text), relative to the version folder, or `null`. |
-| `inputs` | The versions it was made from, each `{object, version}`. |
+| `inputs` | The versions this one was made from directly, each `{object, version}`; what those were made from is in their own records. A record written before this wording may also list indirect ones; a reader shows them as they are. |
 | `prompt` | The prompt it was made with, or `null`. |
 | `from_import` | The client id of the import it was made from, or `null`. |
 
@@ -326,7 +326,7 @@ A snapshot that lists an episode object lists all of that episode's objects. An 
 | `making` | `true` while a version of it is being made. |
 | `prompt` | When the person may edit the prompt: the agent's text for the next draw. |
 | `description` | When the person may edit the description: the agent's current text. |
-| `inputs` | For an object with no version yet: the objects its first version will be made from. |
+| `inputs` | For an object with no version yet: the objects its first version will be directly made from. |
 | `from_add` | The client id of the add it was created for, or `null`. |
 | `episode_made` | `true` for a shared object made in an `episodes` turn, inside which later `episodes` turns may add (section 1). Absent otherwise. |
 

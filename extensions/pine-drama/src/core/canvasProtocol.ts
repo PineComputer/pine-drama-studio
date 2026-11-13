@@ -137,14 +137,22 @@ export interface CanvasRecord {
 	readonly from: string | null;
 }
 
+/** A version a version was made from: its name, its picture when it is one, and its card when on the board. */
+export interface MadeFrom {
+	readonly label: string;
+	readonly src: string | null;
+	readonly stageId: string | null;
+}
+
 /**
- * What a version was made with, as the panel shows it (core/versionDetail.ts): its prompt, when it was finished, and each
- * version it was made from, numbered in order, with its picture and its card when on the board.
+ * What a version was made with, as the panel shows it (core/versionDetail.ts): its prompt, when it was finished, and the
+ * versions it was made from, in their order: the pictures, then the text ones by name.
  */
 export interface CanvasDetail {
 	readonly prompt: string | null;
 	readonly madeAt: string;
-	readonly references: readonly { readonly n: number; readonly file: string | null; readonly label: string; readonly src: string | null; readonly stageId: string | null }[];
+	readonly pictures: readonly MadeFrom[];
+	readonly madeFrom: readonly MadeFrom[];
 }
 
 export const CANVAS_COMMANDS = ['zoomIn', 'zoomOut', 'fit', 'selectAll'] as const;

@@ -1,14 +1,10 @@
-/* A request (requestView.tsx): the numbered references, the prompt with its "Image N" chips, the model, settings and cost.
+/* A request (requestView.tsx): the pictures and the other versions it was made from, the prompt, when it was finished.
    Shared by the canvas's take panel and the seg editor. Workbench colours only. */
 .refs { display: flex; flex-wrap: wrap; gap: 6px; }
-.ref { position: relative; width: 52px; height: 52px; padding: 0; border-radius: 6px; overflow: hidden; border: 1px solid var(--vscode-widget-border, var(--vscode-panel-border)); background: var(--vscode-editor-background); cursor: pointer; display: flex; align-items: center; justify-content: center; }
+.ref { width: 52px; height: 52px; padding: 0; border-radius: 6px; overflow: hidden; border: 1px solid var(--vscode-widget-border, var(--vscode-panel-border)); background: var(--vscode-editor-background); cursor: pointer; display: flex; align-items: center; justify-content: center; }
 .ref:disabled { cursor: default; }
 .ref:not(:disabled):hover { border-color: var(--vscode-focusBorder); }
 .ref img { width: 100%; height: 100%; object-fit: cover; }
-.ref .n { position: absolute; top: 3px; left: 3px; min-width: 15px; height: 15px; padding: 0 3px; box-sizing: border-box; border-radius: 999px; font-size: 10px; line-height: 15px; text-align: center; font-weight: 600; background: color-mix(in srgb, var(--vscode-editor-background) 80%, transparent); color: var(--vscode-foreground); }
 .prompt { font-size: 12px; line-height: 1.6; white-space: pre-wrap; word-break: break-word; color: var(--vscode-foreground); }
-.mention { display: inline-flex; align-items: center; gap: 3px; padding: 0 5px 0 2px; margin: 0 1px; border-radius: 6px; vertical-align: baseline; background: color-mix(in srgb, var(--vscode-focusBorder) 14%, transparent); font-weight: 600; }
-.mention img { width: 16px; height: 16px; border-radius: 4px; object-fit: cover; }
 .meta { display: flex; flex-wrap: wrap; gap: 6px; }
 .pill { padding: 2px 9px; border-radius: 999px; font-size: 11px; color: var(--vscode-descriptionForeground); background: var(--vscode-editor-background); border: 1px solid var(--vscode-widget-border, var(--vscode-panel-border)); font-variant-numeric: tabular-nums; }
-.pill.strong { color: var(--vscode-foreground); font-weight: 600; }
