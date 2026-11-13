@@ -53,7 +53,9 @@ The check covers:
 
 Each template is a Markdown file at a fixed path, filled by one drama-cli command. `{{name}}` is a placeholder drama-cli fills, `{{shared:file}}` includes `shared/file` from the same preset, and `{{! ... }}` is a comment drama-cli removes before sending. The wording is yours. The paths, the placeholders and the reply's structure are fixed, because later steps read them.
 
-| Template | Command | Reply | Placeholders (**required**) |
+**Bold** placeholders must appear in the template; the others are optional. A placeholder not listed is refused.
+
+| Template | Command | Reply | Placeholders |
 |---|---|---|---|
 | `bible.md` | `bible` | JSON, [bible reply](presets/reply-schemas/bible.schema.json) | **`title`**, **`range`**, **`previous`**, `brief`, `screenplay`, `line_count`, `feedback`, `schema` |
 | `breakdown.md` | `breakdown` | JSON, [breakdown](presets/reply-schemas/breakdown.schema.json) | **`names`**, `episode`, `segment_min_seconds`, `segment_max_seconds`, `brief`, `script`, `bible`, `previous`, `feedback`, `acts_index`, `schema` |
