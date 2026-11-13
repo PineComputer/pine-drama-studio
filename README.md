@@ -69,6 +69,8 @@ scripts/dev-launch.sh               # starts the Studio on the compiled Code-OSS
 
 `scripts/package-macos.sh` packages a `.app` for Apple silicon (`--arch=x64` for Intel Macs). The Windows x64 installer is built, signed and tested in CI (`.github/workflows/release-win32.yml`, with `scripts/package-win32.mjs` and `scripts/release-win32.mjs`). The extension's tests: `cd extensions/pine-drama && npm test`.
 
+A package you build yourself is ad-hoc signed. If it runs first, it creates the "Pine Drama Studio Safe Storage" keychain item, and macOS may then ask for your login keychain password when the signed release uses it. Choose Always Allow: later releases that meet the same designated requirement keep that access without asking again.
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) (commits are signed off under the DCO) and the working rules in
