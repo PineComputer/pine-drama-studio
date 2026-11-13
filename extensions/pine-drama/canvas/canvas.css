@@ -1,5 +1,5 @@
 /* The episode canvas, on the workbench's colours only (--vscode-* tokens), so it follows every theme. Corners by role
-   (open-pinedrama D67, as rules): a surface 12 px, a card's picture 8 px, things inside 6 px, pills round. One
+   (as open-pinedrama sets them): a surface 12 px, a card's picture 8 px, things inside 6 px, pills round. One
    type scale: 13 px titles, 12 px body, 11 px meta. */
 html, body, #root { margin: 0; padding: 0; height: 100%; width: 100%; overflow: hidden; }
 body { background: var(--vscode-editor-background); color: var(--vscode-foreground); font-family: var(--vscode-font-family); font-size: 12px; }
@@ -12,12 +12,12 @@ button { font: inherit; color: inherit; }
 .error p { white-space: pre-wrap; word-break: break-word; }
 .error .detail { color: var(--vscode-descriptionForeground); }
 
-/* Where the data came from (design rule 4, D7): a quiet chip, full source in its tooltip. */
+/* Where the data came from: a quiet chip, full source in its tooltip. */
 .origin { position: absolute; top: var(--origin-top); left: 12px; z-index: 6; box-sizing: border-box; height: var(--origin-height); display: flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; font-size: 11px; color: var(--vscode-descriptionForeground); background: color-mix(in srgb, var(--vscode-editorWidget-background) 85%, transparent); border: 1px solid var(--vscode-widget-border, var(--vscode-panel-border)); user-select: none; }
 .origin .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--vscode-editorWarning-foreground); }
 .origin.live .dot { background: var(--vscode-testing-iconPassed, var(--vscode-charts-green)); }
 .origin.stale .newer { color: var(--vscode-editorWarning-foreground); }
-/* drama-cli status not read (#390): below the source label, never over it (Codex on #394), in the warning colour. */
+/* drama-cli status not read: below the source label, never over it, in the warning colour. */
 
 /* React Flow on the workbench's colours (its documented --xy-* variables, @xyflow/react dist/style.css). */
 .react-flow {
@@ -116,7 +116,7 @@ button.icon .codicon { font-size: 16px; }
 .detail .prompt { max-height: 220px; overflow: auto; }
 .record-text { width: 100%; box-sizing: border-box; resize: vertical; font: inherit; line-height: 1.45; color: var(--vscode-input-foreground); background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border, transparent); border-radius: 4px; padding: 6px 8px; }
 .record-text:focus { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
-/* The box's prompt (D65): who wrote it, and the images its text numbers. */
+/* The box's prompt: who wrote it, and the images its text numbers. */
 .prompt-head { font-size: 11px; color: var(--vscode-descriptionForeground); }
 .record-actions { display: flex; align-items: center; gap: 6px; }
 .record-actions .spacer { flex: 1; }
@@ -149,7 +149,7 @@ button.labeled:disabled { opacity: 0.5; cursor: default; }
 .tool-select .react-flow__pane { cursor: default; }
 .tool-select .react-flow__pane.dragging { cursor: grabbing; }
 .tool-hand .react-flow__node { cursor: grab; }
-/* An episode card's prompt in its box (D65): the same field as an asset box's, spaced as the panel's other parts. */
+/* An episode card's prompt in its box: the same field as an asset box's, spaced as the panel's other parts. */
 .episode-prompt { display: flex; flex-direction: column; gap: 8px; margin: 8px 0; }
 
 /* A card's marks of the person's choices (design.md, section 15). */

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Apply the patch series to a clean checkout of the base commit, in a temporary worktree,
-# and report the touchpoints. Proves the series alone rebuilds our tree (D11).
+# and report the touchpoints. Proves the series alone rebuilds our tree.
 set -euo pipefail
 source "$(dirname "$0")/upstream-lib.sh"
 
@@ -19,6 +19,6 @@ fi
 tp=$(git -C "$TMP/tree" diff --name-only --diff-filter=MDR "$BASE" HEAD | grep -c . || true)
 echo "OK: ${#patches[@]} patch(es) apply to ${BASE:0:11}; touchpoints: $tp/$TOUCHPOINT_BUDGET"
 if [ "$tp" -gt "$TOUCHPOINT_BUDGET" ]; then
-	echo "OVER BUDGET: more than $TOUCHPOINT_BUDGET touchpoints is a decision for the person (D11)" >&2
+	echo "OVER BUDGET: more than $TOUCHPOINT_BUDGET touchpoints is a decision for the maintainers" >&2
 	exit 2
 fi
