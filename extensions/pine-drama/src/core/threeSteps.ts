@@ -19,6 +19,14 @@ export function decomposition(breakdown: DramaObject | undefined): Decomposition
 	return breakdown.usable ? { text: 'Decomposed', decomposed: true } : { text: breakdown.why ?? 'not usable yet', decomposed: false };
 }
 
+/** The action on a Script episode not broken down yet: a new session for it (B8; the skill names it too). */
+export const START_EPISODE = '▶ Start Episode';
+
+/** What Start Episode puts in the new session's input: the episode id is all an episode session needs to begin. */
+export function startEpisodeRequest(episode: string): string {
+	return `Make episode ${episode}.`;
+}
+
 /** Which of the later steps are reached (DESIGN-2026-11-08; the flow; 11). */
 interface OpenSteps {
 	readonly assets: boolean;
@@ -49,7 +57,7 @@ export function lockOf(id: string, open: OpenSteps): Lock | null {
 		return { description: 'available after the bible', tooltip: 'Available after the bible: it lists every character, scene and prop' };
 	}
 	if (id === 'episodes' && !open.episodes) {
-		return { description: 'available after the episodes are broken down', tooltip: "Available once an episode's breakdown is approved; each episode opens in its seg editor" };
+		return { description: 'available after the episodes are broken down', tooltip: `Start an episode from its row under 1. Script (${START_EPISODE}); it opens here once its breakdown is approved, in its seg editor` };
 	}
 	if (id === '#audio') {
 		// drama-cli has no voice stage: a voice is the bible's text.

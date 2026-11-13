@@ -20,10 +20,11 @@ import { registerSegEditor } from './segEditor';
 /** Two views refreshed as one. */
 const both = (a: { refresh(): void }, b: { refresh(): void }) => ({ refresh: () => { a.refresh(); b.refresh(); } });
 import { registerProjectViews, type ProjectViews } from './projectViews';
-import { DramaProject } from './core/project';
+import { DramaProject, episodeIn, type OutlineNode } from './core/project';
 import { owningChat } from './core/projectPlace';
 import { SdkPort } from './sdkPort';
-import { showInChatView } from './chatView';
+import { showInChatView, startInChatView } from './chatView';
+import { startEpisodeRequest } from './core/threeSteps';
 import { registerReviewView } from './reviewView';
 import { waitingReason } from './core/reviews';
 import { destinationOf, statusText, waitingItems, type WaitingItem } from './core/attention';
@@ -260,6 +261,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 			log(`project destination ${key}: ${(error as Error).stack ?? error}`);
 			void vscode.window.showErrorMessage(`Pine: ${(error as Error).message}`);
 		}
+	}));
+
+	// Start Episode (B8): a Script episode with no breakdown opens a new session of this project, as New Session makes
+	// one, with the request in its input for the person to send. An episode is a peer of the Project Chat, which must
+	// exist first: a first send without it would make this session the Project Chat (projectSessions.ts).
+	context.subscriptions.push(vscode.commands.registerCommand('pineDrama.startEpisode', async (node?: OutlineNode) => {
+		const project = sessions?.scope();
+		const episode = node?.episode && episodeIn(node.episode);
+		if (!project || !episode) { return; }
+		if (!project.main) {
+			void vscode.window.showInformationMessage('Pine: start the project in its Project Chat first; episodes come after its assets.');
+			return;
+		}
+		await startInChatView((command, ...args) => vscode.commands.executeCommand(command, ...args), tabs,
+			sessions!.newSession().resource, startEpisodeRequest(episode));
 	}));
 
 	// The Chats list is upstream's Agent Sessions view inside Chat; this opens Chat and shows it.

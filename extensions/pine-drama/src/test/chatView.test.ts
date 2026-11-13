@@ -1,6 +1,6 @@
 import { strict as assert } from 'node:assert';
 import { test } from 'node:test';
-import { MOVE_INTO_CHAT_VIEW, OPEN, showInChatView, type Tabs } from '../chatView';
+import { CHAT_OPEN, MOVE_INTO_CHAT_VIEW, OPEN, showInChatView, startInChatView, type Tabs } from '../chatView';
 
 // A workbench stand-in: `vscode.open` opens a chat editor tab; the move closes it unless the Chat view already shows
 // the session (chatWidgetService.ts, prepareSessionForMove).
@@ -42,4 +42,13 @@ test('when the Chat view already shows the conversation, the second chat editor 
 	await showInChatView(w.execute, w.tabs, 'pine-computer:/local-1');
 	assert.deepEqual(w.calls, [['vscode.open', 'pine-computer:/local-1'], ['workbench.action.chat.openInSidebar'], ['close', 'chat']]);
 	assert.deepEqual([...w.open], ['brief.md']);
+});
+
+// B8: after the assets, a beginner had no way to start an episode's session. Start Episode opens a new one in the Chat
+// view and leaves the request in its input: nothing is sent, so no Computer starts until the person sends it.
+test('Start Episode shows the new session in the Chat view, then puts the request in its input without sending it', async () => {
+	const w = workbench(false);
+	await startInChatView(w.execute, w.tabs, 'pine-computer:/session-1', 'Make episode EP003.');
+	assert.deepEqual(w.calls, [['vscode.open', 'pine-computer:/session-1'], ['workbench.action.chat.openInSidebar'],
+		[CHAT_OPEN, { query: 'Make episode EP003.', isPartialQuery: true }]]);
 });

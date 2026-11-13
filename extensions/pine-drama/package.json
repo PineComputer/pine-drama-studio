@@ -154,6 +154,12 @@
         "icon": "$(arrow-right)"
       },
       {
+        "command": "pineDrama.startEpisode",
+        "title": "Start Episode",
+        "category": "Pine",
+        "icon": "$(play)"
+      },
+      {
         "command": "pineDrama.openBible",
         "title": "Open Bible",
         "category": "Pine",
@@ -284,6 +290,10 @@
           "when": "false"
         },
         {
+          "command": "pineDrama.startEpisode",
+          "when": "false"
+        },
+        {
           "command": "pineDrama.openBible",
           "when": "pineDrama.projectOpen"
         }
@@ -324,6 +334,16 @@
         {
           "command": "pineDrama.goToEpisode",
           "when": "view == pine.project && viewItem =~ /decomposed/",
+          "group": "navigation@1"
+        },
+        {
+          "command": "pineDrama.startEpisode",
+          "when": "view == pine.project && viewItem =~ /\\bstartable\\b/",
+          "group": "inline@0"
+        },
+        {
+          "command": "pineDrama.startEpisode",
+          "when": "view == pine.project && viewItem =~ /\\bstartable\\b/",
           "group": "navigation@1"
         },
         {

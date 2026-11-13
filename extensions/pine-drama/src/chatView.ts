@@ -11,6 +11,8 @@
 
 export const OPEN = 'vscode.open';
 export const MOVE_INTO_CHAT_VIEW = 'workbench.action.chat.openInSidebar';
+/** Code-OSS's Chat: Open, whose `query` with `isPartialQuery` fills the input without sending (chatActions.ts). */
+export const CHAT_OPEN = 'workbench.action.chat.open';
 
 export type Execute = (command: string, ...args: unknown[]) => PromiseLike<unknown>;
 
@@ -29,4 +31,13 @@ export async function showInChatView<T>(execute: Execute, tabs: Tabs<T>, resourc
 	if (opened !== undefined && tabs.isOpen(opened)) {
 		await tabs.close(opened);
 	}
+}
+
+/**
+ * Shows the Chat's chat in the Chat view with `query` in its input, not sent: sending stays the person's action, as
+ * the canvas's and the seg editor's Generate leave it (episodeCanvas.ts, segEditor.ts).
+ */
+export async function startInChatView<T>(execute: Execute, tabs: Tabs<T>, resource: unknown, query: string): Promise<void> {
+	await showInChatView(execute, tabs, resource);
+	await execute(CHAT_OPEN, { query, isPartialQuery: true });
 }

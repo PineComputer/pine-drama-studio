@@ -53,7 +53,7 @@ export function registerPineSessions(
 	service: ChatService,
 	/** The Review index's submit, and its record of a continuation in flight (reviewView.ts), which the Chat cards show. */
 	review: { submitReviewDecisions(key: string, id: string, words?: string): Promise<void>; continuing(id: string): boolean; readonly onDidChangeContinuing: vscode.Event<void> },
-): { refresh(key: string): void; scope(): ProjectSessions | undefined } {
+): { refresh(key: string): void; scope(): ProjectSessions | undefined; newSession(): vscode.ChatSessionItem } {
 	const titleOf = (key: string) => service.chat(key)?.label;
 
 	const openFolder = (folder: vscode.Uri) => vscode.commands.executeCommand('vscode.openFolder', folder, { forceNewWindow: false });
@@ -251,7 +251,8 @@ export function registerPineSessions(
 	const reviewCards = registerReviewCards(context, service, output, key => scope()?.chats.some(c => c.key === key) ?? false, (key, id, words) => review.submitReviewDecisions(key, id, words), id => review.continuing(id));
 	context.subscriptions.push(review.onDidChangeContinuing(() => reviewCards.refresh()));
 	const controller = vscode.chat.createChatSessionItemController(SESSION_TYPE, async () => refresh());
-	controller.newChatSessionItemHandler = async () => {
+	// New Session's native "+" and Start Episode (B8) make a session the same way.
+	const newSession = (): vscode.ChatSessionItem => {
 		const project = scope();
 		if (!project) {
 			// A current unsent request is not global history. The folder refusal gives its message back.
@@ -270,6 +271,7 @@ export function registerPineSessions(
 		controller.items.add(item);
 		return item;
 	};
+	controller.newChatSessionItemHandler = async () => newSession();
 	const entryCreatedAt = Date.now();
 	const mainEntry = (project: ProjectSessions): vscode.ChatSessionItem => {
 		const item = controller.createChatSessionItem(vscode.Uri.parse(project.mainKey), 'New Session');
@@ -367,7 +369,7 @@ export function registerPineSessions(
 		}
 	});
 	output.appendLine(`${new Date().toISOString()} chat session type "${SESSION_TYPE}" on ${config.kind === 'set' ? endpointHost(config.pine.endpoint) : 'no Pine environment (not set up)'}; ${service.chats().length} saved conversation(s)`);
-	return { refresh, scope };
+	return { refresh, scope, newSession };
 }
 
 /** Native output-renderer cards update from local state; pure questions retain ordinary Chat. */
