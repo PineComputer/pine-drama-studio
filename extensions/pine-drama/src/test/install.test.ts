@@ -10,7 +10,7 @@ import { readChoices, updateChoices } from '../core/choices';
 import type { Request, Return } from '../core/protocol';
 import { archiveNames, installReturn, InvalidReturn, previewProgress } from '../core/resultImporter';
 import { fileKey, Holders, putAll, sha256, stateKey, versionKey, type ArtifactStore } from '../core/taskArtifacts';
-import { dramaRecordOf, previewVersions, requestKeys, requestOf, taskMessage } from '../core/taskRun';
+import { dramaRecordOf, installedSnapshots, previewVersions, requestKeys, requestOf, taskMessage } from '../core/taskRun';
 
 const temp = (name: string) => realpathSync(mkdtempSync(join(tmpdir(), `pds-install-${name}-`)));
 
@@ -243,4 +243,48 @@ test('the Computer side\'s config written to disk, config/<version id> with no v
 	writeFileSync(join(d.root, 'config/v1/drama-cli.cfg.yaml'), 'project: .');
 	const request = await d.send('task-0001', '2026-11-12T10:00:00Z');
 	assert.deepEqual(archiveNames(join(d.storage, 'kept', versionKey(request.versions['config/v1']))), ['drama-cli.cfg.yaml']);
+});
+
+// An episode may add a new shared variant (doc/protocol.md, section 1): under assets/, only for an object new to the drama.
+test('an episodes return may add a new shared object under assets/, with its own sub-objects, and nothing else there', async () => {
+	const d = await drama('episodes');
+	// A new variant, with its entry/ and prompts/ sub-objects, and a review of it: accepted.
+	const variant = archive(d.store, { 'version.json': version(), 'image-1.png': 'v' });
+	const entry = archive(d.store, { 'version.json': version(), 'entry.json': '{}' });
+	const prompts = archive(d.store, { 'version.json': version(), 'prompt.md': 'p' });
+	const review = Buffer.from('{"schema":1,"accepted_at":"2026-11-12T10:00:00Z","reason":"ok"}');
+	d.store.files.set(fileKey(sha256(review)), review);
+	const adds = { versions: { 'assets/scenes/x/variants/y/v1': variant, 'assets/scenes/x/variants/y/entry/v1': entry, 'assets/scenes/x/variants/y/prompts/v1': prompts },
+		reviews: { 'assets/scenes/x/variants/y/v1/reviews/r.json': sha256(review) } };
+	const first = await d.send('task-0001', '2026-11-12T10:00:00Z');
+	await d.install(first, adds);
+	assert.ok(existsSync(join(d.root, 'assets/scenes/x/variants/y/entry/v1/entry.json')));
+	// Installed again after a crash, with its folders already in place: still new, since they are this return's own.
+	await d.install(first, adds);
+	// A new version of an object the drama has: refused whole.
+	const again = archive(d.store, { 'version.json': version(), 'image-1.png': 'v2' });
+	await assert.rejects(d.install(await d.send('task-0002', '2026-11-12T10:01:00Z'), { versions: { 'assets/scenes/x/variants/y/v2': again } }), InvalidReturn);
+	assert.equal(existsSync(join(d.root, 'assets/scenes/x/variants/y/v2')), false);
+});
+
+test('an episodes return may not draw a planned shared object an installed snapshot lists', async () => {
+	const d = await drama('episodes');
+	const snapshot = { observed_at: '2026-11-12T10:00:00Z', objects: { 'assets/props/umbrella': { type: 'prop' as const, name: 'Umbrella', segment: null, usable: false, from_add: null } }, edges: [] };
+	await d.install(await d.send('task-0001', '2026-11-12T10:00:00Z'), { snapshot });
+	const drawn = archive(d.store, { 'version.json': version(), 'image-1.png': 'umbrella' });
+	await assert.rejects(d.install(await d.send('task-0002', '2026-11-12T10:01:00Z'), { versions: { 'assets/props/umbrella/v1': drawn } }), /outside the task's scope, episodes/);
+	assert.equal(existsSync(join(d.root, 'assets/props/umbrella')), false);
+});
+
+test('installed snapshots come in install order, each with its task and when it was sent and installed', async () => {
+	const d = await drama();
+	const snapshot = (at: string) => ({ observed_at: at, objects: {}, edges: [] });
+	const late = await d.send('task-0001', '2026-11-12T10:00:00Z');
+	const early = await d.send('task-0002', '2026-11-12T10:01:00Z');
+	await d.install(early, { snapshot: snapshot('2026-11-12T10:02:00Z') });
+	await new Promise(resolve => setTimeout(resolve, 5));
+	await d.install(late, { snapshot: snapshot('2026-11-12T10:03:00Z') });
+	const listed = installedSnapshots(d.storage, d.root);
+	assert.deepEqual(listed.map(s => [s.task, s.sent]), [['task-0002', '2026-11-12T10:01:00.000Z'], ['task-0001', '2026-11-12T10:00:00.000Z']], 'by install, not by send');
+	assert.ok(listed[0].installed < listed[1].installed);
 });

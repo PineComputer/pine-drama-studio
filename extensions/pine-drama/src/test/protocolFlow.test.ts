@@ -98,18 +98,19 @@ test('Review Submit writes the chosen versions with the person\'s words into cho
 	} finally { f.store.close(); }
 });
 
-test('a session other than the Project Chat adds under episodes/ only (D51): its own return installs, one outside is refused whole', async () => {
+test('a session other than the Project Chat adds under episodes/, and a shared object only when it is new (D51, protocol section 1): a new version of a shared one is refused whole', async () => {
 	const f = fixture();
 	try {
-		f.pine.plans = [{ state: 'completed', text: 'ok' }];
+		f.pine.plans = [{ state: 'completed', text: 'ok', files: made('assets/props/cup', 'cup') }];
 		await f.send('start the project');
 		const session = 'pine-computer:/session-2';
 		f.pine.plans = [{ state: 'completed', text: 'broken down', files: made('episodes/EP001/breakdown', 'shots') }];
 		await f.send('break down EP001 and EP002', session);
 		assert.equal(f.request(1).scope, 'episodes');
 		assert.equal(readFileSync(join(f.root, 'episodes/EP001/breakdown/v1/image-1.png'), 'utf8'), 'shots');
-		f.pine.plans = [{ state: 'completed', text: 'drew a prop', files: { ...made('assets/props/cup', 'cup'), ...made('episodes/EP002/breakdown', 'more') } }];
-		assert.match(f.said(await f.send('and a cup', session)), /not installed: assets\/props\/cup\/v1 is outside the task's scope, episodes/);
+		const cup2 = { 'drama/assets/props/cup/v2/version.json': version, 'drama/assets/props/cup/v2/image-1.png': 'cup again' };
+		f.pine.plans = [{ state: 'completed', text: 'redrew the cup', files: { ...cup2, ...made('episodes/EP002/breakdown', 'more') } }];
+		assert.match(f.said(await f.send('and redraw the cup', session)), /not installed: assets\/props\/cup\/v2 is outside the task's scope, episodes/);
 		assert.equal(existsSync(join(f.root, 'episodes/EP002')), false, 'nothing of the refused return is installed');
 	} finally { f.store.close(); }
 });

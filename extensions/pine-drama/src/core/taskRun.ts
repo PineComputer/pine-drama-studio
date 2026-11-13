@@ -67,6 +67,8 @@ export interface Installed {
 	readonly snapshot: Snapshot | null;
 	/** The choices the Computer side could not apply (4.3, `problems`), shown on their cards until the session's next return. */
 	readonly problems: readonly { readonly ref: string; readonly error: ProtocolError }[];
+	/** When it was installed or dealt with (RFC 3339): returns are ordered by it (doc/protocol.md, 4.4). */
+	readonly installed: string;
 }
 
 /** A request as the Studio sent it (DramaRecord.sentRequest). */
@@ -120,7 +122,7 @@ export class DramaRecord {
 	handle(task: string, problems: Installed['problems'] = []): Promise<void> {
 		const sent = this.sentTask(task)!;
 		this.dropPreviews(task);
-		return writeJson(this.returnPath(task), { task, scope: sent.request.scope, chat: sent.chat, sent: sent.sent, versions: {}, reviews: {}, private_state: null, snapshot: null, problems } satisfies Installed);
+		return writeJson(this.returnPath(task), { task, scope: sent.request.scope, chat: sent.chat, sent: sent.sent, versions: {}, reviews: {}, private_state: null, snapshot: null, problems, installed: new Date().toISOString() } satisfies Installed);
 	}
 
 	/** Every request sent from this drama, oldest first. */
@@ -137,7 +139,12 @@ export class DramaRecord {
 
 	returns(): Installed[] {
 		const dir = join(this.dir, 'returns');
-		return existsSync(dir) ? readdirSync(dir).filter(n => n.endsWith('.json')).map(n => readJson<Installed>(join(dir, n))!) : [];
+		return existsSync(dir) ? readdirSync(dir).filter(n => n.endsWith('.json')).map(n => {
+			const done = readJson<Installed>(join(dir, n))!;
+			// A record from before the install time was kept is not supported (no backward compatibility): said by name.
+			if (!done.installed) { throw new Error(`${join(dir, n)} has no install time: it was written by an earlier Studio; remove the drama's record to start again`); }
+			return done;
+		}) : [];
 	}
 
 	latest(chat: string): Installed | undefined { return readJson<Installed>(this.sessionPath(chat)); }
@@ -176,13 +183,13 @@ export function dramaRecordOf(storage: string, root: string): DramaRecord {
 }
 
 /**
- * The snapshots of the returns installed in the drama at `root`, with the scope of the session that returned each, oldest
- * sent first: each covers the objects it lists, and a reader shows each object from the latest one that lists it
- * (doc/protocol.md, 5.3).
+ * The snapshots of the returns installed in the drama at `root`, with the scope of the session that returned each, its
+ * task, and when it was sent and installed, in install order (doc/protocol.md, 4.4). Each covers the objects it lists,
+ * and a reader shows each object from the latest one that lists it (doc/protocol.md, 5.3).
  */
-export function installedSnapshots(storage: string, root: string): { readonly scope: 'project' | 'episodes'; readonly snapshot: Snapshot }[] {
-	return dramaRecordOf(storage, root).returns().sort((a, b) => a.sent.localeCompare(b.sent))
-		.flatMap(r => r.snapshot ? [{ scope: r.scope === 'project' ? 'project' as const : 'episodes' as const, snapshot: r.snapshot }] : []);
+export function installedSnapshots(storage: string, root: string): { readonly scope: 'project' | 'episodes'; readonly snapshot: Snapshot; readonly task: string; readonly sent: string; readonly installed: string }[] {
+	return dramaRecordOf(storage, root).returns().sort((a, b) => a.installed.localeCompare(b.installed))
+		.flatMap(r => r.snapshot ? [{ scope: r.scope === 'project' ? 'project' as const : 'episodes' as const, snapshot: r.snapshot, task: r.task, sent: r.sent, installed: r.installed }] : []);
 }
 
 /** The versions running tasks have announced and not returned yet, for the views to show beside the installed ones. */

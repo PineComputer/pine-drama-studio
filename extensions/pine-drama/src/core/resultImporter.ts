@@ -16,10 +16,19 @@ export type ReviewTarget = VersionRef & { readonly reason: string };
 
 /**
  * Whether `path` is the scope's to add to: the Project Chat's `project` adds outside `episodes/`, a session's `episodes`
- * under it, any episode (a session's episodes are given in words, so a session is not bound to one).
+ * under it, any episode (a session's episodes are given in words, so a session is not bound to one), and under
+ * `assets/` for an object new to the drama (`isNew`, doc/protocol.md section 1: an episode may add a new shared variant).
  */
-export function inScope(path: string, scope: string): boolean {
-	return (path === 'episodes' || path.startsWith('episodes/')) === (scope === 'episodes');
+export function inScope(path: string, scope: string, isNew: (object: string) => boolean): boolean {
+	const episode = path === 'episodes' || path.startsWith('episodes/');
+	if (episode === (scope === 'episodes')) { return true; }
+	return scope === 'episodes' && path.startsWith('assets/') && isNew(objectOf(path));
+}
+
+/** The object a returned path is of: a version folder's parent, or the object of the version a review file is in. */
+function objectOf(path: string): string {
+	const parts = path.split('/');
+	return parts.at(-2) === 'reviews' ? parts.slice(0, -3).join('/') : parts.slice(0, -1).join('/');
 }
 
 /** The prefix of an install's temporary siblings (doc/protocol.md, 4.4): `.pine-install-<hash>`. */
@@ -92,11 +101,16 @@ async function installNow(o: {
 	const versions = ret.versions ?? {};
 	const reviews = ret.reviews ?? {};
 	const sent = record.sentTask(ret.turn)!;
-	const done: Installed = { task: ret.turn, scope: request.scope, chat: sent.chat, sent: sent.sent, versions, reviews, private_state: ret.private_state ?? null, snapshot: ret.snapshot ?? null, problems: ret.problems ?? [] };
+	const done: Installed = { task: ret.turn, scope: request.scope, chat: sent.chat, sent: sent.sent, versions, reviews, private_state: ret.private_state ?? null, snapshot: ret.snapshot ?? null, problems: ret.problems ?? [], installed: new Date().toISOString() };
 
 	// Scope and place: every returned path is the task's scope's, and inside the folder.
 	const paths = [...Object.keys(versions), ...Object.keys(reviews)];
-	const outside = paths.filter(p => !validPath(p) || !inScope(p, request.scope) || !within(root, join(root, p)));
+	// An object new to the drama (section 1): no version folder of it is here but this return's own, so installing it again
+	// after a crash is safe, and no snapshot installed before this return lists it.
+	const before = record.returns().filter(r => r.task !== ret.turn);
+	const isNew = (object: string) => !before.some(r => r.snapshot?.objects[object])
+		&& !(existsSync(join(root, object)) ? readdirSync(join(root, object)) : []).some(name => versions[`${object}/${name}`] === undefined && existsSync(join(root, object, name, 'version.json')));
+	const outside = paths.filter(p => !validPath(p) || !inScope(p, request.scope, isNew) || !within(root, join(root, p)));
 	if (outside.length) { throw new InvalidReturn(`${outside.join(', ')} ${outside.length === 1 ? 'is' : 'are'} outside the task's scope, ${request.scope}`); }
 
 	// New folders only: one already here is skipped when it holds the same archive, and refuses the return otherwise.
