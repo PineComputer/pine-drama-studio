@@ -9,13 +9,19 @@ import { CHOICES_FILE, readChoices, readVersions, resolve, VERSION_FILE, type Re
 import { projectIdentity } from './projectPlace';
 import { check, type Add, type Choices, type Edge, type ObjectType, type ProtocolError, type Request, type Snapshot } from './protocol';
 
-/** An installed return's snapshot, with the scope of the task it came from (doc/protocol.md, section 1). */
+/**
+ * An installed return's snapshot, with the scope of the task it came from (doc/protocol.md, section 1), its task id, when
+ * its request was sent and when its return was installed (section 4.4).
+ */
 export interface ScopedSnapshot {
 	readonly scope: 'project' | 'episodes';
 	readonly snapshot: Snapshot;
+	readonly task: string;
+	readonly sent: string;
+	readonly installed: string;
 }
 
-/** The snapshots of the drama's installed returns, oldest sent first (core/taskRun.ts, installedSnapshots). */
+/** The snapshots of the drama's installed returns, oldest installed first (core/taskRun.ts, installedSnapshots). */
 export type SnapshotOf = () => readonly ScopedSnapshot[];
 
 /**
@@ -37,7 +43,7 @@ export type PreviewsOf = () => readonly PreviewVersion[];
  * the Chat that sent it, and each return dealt with, with the problems it named.
  */
 export interface TasksOf {
-	requests(): readonly { readonly sent: string; readonly chat: string; readonly request: Pick<Request, 'turn' | 'scope' | 'choices'> }[];
+	requests(): readonly { readonly sent: string; readonly chat: string; readonly request: Pick<Request, 'turn' | 'scope' | 'choices' | 'versions'> }[];
 	returns(): readonly { readonly task: string; readonly scope: string; readonly sent: string; readonly problems?: readonly { readonly ref: string; readonly error: ProtocolError }[] }[];
 }
 
@@ -85,25 +91,32 @@ export interface Drama {
 }
 
 /**
- * Reads the drama. Each object, and each edge from it, comes from the latest snapshot that lists the object, labelled
- * with that snapshot's `observed_at`. A later snapshot that should list an object and does not removes it;
- * so does the person's `removed`, with every variant derived from it.
+ * Reads the drama. Each object, and each edge from it, comes from the latest installed snapshot that lists the object,
+ * labelled with that snapshot's `observed_at`, whichever session returned it. A later snapshot that should list an object
+ * and does not removes it, but only an object the client knew when that turn's request was sent: a version folder of it
+ * was in the request, or a snapshot installed before then listed it (doc/protocol.md, sections 1 and 5.3). So a shared
+ * object an episode turn made is not removed by a Project Chat turn that never saw it. The person's `removed` removes an
+ * object with every variant derived from it.
  */
 export async function readDrama(root: string, snapshotOf: SnapshotOf, previewsOf: PreviewsOf = () => [], tasks?: TasksOf): Promise<Drama> {
 	const snapshots = snapshotOf();
+	const requested = new Map((tasks?.requests() ?? []).map(r => [r.request.turn, Object.keys(r.request.versions)]));
 	const listed = new Map<string, { object: Snapshot['objects'][string]; at: string; from: Snapshot }>();
-	for (const { scope, snapshot } of snapshots) {
+	for (const { scope, snapshot, task, sent } of snapshots) {
 		const ids = Object.keys(snapshot.objects);
+		const folders = requested.get(task) ?? [];
+		const before = snapshots.filter(s => s.installed < sent);
+		const knew = (id: string) => folders.some(f => f.startsWith(`${id}/`)) || before.some(s => id in s.snapshot.objects);
 		// The Project Chat's snapshot lists the shared objects and every episode: one it no longer lists is removed.
 		if (scope === 'project') {
-			for (const id of [...listed.keys()].filter(id => !(id in snapshot.objects) && (!episodeIn(id) || isEpisode(id)))) {
+			for (const id of [...listed.keys()].filter(id => !(id in snapshot.objects) && (!episodeIn(id) || isEpisode(id)) && knew(id))) {
 				listed.delete(id);
 			}
 		}
 		// An episode session's snapshot that lists an episode lists all of that episode's objects: one it no longer lists
 		// is removed. (The Project Chat's lists every episode object, but not what lies inside them.)
 		for (const episode of scope === 'episodes' ? ids.filter(isEpisode) : []) {
-			for (const id of [...listed.keys()].filter(id => !(id in snapshot.objects) && !isEpisode(id) && episodeIn(id) === episodeIn(episode))) {
+			for (const id of [...listed.keys()].filter(id => !(id in snapshot.objects) && !isEpisode(id) && episodeIn(id) === episodeIn(episode) && knew(id))) {
 				listed.delete(id);
 			}
 		}

@@ -12,7 +12,10 @@ import { readFromSegEditor, SEG_PROTOCOL } from '../core/segEditorProtocol';
 // the rules that, broken, would play a discarded take, the wrong take first, or show one take's request under another.
 const FIXTURE = join(__dirname, '..', '..', 'test-fixtures', 'protocol');
 const snapshot = (name: string) => JSON.parse(readFileSync(join(FIXTURE, name), 'utf8')) as Snapshot;
-const snapshots = (): ScopedSnapshot[] => [{ scope: 'project', snapshot: snapshot('snapshot-project.json') }, { scope: 'episodes', snapshot: snapshot('snapshot-episodes.json') }];
+const snapshots = (): ScopedSnapshot[] => [
+	{ scope: 'project', snapshot: snapshot('snapshot-project.json'), task: 'task-1', sent: '2026-11-12T13:00:00Z', installed: '2026-11-12T13:01:00Z' },
+	{ scope: 'episodes', snapshot: snapshot('snapshot-episodes.json'), task: 'task-2', sent: '2026-11-12T13:02:00Z', installed: '2026-11-12T13:03:00Z' },
+];
 const SEG01 = 'episodes/EP001/segments/seg01';
 
 /** The fixture with seg01's takes v2 and v3 made after its v1, and `choice` as seg01's entry in choices.json. */

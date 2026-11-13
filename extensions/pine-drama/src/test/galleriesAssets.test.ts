@@ -69,7 +69,7 @@ function project(): string {
 
 test('characters, scenes and props share one editor: another kind replaces its content, as the preview editor does', async () => {
 	const root = project();
-	const views = { project: new DramaProject(root, () => [{ scope: 'project', snapshot: SNAPSHOT }]), follow() {}, followActive() {}, inspect: async () => undefined } as unknown as Parameters<typeof registerGalleries>[1];
+	const views = { project: new DramaProject(root, () => [{ scope: 'project', snapshot: SNAPSHOT, task: 'task-1', sent: '2026-11-12T13:00:00Z', installed: '2026-11-12T13:01:00Z' }]), follow() {}, followActive() {}, inspect: async () => undefined } as unknown as Parameters<typeof registerGalleries>[1];
 	const context = { subscriptions: [] as { dispose(): void }[], extensionUri: uri('/ext'), globalStorageUri: uri(join(root, '.storage')) } as unknown as vscode.ExtensionContext;
 	registerGalleries(context, views, { appendLine() {} } as unknown as vscode.OutputChannel);
 	try {
@@ -98,7 +98,7 @@ test('restored tabs this build cannot serve close at once, leaving one grid: the
 	const closed: string[] = [];
 	const before = native.window.tabGroups;
 	native.window.tabGroups = { all: [{ tabs }], close: async (list: { label: string }[]) => { closed.push(...list.map(tab => tab.label)); return true; } } as unknown as typeof before;
-	const views = { project: new DramaProject(root, () => [{ scope: 'project', snapshot: SNAPSHOT }]), follow() {}, followActive() {}, inspect: async () => undefined } as unknown as Parameters<typeof registerGalleries>[1];
+	const views = { project: new DramaProject(root, () => [{ scope: 'project', snapshot: SNAPSHOT, task: 'task-1', sent: '2026-11-12T13:00:00Z', installed: '2026-11-12T13:01:00Z' }]), follow() {}, followActive() {}, inspect: async () => undefined } as unknown as Parameters<typeof registerGalleries>[1];
 	const context = { subscriptions: [] as { dispose(): void }[], extensionUri: uri('/ext'), globalStorageUri: uri(join(root, '.storage')) } as unknown as vscode.ExtensionContext;
 	try {
 		registerGalleries(context, views, { appendLine() {} } as unknown as vscode.OutputChannel);

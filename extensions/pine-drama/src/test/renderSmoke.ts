@@ -557,7 +557,10 @@ async function main(): Promise<number> {
 	// The protocol fixture (test-fixtures/protocol/README.md): the Project Chat's snapshot, then an episode session's.
 	const read = (name: string) => JSON.parse(readFileSync(join(FIXTURES, name), 'utf8')) as Snapshot;
 	const root = join(FIXTURES, 'drama');
-	const drama = await readDrama(root, () => [{ scope: 'project', snapshot: read('snapshot-project.json') }, { scope: 'episodes', snapshot: read('snapshot-episodes.json') }]);
+	const drama = await readDrama(root, () => [
+		{ scope: 'project', snapshot: read('snapshot-project.json'), task: 'task-1', sent: '2026-11-12T13:00:00Z', installed: '2026-11-12T13:01:00Z' },
+		{ scope: 'episodes', snapshot: read('snapshot-episodes.json'), task: 'task-2', sent: '2026-11-12T13:02:00Z', installed: '2026-11-12T13:03:00Z' },
+	]);
 	const source: Source = { name: 'protocol fixture', root, drama };
 	const cases: Case[] = [
 		await canvasCase(source, ASSETS_CANVAS), await boxCase(source), await faceCase(source), await toolsCase(source), await variantBoxCase(source), await longNameCase(source),
