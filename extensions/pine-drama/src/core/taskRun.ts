@@ -307,16 +307,35 @@ function versionFolders(root: string, prefix = ''): string[] {
 }
 
 /**
- * Keeps what the folder holds that no return named whose archive this Studio keeps (4.1, "Archive hashes"): a version
- * folder made outside the client, or installed by another Studio (its turn is in the folder, its archive is not here), is
- * archived once, with system tar, its names sorted and its `reviews/` left out, and a review file is kept by its hash.
- * Each is recorded, and from then on it is held like an installed one.
+ * The archive a request names for each version folder and review file still in the project (4.2, `versions` and
+ * `reviews`): its return's, or the one this Studio archived from it later (adoptLoose), which takes its place.
+ */
+function heldArchives(root: string, record: DramaRecord): { versions: Record<string, string>; reviews: Record<string, string> } {
+	const versions: Record<string, string> = {};
+	const reviews: Record<string, string> = {};
+	for (const done of record.returns()) {
+		for (const [folder, hash] of Object.entries(done.versions)) { if (existsSync(join(root, folder))) { versions[folder] = hash; } }
+		for (const [path, hash] of Object.entries(done.reviews)) { if (existsSync(join(root, path))) { reviews[path] = hash; } }
+	}
+	for (const { path, hash, kind } of record.adopted()) {
+		if (existsSync(join(root, path))) { (kind === 'version' ? versions : reviews)[path] = hash; }
+	}
+	return { versions, reviews };
+}
+
+/**
+ * Archives from the folder every version folder and review file a request would name with an archive this Studio does not
+ * keep (4.1, "Archive hashes"), so that a request names only archives it can send: one made outside the client, one
+ * installed by another Studio (its turn is in the folder, its archive is not here), a returned folder without a
+ * version.json (2.1), or one whose kept archive is gone. A folder is archived with system tar, its names sorted and its
+ * `reviews/` left out, and a review file is kept by its hash. Each is recorded, and from then on it is held like an
+ * installed one.
  */
 async function adoptLoose(root: string, record: DramaRecord, kept: string): Promise<void> {
-	const here = (folders: Folders, key: (hash: string) => string) => Object.entries(folders).filter(([, hash]) => existsSync(join(kept, key(hash)))).map(([path]) => path);
-	const named = new Set([...record.returns().flatMap(r => [...here(r.versions, versionKey), ...here(r.reviews, fileKey)]), ...record.adopted().map(a => a.path)]);
-	for (const folder of existsSync(root) ? versionFolders(root) : []) {
-		if (!named.has(folder)) {
+	const held = heldArchives(root, record);
+	const isKept = (hash: string | undefined, key: (hash: string) => string) => !!hash && existsSync(join(kept, key(hash)));
+	for (const folder of new Set([...Object.keys(held.versions), ...existsSync(root) ? versionFolders(root) : []])) {
+		if (!isKept(held.versions[folder], versionKey)) {
 			const temp = join(kept, `.pine-adopt-${sha256(folder)}.tar`);
 			await mkdir(dirname(temp), { recursive: true });
 			execFileSync('tar', ['-cf', temp, '-C', join(root, folder), ...archivedFiles(join(root, folder))]);
@@ -329,7 +348,7 @@ async function adoptLoose(root: string, record: DramaRecord, kept: string): Prom
 		const reviews = join(root, folder, 'reviews');
 		for (const name of existsSync(reviews) ? readdirSync(reviews).filter(n => n.endsWith('.json')) : []) {
 			const path = `${folder}/reviews/${name}`;
-			if (named.has(path)) { continue; }
+			if (isKept(held.reviews[path], fileKey)) { continue; }
 			const bytes = readFileSync(join(root, path));
 			await mkdir(dirname(join(kept, fileKey(sha256(bytes)))), { recursive: true });
 			await writeWhole(join(kept, fileKey(sha256(bytes))), bytes);
@@ -341,15 +360,7 @@ async function adoptLoose(root: string, record: DramaRecord, kept: string): Prom
 /** Builds the request: every version folder and review file still in the folder, the client files, the session's private state. */
 export async function requestOf(root: string, record: DramaRecord, kept: string, task: string, scope: Request['scope'], chat: string, choices: Choices | null, notes: readonly Note[]): Promise<Request> {
 	await adoptLoose(root, record, kept);
-	const versions: Record<string, string> = {};
-	const reviews: Record<string, string> = {};
-	for (const done of record.returns()) {
-		for (const [folder, hash] of Object.entries(done.versions)) { if (existsSync(join(root, folder))) { versions[folder] = hash; } }
-		for (const [path, hash] of Object.entries(done.reviews)) { if (existsSync(join(root, path))) { reviews[path] = hash; } }
-	}
-	for (const { path, hash, kind } of record.adopted()) {
-		if (existsSync(join(root, path))) { (kind === 'version' ? versions : reviews)[path] = hash; }
-	}
+	const { versions, reviews } = heldArchives(root, record);
 	return { schema: 1, turn: task, scope, choices, versions, reviews, files: clientFiles(root), private_state: record.latest(chat)?.private_state ?? null, notes };
 }
 

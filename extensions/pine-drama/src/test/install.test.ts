@@ -378,3 +378,26 @@ test('turns a profile dealt with before they travelled with the folder are writt
 	assert.deepEqual(installedSnapshots(d.root).map(s => [s.task, s.snapshot]), [['task-0001', snapshot]]);
 	assert.equal(await publishKeptTurns(profile, d.root), 0, 'once');
 });
+
+// A returned folder need not be a version (2.1: "A returned folder without version.json … is stored and restored like
+// one"): a Studio that keeps no copy of its archive, as a fresh profile on a copied project, archives it from the folder.
+test('a copied project in a fresh profile sends every returned folder, a version or not, from archives it keeps', async () => {
+	const d = await drama();
+	const record = archive(d.store, { 'job.json': '{}', 'understanding.json': '{}' });
+	const lin = archive(d.store, { 'version.json': version(), 'image-1.png': 'lin' });
+	await d.install(await d.send('task-0001', '2026-11-12T10:00:00Z'), { versions: { 'understanding/cast-0001': record, 'assets/characters/lin/v1': lin } });
+	const copy = join(temp('copy'), 'drama');
+	cpSync(d.root, copy, { recursive: true });
+	const profile = temp('fresh-profile');
+	const send = () => requestOf(copy, dramaRecordOf(profile, copy), join(profile, 'kept'), 'task-0002', 'project', 'chat-2', null, []);
+	const first = await send();
+	assert.deepEqual(Object.keys(first.versions).sort(), ['assets/characters/lin/v1', 'understanding/cast-0001']);
+	assert.ok(requestKeys(first).every(key => existsSync(join(profile, 'kept', key))), 'every archive it names can be sent from here');
+	// A kept archive that is gone is archived again from the folder, not named stale: the one archived here, while the
+	// returned one is kept here too (Codex), and then every one.
+	cpSync(join(d.storage, 'kept', versionKey(record)), join(profile, 'kept', versionKey(record)));
+	rmSync(join(profile, 'kept', versionKey(first.versions['understanding/cast-0001'])));
+	assert.ok(requestKeys(await send()).every(key => existsSync(join(profile, 'kept', key))));
+	rmSync(join(profile, 'kept'), { recursive: true });
+	assert.ok(requestKeys(await send()).every(key => existsSync(join(profile, 'kept', key))));
+});
