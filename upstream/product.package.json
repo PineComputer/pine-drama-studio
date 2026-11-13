@@ -25,6 +25,7 @@
 	"win32arm64AppId": "{{097C0EF8-54F7-4291-85D1-9FDDFC6D7A37}",
 	"win32x64UserAppId": "{{1207E458-6410-473F-8195-7D91E2964A04}",
 	"win32arm64UserAppId": "{{C05F2918-692A-4C89-AD4F-0C290CDD7E6D}",
+	"win32ContextMenu": { "x64": { "clsid": "{A96C8A92-C797-4B9C-8A84-B8B91A7B17BC}" }, "arm64": { "clsid": "{032346F6-4DE1-4DF6-918D-71ABACFD88ED}" } },
 	"quality": "stable",
 	"updateUrl": "https://raw.githubusercontent.com/PineComputer/pine-drama-studio/main/updates",
 	"pineReleasesUrl": "https://github.com/PineComputer/pine-drama-studio/releases"
