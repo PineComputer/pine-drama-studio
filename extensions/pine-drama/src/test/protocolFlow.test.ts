@@ -86,6 +86,18 @@ test('a scope\'s next task waits until the last return is installed, and then st
 	} finally { f.store.close(); }
 });
 
+// B5: a large return installed for minutes after the agent's reply, and the Chat said nothing meanwhile.
+test('while a return is collected and installed, the Chat says so, before the turn\'s last words', async () => {
+	const f = fixture();
+	try {
+		f.pine.plans = [{ state: 'completed', text: 'drawn', files: { 'drama/assets/props/cup/v1/image-1.png': 'cup', 'drama/assets/props/cup/v1/version.json': JSON.stringify({ schema: 1, made_at: '2026-11-12T10:00:00Z', file: 'image-1.png', inputs: [], prompt: null, from_choice: null }) } }];
+		const updates = await f.send('draw the cup');
+		const installing = updates.findIndex(u => u.kind === 'progress' && /^Collecting the turn's result into your project/.test(u.text));
+		assert.ok(installing >= 0, JSON.stringify(updates.map(u => [u.kind, u.text])));
+		assert.ok(installing < updates.findIndex(u => u.kind === 'markdown' && /drawn/.test(u.text)), 'it comes before the last words');
+	} finally { f.store.close(); }
+});
+
 test('Review Submit writes the chosen versions with the person\'s words into choices.json', async () => {
 	const f = fixture();
 	try {

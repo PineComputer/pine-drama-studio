@@ -2009,6 +2009,10 @@ export class ChatService {
 			return;
 		}
 		this.write(key, epoch, () => this.store.startTurnFollowUp(key, turn.turnId, turn.state, turn.asked));
+		// A large return takes minutes to install after the agent's reply (B5): the Chat says so until the install ends,
+		// as a progress part (ChatResponseStream.progress), which the turn's last words then follow. The words hold whatever
+		// the return turns out to be: none, refused or invalid is collected and said too, and only a valid one installs.
+		yield { kind: 'progress', text: 'Collecting the turn\'s result into your project…' };
 		const shown: Update[] = [];
 		const tell = (line: string, unused = false) => {
 			this.store.addMessage({ chat_key: key, turn_id: turn.turnId, saved_send_id: null, kind: unused ? 'unused' : 'notice', text: line, cost: null, currency: null });
