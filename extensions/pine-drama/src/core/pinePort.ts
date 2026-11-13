@@ -187,8 +187,6 @@ export interface PinePort {
 	sessionTask(env: PineConnection, session: PineSession): Promise<string | undefined>;
 	/** Idempotent by `key`: a repeat returns the turn it admitted (SDK session.ts, AgentMode.run). */
 	run(env: PineConnection, session: PineSession, text: string, key: string): Promise<TurnView>;
-	/** Bound to the question that ended `turnId`. */
-	answer(env: PineConnection, session: PineSession, turnId: string, text: string): Promise<TurnView>;
 	/** The turn once it ends, or after `timeoutMs` while it runs; 0 reads it once. */
 	turn(env: PineConnection, session: PineSession, turnId: string, timeoutMs: number, signal?: AbortSignal): Promise<TurnView>;
 	events(env: PineConnection, session: PineSession, after: number | undefined, taskId: string | undefined, signal: AbortSignal): AsyncIterable<PineEvent>;

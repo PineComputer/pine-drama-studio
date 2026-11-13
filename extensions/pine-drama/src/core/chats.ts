@@ -1324,7 +1324,7 @@ export class ChatService {
 		| { kind: 'question'; review: { id: string } }
 		| { kind: 'incomplete'; text: string; reviewId: string }
 		| { kind: 'decision'; review: { id: string }; answer: string; sent: string } {
-		const row = kind === 'answer' && target ? this.store.reviewOfTurn(key, target) : kind === 'run' ? this.store.openReview(key) : undefined;
+		const row = target ? this.store.reviewOfTurn(key, target) : this.store.openReview(key);
 		if (!row || row.state !== 'open') {
 			return { kind: 'none' };
 		}
@@ -1334,7 +1334,7 @@ export class ChatService {
 		}
 		const view = asked;
 		if (view.items.length === 0) {
-			return kind === 'answer' ? { kind: 'question', review: row } : { kind: 'none' };
+			return target ? { kind: 'question', review: row } : { kind: 'none' };
 		}
 		if (row.answer) {
 			// The review is submitted and recorded locally; only its continuation is not sent yet. The person's next
@@ -1482,7 +1482,6 @@ export class ChatService {
 	private dispatch(env: PineConnection, session: PineSession, op: Pick<SavedSend, 'kind' | 'id' | 'text' | 'target_turn_id'>): Promise<TurnView> {
 		switch (op.kind) {
 			case 'run': return this.port.run(env, session, op.text, op.id);
-			case 'answer': return this.port.answer(env, session, op.target_turn_id!, op.text);
 		}
 	}
 
@@ -1508,28 +1507,6 @@ export class ChatService {
 	 */
 	private async *checkUnconfirmedSendsWithPine(key: string, env: PineConnection, epoch: number, session: PineSession): AsyncGenerator<Update, boolean> {
 		for (const op of this.store.unconfirmedSavedSends(key)) {
-			if (op.kind === 'answer') {
-				let target: TurnView;
-				try {
-					target = await this.held(key, epoch, () => this.port.turn(env, session, op.target_turn_id!, 0));
-				} catch (error) {
-					if (error instanceof MissingError) {
-						this.write(key, epoch, () => this.store.updateSavedSend(op.id, { state: 'failed', error: 'its question is gone' }));
-						continue;
-					}
-					throw error;
-				}
-				if (target.state === 'answered' && target.nextTurnId) {
-					// The answer arrived; its response did not. Follow the turn it opened to its end.
-					this.sent(key, epoch, op, await this.held(key, epoch, () => this.port.turn(env, session, target.nextTurnId, 0)));
-					yield* this.streamPineTurnEvents(key, env, epoch, session);
-					continue;
-				}
-				if (target.state !== 'needs_input') {
-					this.write(key, epoch, () => this.store.updateSavedSend(op.id, { state: 'failed', error: `its question is ${target.state}` }));
-					continue;
-				}
-			}
 			yield { kind: 'progress', text: `Resending the ${op.kind} Pine did not confirm…` };
 			const result = yield* this.send(key, env, epoch, session, op);
 			if (result.kind === 'unknown') {
@@ -2326,8 +2303,10 @@ export class ChatService {
 type Ending = { said: boolean; op?: string; changed?: boolean };
 
 function intent(conv: Chat): { kind: SavedSendKind; target: string | null } | { kind: 'busy'; target: string } {
+	// The answer to a stop is a new task (doc/protocol.md, 4.3: "the person's answer is a new task"): a run, never Pine's
+	// answer to the waiting turn. It keeps that turn as its target, so a question that changed meanwhile is still noted.
 	if (conv.state === 'needs_input' && conv.question_turn_id) {
-		return { kind: 'answer', target: conv.question_turn_id };
+		return { kind: 'run', target: conv.question_turn_id };
 	}
 	if (conv.state === 'running' && conv.current_turn_id) {
 		return { kind: 'busy', target: conv.current_turn_id };

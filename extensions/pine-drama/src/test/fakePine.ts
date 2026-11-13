@@ -280,7 +280,7 @@ export class FakePine implements PinePort {
 		return this.sessionOf(s).taskId;
 	}
 
-	private open(session: FakeSession, text: string, kind: 'run' | 'answer' = 'run'): FakeTurn {
+	private open(session: FakeSession, text: string): FakeTurn {
 		const plan = this.plans.shift() ?? { state: 'completed' };
 		const turn: FakeTurn = {
 			id: `turn-${++this.seq}`, state: plan.state, next: '', cost: 0.01,
@@ -294,7 +294,7 @@ export class FakePine implements PinePort {
 		session.turns.set(turn.id, turn);
 		this.returnTask(session, text, turn.returned, plan.noReturn, plan.review, plan.refused, plan.failed);
 		const id = () => session.events.length + 1;
-		session.inputs.push({ kind, text, turnId: turn.id, eventId: session.events.length });
+		session.inputs.push({ kind: 'run', text, turnId: turn.id, eventId: session.events.length });
 		const base = { taskId: session.taskId, turnId: turn.id, text: '' };
 		session.events.push({ ...base, eventId: id(), kind: 'progress', text: `working on ${text}` });
 		for (const step of plan.steps ?? []) {
@@ -321,18 +321,6 @@ export class FakePine implements PinePort {
 		return this.respond('run', view(session.turns.get(turnId)!));
 	}
 
-	async answer(_env: PineConnection, s: PineSession, turnId: string, text: string) {
-		await this.count('answer');
-		const session = this.sessionOf(s);
-		const asked = session.turns.get(turnId)!;
-		if (asked.state !== 'needs_input') {
-			throw new Error(`turn ${turnId} is ${asked.state}`);
-		}
-		const next = this.open(session, text, 'answer');
-		asked.state = 'answered';
-		asked.next = next.id;
-		return this.respond('answer', view(next));
-	}
 
 	async turn(_env: PineConnection, s: PineSession, turnId: string) {
 		if (this.offline) {

@@ -184,9 +184,9 @@ test('a message whose question changed, sent to a session that then ended, goes 
 	try {
 		f.pine.plans.push({ state: 'needs_input', text: 'Which episode?' }, { state: 'needs_input', text: 'Which scene?' });
 		await drain(f.service.submit('main', 'draw the storyboard', 'Project Chat', f.root));
-		const release = f.pine.hold('answer');
+		const release = f.pine.hold('run');
 		const first = drain(f.service.submit('main', 'EP001', 'Project Chat', f.root));
-		for (let i = 0; !f.pine.calls.answer && i < 500; i++) { await new Promise(r => setTimeout(r, 10)); }
+		for (let i = 0; (f.pine.calls.run ?? 0) < 2 && i < 500; i++) { await new Promise(r => setTimeout(r, 10)); }
 		// Written for "Which episode?", which EP001 is answering: it waits behind it in the window's queue.
 		const second = drain(f.service.submit('main', 'EP002 instead', 'Project Chat', f.root));
 		await new Promise(resolve => setImmediate(resolve));

@@ -11,7 +11,7 @@ import { assertProjectRoot, projectIdentity } from './projectPlace';
 export type ComputerState = 'none' | 'creating' | 'running' | 'stopped' | 'missing_credentials';
 export type PineSessionState = 'none' | 'open' | 'ended';
 export type ChatState = 'idle' | 'running' | 'needs_input' | 'failed';
-export type SavedSendKind = 'run' | 'answer';
+export type SavedSendKind = 'run';
 export type SavedSendState = 'pending' | 'sent' | 'unknown' | 'failed';
 /** `unused`: a result that is not used, with its reason (resultImporter.ts, notUsedLine), shown as a native warning. */
 export type MessageKind = 'prompt' | 'instructions' | 'decision' | 'progress' | 'activity' | 'result' | 'question' | 'usage' | 'failed' | 'notice' | 'unused';
@@ -495,7 +495,7 @@ export class Store {
 
 	/** The runs and answers whose turn is `turnId`: each is a task of its own (local-first, 6.1). */
 	savedSendsOfTurn(key: string, turnId: string): SavedSend[] {
-		return this.db.prepare("select * from saved_sends where chat_key = ? and turn_id = ? and kind in ('run', 'answer') order by created_at").all(key, turnId) as unknown as SavedSend[];
+		return this.db.prepare("select * from saved_sends where chat_key = ? and turn_id = ? and kind = 'run' order by created_at").all(key, turnId) as unknown as SavedSend[];
 	}
 
 	savedSend(id: string): SavedSend | undefined {

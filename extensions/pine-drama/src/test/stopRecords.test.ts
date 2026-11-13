@@ -59,7 +59,7 @@ test('an answer never carries them', async () => {
 	pine.plans = [{ state: 'needs_input', text: 'Which episode?' }];
 	await send(service, 'draw');
 	await send(service, 'EP003');
-	assert.equal(sentText(store)[1].kind, 'answer');
+	assert.equal(sentText(store)[1].kind, 'run');
 	assert.equal(sentText(store)[1].text, 'EP003');
 });
 

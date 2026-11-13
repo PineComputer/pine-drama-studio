@@ -166,9 +166,6 @@ export class SdkPort implements PinePort {
 		return this.mapped(async () => turnView(await (await this.session(env, s)).agent.run(text, { idempotencyKey: key })), 'run');
 	}
 
-	async answer(env: PineConnection, s: PineSession, turnId: string, text: string) {
-		return this.mapped(async () => turnView(await (await this.session(env, s)).agent.answer(turnId, text)), 'send');
-	}
 
 	async turn(env: PineConnection, s: PineSession, turnId: string, timeoutMs: number, signal?: AbortSignal) {
 		return this.mapped(async () => turnView(await (await this.session(env, s)).agent.wait(turnId, { timeoutMs, ...(signal ? { signal } : {}) })), 'none');

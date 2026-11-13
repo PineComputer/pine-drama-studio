@@ -211,7 +211,7 @@ test('a pass of a replaced Pine session writes nothing: its generation is refuse
 	assert.match(markdown(await send(a.service, 'from a again')), /done: from a again/);
 });
 
-test('a message sent while a turn runs waits for it, then goes as the answer when it ended on a question, or as a new run (D25: nothing is cancelled)', async () => {
+test('a message sent while a turn runs waits for it, then goes as a new run, an answer to the question it ended on included (D25: nothing is cancelled)', async () => {
 	const { window, pine } = setup();
 	const { store, service } = window();
 	pine.plans = [{ state: 'needs_input', text: 'Which episode?' }];
@@ -221,8 +221,8 @@ test('a message sent while a turn runs waits for it, then goes as the answer whe
 	const waited = markdown(await send(service, 'EP003'));
 	assert.match(waited, /Pine Computer is still running this turn; your message will be sent when it finishes\./);
 	const ops = store.db.prepare('select kind, text from saved_sends order by created_at').all() as { kind: string; text: string }[];
-	assert.deepEqual(ops.map(o => o.kind), ['run', 'answer'], 'sent as the answer to the question the turn ended on');
-	assert.equal(pine.calls.run, 1);
+	assert.deepEqual(ops.map(o => o.kind), ['run', 'run'], 'the answer to the question the turn ended on is a new run (doc/protocol.md, 4.3)');
+	assert.equal(pine.calls.run, 2);
 	store.tx(() => store.updateChat(KEY, { state: 'running' }));
 	await send(service, 'again');
 	assert.equal((store.db.prepare('select kind from saved_sends order by created_at desc limit 1').get() as { kind: string }).kind, 'run', 'a finished turn: a new run');
@@ -281,27 +281,6 @@ test('a message that finds its session already ended is sent in a new session, w
 	assert.match(markdown(sent), /done: second/);
 	// The first try found the session gone at Pine (MissingError: not delivered); only the new session's send went.
 	assert.equal(store.db.prepare("select count(*) n from saved_sends where text like 'second%' and state = 'sent'").get()!.n, 1, 'delivered once');
-});
-
-test('answer: the next message answers the question; a lost answer is not sent twice', async () => {
-	const { window, pine } = setup();
-	const { store, service } = window();
-	pine.plans = [{ state: 'needs_input', text: 'Which episode?' }];
-	const asked = await send(service, 'draw the storyboard');
-	assert.match(markdown(asked), /The agent asks:\*\* Which episode\?/);
-	assert.equal(store.chat(KEY)!.state, 'needs_input');
-	pine.lose('answer');
-	await send(service, 'EP003');
-	assert.equal(store.unconfirmedSavedSends(KEY)[0].kind, 'answer');
-	// Recovery finds the answer arrived and follows the turn it opened to its end. 'thanks' was sent while the question
-	// looked open; the Chat moved on, so it goes as a new run, with the note, never as a second answer (audit item 12).
-	const after = await send(service, 'thanks');
-	assert.equal(pine.calls.answer, 1);
-	assert.equal(store.db.prepare("select state from saved_sends where kind = 'answer'").get()!.state, 'sent');
-	assert.match(markdown(after), /done: EP003[^]*What your message was written for changed while it waited[^]*done: thanks/);
-	assert.equal(store.db.prepare("select kind, text from saved_sends where text like 'thanks%'").get()!.kind, 'run');
-	assert.equal(store.db.prepare("select text from saved_sends where text like 'thanks%'").get()!.text, `thanks\n\n${CHANGED_TARGET_NOTE}`);
-	assert.equal(store.chat(KEY)!.state, 'idle');
 });
 
 test('Computer stopped: the next message starts the agent again on it and is sent there; the history is kept', async () => {
@@ -456,32 +435,16 @@ test('review P2: a session lost while the Studio stays open: the next message st
 	assert.match(markdown(await send(service, 'third')), /done: third/);
 });
 
-test('re-review P2: a message sent while a lost answer was pending goes to the new question with the note, never silently as its answer', async () => {
-	const { window, pine } = setup();
-	const { store, service } = window();
-	pine.plans = [{ state: 'needs_input', text: 'Which episode?' }, { state: 'needs_input', text: 'Which scene?' }];
-	await send(service, 'draw the storyboard');
-	pine.lose('answer');
-	await send(service, 'EP001');
-	const updates = await send(service, 'Did my answer arrive?');
-	assert.match(markdown(updates), /The agent asks:\*\* Which scene\?[^]*What your message was written for changed while it waited[^]*done: Did my answer arrive\?/);
-	assert.equal(pine.calls.answer, 2);
-	assert.equal(store.db.prepare("select text from saved_sends where text like 'Did my answer arrive?%'").get()!.text, `Did my answer arrive?\n\n${CHANGED_TARGET_NOTE}`);
-	// The person's words are recorded as typed; the note is the Studio's, in a message of its own.
-	assert.deepEqual(store.messages(KEY).filter(m => m.kind === 'prompt').map(m => m.text).at(-1), 'Did my answer arrive?');
-	assert.ok(store.messages(KEY).some(m => m.kind === 'instructions' && m.text === CHANGED_TARGET_NOTE));
-});
-
 test('a queued answer whose question was answered meanwhile goes to the next question with the note: sent, not given back', async () => {
 	const { window, pine } = setup();
 	const { store, service } = window();
 	pine.plans = [{ state: 'needs_input', text: 'Which episode?' }, { state: 'needs_input', text: 'Which scene?' }];
 	await send(service, 'draw the storyboard');
 	const originalQuestion = store.chat(KEY)!.question_turn_id;
-	const release = pine.hold('answer');
+	const release = pine.hold('run');
 	const first = send(service, 'EP001');
-	for (let i = 0; !pine.calls.answer && i < 500; i++) { await new Promise(r => setTimeout(r, 10)); }
-	assert.equal(pine.calls.answer, 1);
+	for (let i = 0; (pine.calls.run ?? 0) < 2 && i < 500; i++) { await new Promise(r => setTimeout(r, 10)); }
+	assert.equal(pine.calls.run, 2);
 	const queued = send(service, 'EP002 instead');
 	await new Promise(resolve => setImmediate(resolve));
 	release();
@@ -489,9 +452,9 @@ test('a queued answer whose question was answered meanwhile goes to the next que
 	const response = markdown(await queued);
 	assert.match(response, /What your message was written for changed while it waited[^]*done: EP002 instead/);
 	assert.doesNotMatch(response, /not sent/);
-	assert.equal(pine.calls.answer, 2, 'it answers the scene question, as written, with the note');
+	assert.equal(pine.calls.run, 3, 'it answers the scene question, as written, with the note');
 	const sent = store.db.prepare("select kind, target_turn_id, text from saved_sends where text like 'EP002 instead%'").get()!;
-	assert.equal(sent.kind, 'answer');
+	assert.equal(sent.kind, 'run');
 	assert.notEqual(sent.target_turn_id, originalQuestion);
 	assert.equal(sent.text, `EP002 instead\n\n${CHANGED_TARGET_NOTE}`);
 });
@@ -540,7 +503,7 @@ test('second re-review P2: the meaning of a message is bound before the first wa
 	const updates = await pending;
 	assert.match(markdown(updates), /What your message was written for changed while it waited/);
 	const sent = store.db.prepare("select kind, target_turn_id, text from saved_sends where text like 'faster please%'").get()!;
-	assert.deepEqual([sent.kind, sent.target_turn_id, sent.text], ['answer', asked, `faster please\n\n${CHANGED_TARGET_NOTE}`]);
+	assert.deepEqual([sent.kind, sent.target_turn_id, sent.text], ['run', asked, `faster please\n\n${CHANGED_TARGET_NOTE}`]);
 });
 
 test("a window belongs to the session bound to its folder, or to an older session whose stored folder is open", () => {
@@ -674,7 +637,7 @@ async function reloadedWhileRunning() {
 	}
 	const turnId = a.store.chat(KEY)!.current_turn_id!;
 	a.store.close();
-	const sent = { run: pine.calls.run, answer: pine.calls.answer ?? 0, steer: pine.calls.steer ?? 0 };
+	const sent = { run: pine.calls.run, steer: pine.calls.steer ?? 0 };
 	const b = make();
 	assert.equal(b.store.chat(KEY)!.state, 'running');
 	return { pine, b, turnId, make, sent };
@@ -688,7 +651,7 @@ test('reload while a turn runs: the restored window follows the turn at once; no
 	assert.doesNotMatch(updates.filter(u => u.kind === 'progress').map(u => u.text).join('\n'), /Waiting up to/);
 	assert.match(markdown(updates), /The agent asks:\*\* Which shot\?/);
 	assert.doesNotMatch(markdown(updates), /Not sent|another Studio window/);
-	assert.deepEqual({ run: pine.calls.run, answer: pine.calls.answer ?? 0, steer: pine.calls.steer ?? 0 }, sent);
+	assert.deepEqual({ run: pine.calls.run, steer: pine.calls.steer ?? 0 }, sent);
 	assert.equal(b.store.db.prepare("select count(*) n from saved_sends where text = 'the red one'").get()!.n, 1);
 	assert.deepEqual([b.store.chat(KEY)!.state, b.store.chat(KEY)!.question_turn_id], ['needs_input', turnId]);
 });
@@ -698,7 +661,7 @@ test('reload while a turn runs, and the turn ends while no window is open: the r
 	pine.finish(turnId, { state: 'completed', text: 'all four shots drawn' });
 	const updates = await drain(b.service.attachChatToPineTurn(KEY));
 	assert.match(markdown(updates), /all four shots drawn/);
-	assert.deepEqual({ run: pine.calls.run, answer: pine.calls.answer ?? 0, steer: pine.calls.steer ?? 0 }, sent);
+	assert.deepEqual({ run: pine.calls.run, steer: pine.calls.steer ?? 0 }, sent);
 	assert.equal(b.store.chat(KEY)!.state, 'idle');
 	assert.equal(b.store.messages(KEY).filter(m => m.kind === 'result' && m.turn_id === turnId).length, 1);
 });
