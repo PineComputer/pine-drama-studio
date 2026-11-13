@@ -6,6 +6,10 @@ storyboards, takes and the cut. You review and choose in the Studio; the drama's
 
 [![Pine Drama Studio launch film: click to watch (4K, 51 s)](https://cdn.19pine.ai/pine-drama-studio/pine-drama-studio-launch-cover.jpg)](https://cdn.19pine.ai/pine-drama-studio/pine-drama-studio-launch-4k.mp4)
 
+![Every episode on its own canvas: storyboards, keyframes, takes.](https://cdn.19pine.ai/pine-drama-studio/readme-episode.jpg)
+
+![Characters, locations and props, drawn once and reused in every shot.](https://cdn.19pine.ai/pine-drama-studio/readme-assets.jpg)
+
 [![Discord](https://img.shields.io/badge/Discord-community-5865F2?logo=discord&logoColor=white)](https://discord.gg/jBRrXmQHT)
 
 **Community:** questions, ideas and help on [Discord](https://discord.gg/jBRrXmQHT).
