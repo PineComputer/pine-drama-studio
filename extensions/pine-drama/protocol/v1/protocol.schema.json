@@ -631,6 +631,22 @@
         "reviews": {
           "$ref": "#/$defs/reviewFiles"
         },
+        "inputs": {
+          "type": "object",
+          "propertyNames": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/path"
+              },
+              {
+                "pattern": "^inputs/"
+              }
+            ]
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/hash"
+          }
+        },
         "private_state": {
           "$ref": "#/$defs/hash"
         },
@@ -723,6 +739,11 @@
                 {
                   "required": [
                     "reviews"
+                  ]
+                },
+                {
+                  "required": [
+                    "inputs"
                   ]
                 },
                 {

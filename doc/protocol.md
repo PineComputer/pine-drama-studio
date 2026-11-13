@@ -15,7 +15,7 @@ A drama's folder holds these files, and each has exactly one writer:
 | **Version folders** (2.1): one folder per version of anything made | Computer side | Never. A version is only added. |
 | **Review files** (2.2): acceptances of versions | Computer side | Never. A review is only added. |
 | **`choices.json`** (section 3): the decisions the person makes through a client. It is optional. | client | It is rewritten whole, by its one writer. |
-| **Client files** (3.3): the person's own pictures and inputs, under `imports/` and `inputs/` | client | An import never changes. An input is replaced whole, by its one writer. |
+| **Client files** (3.3): the person's own pictures and inputs, under `imports/` and `inputs/` | client | An import never changes. An input is replaced whole, by its one writer. A turn may only propose an input the drama lacks (4.3). |
 
 A turn (section 4) sends the person's message and choices to a Computer. It brings back new version folders, new review files, the session's private state and a status snapshot. Nothing is merged and nothing is locked.
 
@@ -158,7 +158,7 @@ The client derives each object's state by these rules. The Computer side applies
 
 The person's own files live under two folders, and only the client writes them:
 - **`imports/`.** The client copies the person's picture, unchanged, to `imports/<client id>.<extension>`, then adds the import to the choices file. Pictures attached to notes (4.2) live here too. An import never changes.
-- **`inputs/`.** The person's screenplay and brief. Each is replaced whole (written to a temporary file, then renamed).
+- **`inputs/`.** The person's screenplay and brief. Each is replaced whole (written to a temporary file, then renamed). When the drama has none, a turn may propose one, for example a short screenplay written from the person's message (4.3). The client writes it only where it holds no file (4.4); from then on it is the person's input like any other.
 
 
 ## 4. The turn
@@ -241,6 +241,7 @@ A choice about an object outside the turn's scope is never an error. That object
 | `state` | One of:<br>`stopped`: the agent waits for the person.<br>`ended`: the work is done.<br>`failed`: the work broke off. The return carries what did finish, so no paid work is lost, and `error` says why.<br>`refused`: nothing was done; see `error`. |
 | `versions` | The new version folders: `{<folder>: <hash of its archive>}`. |
 | `reviews` | The new review files: `{<path>: <hash>}`. |
+| `inputs` | Inputs the turn proposes because the drama held none at their paths: `{<path under inputs/>: <hash>}`, each stored at `files/<hash>`. |
 | `private_state` | The hash of the session's new private state. The client does not read it; it stores it and sends it back with the session's next turn. |
 | `snapshot` | The status of the objects the turn covers (section 5). |
 | `problems` | Choices the Computer side could not apply, each `{ref, error}`. `ref` is an object id, or the client id of an add or import. |
@@ -249,9 +250,9 @@ A choice about an object outside the turn's scope is never an error. That object
 | `error` | When `failed` or `refused`: why (section 6). |
 
 **Which fields each state carries:**
-- **`stopped`:** `versions`, `reviews`, `private_state`, `snapshot`, `problems`, `question`, `review`.
-- **`ended`:** `versions`, `reviews`, `private_state`, `snapshot`, `problems`.
-- **`failed`:** `versions`, `reviews`, `private_state`, `snapshot`, `problems`, `error`.
+- **`stopped`:** `versions`, `reviews`, `inputs`, `private_state`, `snapshot`, `problems`, `question`, `review`.
+- **`ended`:** `versions`, `reviews`, `inputs`, `private_state`, `snapshot`, `problems`.
+- **`failed`:** `versions`, `reviews`, `inputs`, `private_state`, `snapshot`, `problems`, `error`.
 - **`refused`:** `error` only.
 
 **What a return carries.** A return carries what the turn's work made, and what the imports and adds of its scope made. It does not carry what the Computer side made only to apply other choices, such as drama-cli's records of the person's selections or prompt edits. Those are made again from `choices.json` at every turn. Returning them would add versions to another scope's objects.
@@ -269,6 +270,7 @@ The client installs one return at a time, finishing one before it starts the nex
      For a folder that already exists, the message says that another session made that version meanwhile, and that the work can be run again.
    - **A refused return is resolved**, like an installed one: the session may send its next turn.
 2. **Then rename into place:** version folders first, then review files.
+3. **Then the proposed inputs.** Each was fetched and checked in the first pass like any file. The client writes one only where it holds no file, by a temporary file and a rename (3.3). Where it holds one, the proposal is skipped: the person's input always wins, and a skipped proposal is never an error.
 
 The client then stores `private_state` for the session and keeps `snapshot`, and shows `problems`, `question` and `review`. Returns are ordered by when they were installed. A newer turn's `private_state` or `snapshot` is never replaced by an older one's: when the client installs a return again after a crash, it keeps whatever a later turn left.
 
