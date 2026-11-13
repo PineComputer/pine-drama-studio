@@ -20,7 +20,7 @@ index 49d9da25061..df5e0a0d4ba 100644
  import { Registry } from '../../../../platform/registry/common/platform.js';
 diff --git a/src/vs/workbench/contrib/pine/browser/pineWorkingMark.ts b/src/vs/workbench/contrib/pine/browser/pineWorkingMark.ts
 new file mode 100644
-index 00000000000..d3acee9051d
+index 00000000000..69ef4205c7b
 --- /dev/null
 +++ b/src/vs/workbench/contrib/pine/browser/pineWorkingMark.ts
 @@ -0,0 +1,185 @@

@@ -11,7 +11,7 @@ the running one, and hands the feed to Squirrel only when they differ; the decis
 
 diff --git a/src/vs/platform/update/common/pine/pineUpdateFeed.ts b/src/vs/platform/update/common/pine/pineUpdateFeed.ts
 new file mode 100644
-index 00000000000..604414c72bc
+index 00000000000..2b2adbcd2b3
 --- /dev/null
 +++ b/src/vs/platform/update/common/pine/pineUpdateFeed.ts
 @@ -0,0 +1,103 @@
@@ -120,7 +120,7 @@ index 00000000000..604414c72bc
 +}
 diff --git a/src/vs/platform/update/electron-main/pine/pineUpdateService.darwin.ts b/src/vs/platform/update/electron-main/pine/pineUpdateService.darwin.ts
 new file mode 100644
-index 00000000000..b52fcb8688e
+index 00000000000..a0ae86f031f
 --- /dev/null
 +++ b/src/vs/platform/update/electron-main/pine/pineUpdateService.darwin.ts
 @@ -0,0 +1,88 @@
