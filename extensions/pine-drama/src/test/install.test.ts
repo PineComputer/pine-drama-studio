@@ -2,7 +2,7 @@
 // corrupt the person's drama. System tar makes the archives, as the Computer side does.
 import { strict as assert } from 'node:assert';
 import { execFileSync } from 'node:child_process';
-import { cpSync, existsSync, linkSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, cpSync, existsSync, linkSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
@@ -400,4 +400,40 @@ test('a copied project in a fresh profile sends every returned folder, a version
 	assert.ok(requestKeys(await send()).every(key => existsSync(join(profile, 'kept', key))));
 	rmSync(join(profile, 'kept'), { recursive: true });
 	assert.ok(requestKeys(await send()).every(key => existsSync(join(profile, 'kept', key))));
+});
+
+// The Studio's own archives carry no host metadata (b67: macOS bsdtar wrote an AppleDouble `._drama-cli.cfg.yaml` member,
+// and the Computer side refused the turn): one folder gives the same bytes whatever its files' times and extended
+// attributes, and an archive an earlier Studio made this way is made again.
+test('a folder is archived portably: the same bytes whatever its times and extended attributes, with no AppleDouble member', async () => {
+	const folder = 'config/v1';
+	const make = async (root: string, touch: (file: string) => void) => {
+		mkdirSync(join(root, folder), { recursive: true });
+		for (const [name, text] of [['drama-cli.cfg.yaml', 'project: .'], ['notes/a.md', 'a'], ['@notes.md', 'not an archive']]) {
+			mkdirSync(dirname(join(root, folder, name)), { recursive: true });
+			writeFileSync(join(root, folder, name), text);
+			touch(join(root, folder, name));
+		}
+		const profile = temp('profile');
+		const request = await requestOf(root, dramaRecordOf(profile, root), join(profile, 'kept'), 'task-0001', 'project', 'chat-1', null, []);
+		return { profile, record: dramaRecordOf(profile, root), hash: request.versions[folder], kept: join(profile, 'kept', versionKey(request.versions[folder])) };
+	};
+	const plain = await make(temp('plain'), file => { utimesSync(file, 1_000, 1_000); chmodSync(file, 0o644); });
+	const marked = await make(temp('marked'), file => {
+		utimesSync(file, 2_000_000, 2_000_000);
+		chmodSync(file, 0o755);
+		// An extended attribute, the way each OS sets one; Windows has none to set.
+		if (process.platform === 'linux') { execFileSync('python3', ['-c', 'import os, sys; os.setxattr(sys.argv[1], "user.pine.test", b"1")', file]); }
+		if (process.platform === 'darwin') { execFileSync('xattr', ['-w', 'user.pine.test', '1', file]); }
+	});
+	assert.equal(marked.hash, plain.hash, 'times, modes and extended attributes do not reach the archive');
+	assert.deepEqual(archiveNames(plain.kept).sort(), ['@notes.md', 'drama-cli.cfg.yaml', 'notes/a.md'], 'a name that starts with @ is a file like any other (Codex)');
+	// An archive an earlier Studio made (no portable mark) is not held: the folder is archived again.
+	const root = temp('earlier');
+	const earlier = await make(root, () => undefined);
+	const entry = join(earlier.record.dir, 'adopted', `${sha256(folder)}.json`);
+	writeFileSync(entry, JSON.stringify({ path: folder, hash: 'e'.repeat(64), kind: 'version' }));
+	writeFileSync(join(earlier.profile, 'kept', versionKey('e'.repeat(64))), 'an archive with host metadata');
+	const again = await requestOf(root, earlier.record, join(earlier.profile, 'kept'), 'task-0002', 'project', 'chat-1', null, []);
+	assert.equal(again.versions[folder], plain.hash);
 });

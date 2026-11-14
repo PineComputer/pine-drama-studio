@@ -1,10 +1,10 @@
 // A task's start on the Studio's side (doc/protocol.md, 4.1 and 4.2): the request, built from the drama's folder and the
 // returns installed in it, and the message that starts it. No vscode import.
 
-import { execFileSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
+import { create as createTar } from 'tar';
 import { writeWhole } from './choices';
 import type { TasksOf } from './project';
 import { projectIdentity } from './projectPlace';
@@ -185,14 +185,19 @@ export class DramaRecord {
 
 	latest(chat: string): Installed | undefined { return readJson<Installed>(this.sessionPath(chat)); }
 
-	/** The version folders and review files found on disk with no return naming them, each kept by its hash (adoptLoose). */
+	/**
+	 * The version folders and review files this Studio archived itself (adoptLoose), each kept by its hash. A folder's
+	 * archive made before archives were portable (archiveFolder) has no `portable` mark: it may carry the host's metadata,
+	 * so it is left out and made again.
+	 */
 	adopted(): { readonly path: string; readonly hash: string; readonly kind: 'version' | 'review' }[] {
 		const dir = join(this.dir, 'adopted');
-		return existsSync(dir) ? readdirSync(dir).filter(n => n.endsWith('.json')).map(n => readJson<{ path: string; hash: string; kind: 'version' | 'review' }>(join(dir, n))!) : [];
+		return (existsSync(dir) ? readdirSync(dir).filter(n => n.endsWith('.json')).map(n => readJson<{ path: string; hash: string; kind: 'version' | 'review'; portable?: true }>(join(dir, n))!) : [])
+			.filter(a => a.kind === 'review' || a.portable);
 	}
 
 	adopt(path: string, hash: string, kind: 'version' | 'review'): Promise<void> {
-		return writeJson(join(this.dir, 'adopted', `${sha256(path)}.json`), { path, hash, kind });
+		return writeJson(join(this.dir, 'adopted', `${sha256(path)}.json`), { path, hash, kind, portable: true });
 	}
 
 	/** The previews of running tasks (resultImporter.ts, previewProgress): each version's folder in `previews/<hash>/`. */
@@ -282,6 +287,24 @@ export function clientFiles(root: string): Record<string, string> {
 	return Object.fromEntries(clientFileList(root).map(f => [f.rel, sha256(readFileSync(f.path))]));
 }
 
+/**
+ * A version folder's archive (4.1): its files, sorted, without `reviews/`, as a portable POSIX tar made by node-tar with a
+ * fixed mtime and mode (0644) and no owner, device or extended attributes, so that one folder gives the same bytes on
+ * macOS, Windows and Linux (GNU tar manual, "Making tar Archives More Reproducible": --mtime, --mode, --owner, --sort).
+ * Not the system tar: macOS bsdtar adds an AppleDouble `._<name>` member and xattr headers for every file that carries
+ * extended attributes, which the Computer side refuses. Each name goes in as `./<name>`, since node-tar reads a name that
+ * starts with `@` as an archive to append (its README, tar.c), and comes out without the `./`.
+ */
+function archiveFolder(dir: string, temp: string): Buffer {
+	createTar({
+		file: temp, cwd: dir, sync: true, portable: true, mtime: new Date(0),
+		onWriteEntry: entry => { entry.path = entry.path.replace(/^\.\//, ''); if (entry.stat) { entry.stat.mode = (entry.stat.mode & ~0o7777) | 0o644; } },
+	}, archivedFiles(dir).map(name => `./${name}`));
+	const bytes = readFileSync(temp);
+	rmSync(temp);
+	return bytes;
+}
+
 /** Every file of a folder, by its path relative to it, sorted, leaving out `reviews/` (a version's archive, 4.1). */
 function archivedFiles(dir: string, prefix = ''): string[] {
 	return readdirSync(join(dir, prefix)).sort().flatMap(name => {
@@ -327,8 +350,8 @@ function heldArchives(root: string, record: DramaRecord): { versions: Record<str
  * Archives from the folder every version folder and review file a request would name with an archive this Studio does not
  * keep (4.1, "Archive hashes"), so that a request names only archives it can send: one made outside the client, one
  * installed by another Studio (its turn is in the folder, its archive is not here), a returned folder without a
- * version.json (2.1), or one whose kept archive is gone. A folder is archived with system tar, its names sorted and its
- * `reviews/` left out, and a review file is kept by its hash. Each is recorded, and from then on it is held like an
+ * version.json (2.1), or one whose kept archive is gone. A folder is archived portably (archiveFolder), and a review file
+ * is kept by its hash. Each is recorded, and from then on it is held like an
  * installed one.
  */
 async function adoptLoose(root: string, record: DramaRecord, kept: string): Promise<void> {
@@ -338,9 +361,7 @@ async function adoptLoose(root: string, record: DramaRecord, kept: string): Prom
 		if (!isKept(held.versions[folder], versionKey)) {
 			const temp = join(kept, `.pine-adopt-${sha256(folder)}.tar`);
 			await mkdir(dirname(temp), { recursive: true });
-			execFileSync('tar', ['-cf', temp, '-C', join(root, folder), ...archivedFiles(join(root, folder))]);
-			const bytes = readFileSync(temp);
-			rmSync(temp);
+			const bytes = archiveFolder(join(root, folder), temp);
 			await mkdir(dirname(join(kept, versionKey(sha256(bytes)))), { recursive: true });
 			await writeWhole(join(kept, versionKey(sha256(bytes))), bytes);
 			await record.adopt(folder, sha256(bytes), 'version');
