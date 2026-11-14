@@ -9,7 +9,7 @@ import { join } from 'node:path';
 import { CHOICES_FILE, writeWhole } from './choices';
 import { noFileThere } from './placement';
 import { projectIdentity } from './projectPlace';
-import { PROJECT_MARKER_FILE, RECEIPT_SUFFIX, type Edge, type ObjectType, type ProtocolError, type Request, type Snapshot } from './protocol';
+import { DESCRIPTION_FILE, OBJECT_FILE, PROJECT_MARKER_FILE, PROMPT_FILE, RECEIPT_SUFFIX, type Edge, type ObjectType, type ProtocolError, type Request, type Snapshot } from './protocol';
 
 /**
  * An installed return's snapshot, with the scope of the task it came from (doc/protocol.md, section 1), its task id, when
@@ -85,8 +85,6 @@ export interface ProjectReadModel {
 	readonly edges: readonly ObjectEdge[];
 }
 
-const OBJECT_FILE = 'object.json';
-
 /** The object a file belongs to among `ids`: the deepest object folder that holds it. */
 function owning(ids: Iterable<string>, path: string): string | undefined {
 	return [...ids].filter(id => path.startsWith(`${id}/`)).sort((a, b) => b.length - a.length)[0];
@@ -157,7 +155,7 @@ export async function readProjectFromFolder(projectRoot: string, makingNow: Read
 		const receipt = shown ? await textOrNull(at(`${shown}${RECEIPT_SUFFIX}`)) : null;
 		return {
 			id, raw, shownFile: shown ? `${id}/${shown}` : null, shownFileReceipt: receipt === null ? null : receiptOf(majorTwo(`${id}/${shown}${RECEIPT_SUFFIX}`, JSON.parse(receipt))),
-			description: await textOrNull(at('description.md')), prompt: await textOrNull(at('prompt.md')),
+			description: await textOrNull(at(DESCRIPTION_FILE)), prompt: await textOrNull(at(PROMPT_FILE)),
 		};
 	}));
 	const ids = new Set(read.map(o => o.id));

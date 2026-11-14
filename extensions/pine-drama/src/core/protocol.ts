@@ -9,11 +9,23 @@ import addFormats from 'ajv-formats';
 /** The one major this client speaks (doc/protocol.md, section 6.1). */
 export const MAJOR = 1;
 
+// The file names of protocol major 2, each spelled here only: every module that reads or writes one imports it.
+
 /** The marker of a Pine Drama project of major 2, `{"schema": 2}` at its folder's root (doc/protocol.md 2.1, `$defs/projectMarker`). */
 export const PROJECT_MARKER_FILE = 'pine-drama-project.json';
 
+/** An object's own file, in its folder: a folder holding it is an object (doc/protocol.md 2.2, `$defs/object`). */
+export const OBJECT_FILE = 'object.json';
+
+/** The text the person and Pine Computer edit in an object's folder (doc/protocol.md 2.2). */
+export const DESCRIPTION_FILE = 'description.md';
+export const PROMPT_FILE = 'prompt.md';
+
 /** The suffix of a paid output's receipt beside it, `<file>.receipt.json` (doc/protocol.md 2.3). */
 export const RECEIPT_SUFFIX = '.receipt.json';
+
+/** The folder of the files the person attaches to a note or a chat message, `<id>.<ext>` (doc/protocol.md section 3). */
+export const PERSON_ATTACHMENTS_FOLDER = 'person-attachments';
 
 export type Hash = string;
 /** Path → hash: version folders (of their archives), review files, client files. */

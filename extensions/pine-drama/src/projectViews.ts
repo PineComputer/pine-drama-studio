@@ -5,6 +5,7 @@ import { notMadeText } from './core/canvasProtocol';
 import { Latest } from './core/latest';
 import { PROJECT_VIEW_ID, startOnProduction } from './productionStart';
 import { ProjectFinder, PROJECT_FILES } from './core/projectFinder';
+import { PROJECT_MARKER_FILE } from './core/protocol';
 import { DramaProject, NOTE_ATTACH, NOTE_INTAKE, type OutlineNode, type ProjectReadModel, type Role } from './core/project';
 import { listHistoryOfFile, type FileHistoryEntry } from './core/projectHistory';
 import { holdsNoProject } from './core/binding';
@@ -474,7 +475,7 @@ export async function registerProjectViews(context: vscode.ExtensionContext, out
 	context.subscriptions.push(finder);
 	await vscode.commands.executeCommand('setContext', 'pineDrama.projectOpen', false);
 	if (!await finder.scan()) {
-		output.appendLine('project: no workspace folder is a drama yet (no pine-drama-project.json); watching for one');
+		output.appendLine(`project: no workspace folder is a drama yet (no ${PROJECT_MARKER_FILE}); watching for one`);
 	}
 	return finder;
 }
