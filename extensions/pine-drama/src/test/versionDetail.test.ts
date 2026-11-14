@@ -53,6 +53,31 @@ test('a take shows every input it lists: its pictures in the strip, the rest by 
 		'the canvas links every input (it draws those on the board)');
 });
 
+// A storyboard is drawn from its scene's floor plan, a version no snapshot lists as an object (drama-cli's `plan`), yet its
+// folder is in the project: its picture is shown from its own version.json, with no card to go to. A folder the record
+// names but the project lacks, or holds unreadable, is listed by name and breaks nothing.
+test("an input no snapshot lists shows its picture from its folder's version.json, with no card", async () => {
+	const root = mkdtempSync(join(tmpdir(), 'pds-unlisted-'));
+	cpSync(join(FIXTURE, 'drama'), root, { recursive: true });
+	mkdirSync(join(root, 'assets/scenes/office/plan/v1'), { recursive: true });
+	writeFileSync(join(root, 'assets/scenes/office/plan/v1/version.json'), JSON.stringify({ schema: 1, made_at: '2026-11-12T12:00:00Z', file: 'image-1.jpg', inputs: [], prompt: null, from_import: null }));
+	mkdirSync(join(root, 'assets/scenes/office/broken/v1'), { recursive: true });
+	writeFileSync(join(root, 'assets/scenes/office/broken/v1/version.json'), '{not json');
+	// A `file` the protocol refuses (it leaves its folder) shows nothing either.
+	mkdirSync(join(root, 'assets/scenes/office/outside/v1'), { recursive: true });
+	writeFileSync(join(root, 'assets/scenes/office/outside/v1/version.json'), JSON.stringify({ schema: 1, made_at: '2026-11-12T12:00:00Z', file: '../../plan/v1/image-1.jpg', inputs: [], prompt: null, from_import: null }));
+	const take = join(root, 'episodes/EP001/segments/seg01/v1/version.json');
+	const plan = { object: 'assets/scenes/office/plan', version: 'v1' };
+	writeFileSync(take, JSON.stringify({ ...JSON.parse(readFileSync(take, 'utf8')), inputs: [plan, { object: 'assets/scenes/office/gone', version: 'v1' },
+		{ object: 'assets/scenes/office/broken', version: 'v1' }, { object: 'assets/scenes/office/outside', version: 'v1' },
+		{ object: 'episodes/EP001/keyframe/seg01/shot01', version: 'v1' }] }));
+	const drama = await readDrama(root, () => [snapshot('snapshot-project.json'), snapshot('snapshot-episodes.json')]);
+	const detail = versionDetail(drama, 'episodes/EP001/segments/seg01', 'v1', rel => rel)!;
+	assert.deepEqual(detail.pictures.map(r => [r.src, r.stageId]), [['assets/scenes/office/plan/v1/image-1.jpg', null],
+		['episodes/EP001/keyframe/seg01/shot01/v1/image-1.png', 'episodes/EP001/keyframe/seg01/shot01']]);
+	assert.deepEqual(detail.madeFrom.map(r => [r.src, r.stageId]), [[null, null], [null, null], [null, null]], 'the missing, the unreadable and the refused folder, by name');
+});
+
 // The person: the composer's greyed Model and settings show what the shown version was really made with, read for display
 // from the request drama-cli saved, each provider in its own field names; anything else shows nothing.
 test("a version's model and settings come from its saved job and request, in each provider's own field names", async () => {

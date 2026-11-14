@@ -23,7 +23,7 @@ export function versionDetail(drama: Drama, object: string, version: string, src
 	}
 	const inputs: MadeFrom[] = record.inputs.map(input => {
 		const used = drama.objects.get(input.object);
-		const file = used ? versionFile(used, input.version) : null;
+		const file = used ? versionFile(used, input.version) : drama.unlisted.get(`${input.object}/${input.version}`) ?? null;
 		return {
 			label: versionTitle(drama, input.object, input.version),
 			src: file && IMAGE_SUFFIXES.has(extname(file).toLowerCase()) ? src(file) : null,

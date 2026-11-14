@@ -88,6 +88,11 @@ export interface Drama {
 	readonly addsInFlight: ReadonlyMap<string, string>;
 	/** The problem the last return of its scope named for each add, by the add's id. */
 	readonly addProblems: ReadonlyMap<string, ProtocolError>;
+	/**
+	 * The file each version listed as an input shows where no snapshot lists its object (a scene's floor plan), from its
+	 * version.json, by `<object>/<version>`, as versionFile gives a listed one's: read for display only.
+	 */
+	readonly unlisted: ReadonlyMap<string, string>;
 }
 
 /**
@@ -181,6 +186,17 @@ export async function readDrama(root: string, snapshotOf: SnapshotOf, previewsOf
 		});
 	}));
 	const made = new Set([...objects.values()].map(o => o.fromAdd).filter(Boolean));
+	const unlistedInputs = new Set([...objects.values()].flatMap(o => o.versions.flatMap(v => v.record.inputs))
+		.filter(input => !objects.has(input.object)).map(input => `${input.object}/${input.version}`));
+	const unlisted = new Map((await Promise.all([...unlistedInputs].map(async key => {
+		// A downloaded version's folder is its preview's (absolute), as versionFile reads it; an installed one's, in the project.
+		const preview = previewed.find(p => `${p.object}/${p.version}` === key)?.dir;
+		const at = join(preview ?? join(root, ...key.split('/')), VERSION_FILE);
+		// A folder the record names but the project does not hold, or holds unreadable or invalid (its `file` a path the
+		// protocol's versionRecord refuses), shows no picture.
+		const file = await readFile(at, 'utf8').then(text => check('versionRecord', JSON.parse(text), at).file).catch(() => null);
+		return file ? [[key, preview ? join(preview, ...file.split('/')) : `${key}/${file}`] as const] : [];
+	}))).flat());
 	return {
 		objects,
 		edges: edges.filter(e => objects.has(e.from) && objects.has(e.to)),
@@ -189,6 +205,7 @@ export async function readDrama(root: string, snapshotOf: SnapshotOf, previewsOf
 		addsInFlight: new Map(requests.filter(r => !returns.some(d => d.task === r.request.turn))
 			.flatMap(r => (r.request.choices?.added ?? []).filter(a => !made.has(a.id)).map(a => [a.id, r.chat] as const))),
 		addProblems: new Map((choices?.added ?? []).filter(a => problems.has(a.id)).map(a => [a.id, problems.get(a.id)!])),
+		unlisted,
 	};
 }
 
