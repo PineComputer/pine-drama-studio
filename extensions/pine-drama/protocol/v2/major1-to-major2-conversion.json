@@ -4,7 +4,7 @@
   "version_folders": {
     "a_version_folder_is": "a folder holding version.json whose name matches one of version_folder_name_patterns",
     "its_object_is": "the folder that holds it ({object})",
-    "applied_in_order": "one global order across all objects: by version.json made_at, then object id, then version id; one commit per version, authored client-found-changes-on-disk. So history reads as it happened, and every input a receipt names is already at its major-2 path.",
+    "applied_in_order": "one global order across all objects: by version.json made_at, then object id, then version id. Each version that changes a file makes one commit, authored client-found-changes-on-disk; a version that changes nothing (its files equal what is already there) makes no commit, and its bytes are already in history. So history reads as it happened, and every input a receipt names is already at its major-2 path.",
     "version_folder_name_patterns": [
       "^v\\d+$",
       "^t\\d{2,}$"
