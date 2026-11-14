@@ -89,11 +89,21 @@ export function withObject(choices: Choices, object: string, change: (entry: Obj
 export async function copyImport(root: string, source: string, id: string): Promise<string> {
 	const rel = `imports/${id}${extname(source).toLowerCase()}`;
 	const target = join(root, ...rel.split('/'));
-	const temp = join(dirname(target), `.${id}.tmp`);
 	await mkdir(dirname(target), { recursive: true });
-	await copyFile(source, temp, constants.COPYFILE_FICLONE);
-	await rename(temp, target);
+	await copyWhole(source, target);
 	return rel;
+}
+
+/** Copies `source` to `target` whole, as writeWhole writes: a clone where the file system has them (APFS), a copy otherwise, then a rename into place. */
+export async function copyWhole(source: string, target: string): Promise<void> {
+	const temp = join(dirname(target), `.${randomUUID()}.tmp`);
+	await copyFile(source, temp, constants.COPYFILE_FICLONE);
+	try {
+		await rename(temp, target);
+	} catch (error) {
+		await unlink(temp).catch(() => undefined);
+		throw error;
+	}
 }
 
 export interface Version {

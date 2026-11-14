@@ -5,7 +5,7 @@ import { chatLine, codeSpan, commandLink, enabledCommands, givenBack, quoted, re
 // A refused send is one line in the chat with its actions as links: no modal over it, no paragraph,
 // no stream buttons. The message itself comes back under the line, quoted.
 
-const COMMANDS: RefusalCommands = { openFolder: 'x.openFolder', newFolder: 'x.newFolder', openGivenFolder: 'x.openGiven' };
+const COMMANDS: RefusalCommands = { openFolder: 'x.openFolder', newFolder: 'x.newFolder', openGivenFolder: 'x.openGiven', convertMajor1Project: 'x.convert' };
 const BELOW = 'Your message is below, to send again.';
 
 test('no folder: one chat line with the two folder actions, and the message given back under it', () => {
@@ -81,4 +81,10 @@ test('unassigned project history names missing admission without fabricating run
 	assert.doesNotMatch(refusal.line, /session.*ended|Computer.*stopped/);
 	assert.deepEqual(refusal.actions, []);
 	assert.deepEqual(enabledCommands(refusal), []);
+});
+
+test('a message sent in a drama of major 1 offers its conversion first; one of another major offers only the folder actions', () => {
+	const old = refusalOf({ kind: 'otherFormat', folder: '/old', schema: 1 }, COMMANDS, 'go');
+	assert.deepEqual(old.actions.map(a => [a.label, a.command, a.args]), [['Convert This Project…', 'x.convert', []], ['Open Folder…', 'x.openFolder', []], ['New Folder…', 'x.newFolder', []]]);
+	assert.deepEqual(refusalOf({ kind: 'otherFormat', folder: '/newer', schema: 3 }, COMMANDS, 'go').actions.map(a => a.label), ['Open Folder…', 'New Folder…']);
 });

@@ -471,9 +471,9 @@ test('turns a profile dealt with before they travelled with the folder are writt
 	cpSync(d.storage, join(profile, 'connections', 'c1', 'protocol'), { recursive: true });
 	rmSync(join(d.root, 'turns'), { recursive: true });
 	assert.deepEqual(installedSnapshots(d.root), [], 'as an earlier Studio left it');
-	assert.equal(await publishKeptTurns(profile, d.root), 1);
+	await publishKeptTurns(profile, d.root);
 	assert.deepEqual(installedSnapshots(d.root).map(s => [s.task, s.snapshot]), [['task-0001', snapshot]]);
-	assert.equal(await publishKeptTurns(profile, d.root), 0, 'once');
+	assert.deepEqual(dramaRecordOf(join(profile, 'connections', 'c1', 'protocol'), d.root).keptReturns(), [], 'once: none is left to write');
 });
 
 // A returned folder need not be a version (2.1: "A returned folder without version.json … is stored and restored like

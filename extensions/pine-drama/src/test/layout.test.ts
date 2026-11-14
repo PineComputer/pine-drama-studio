@@ -76,8 +76,10 @@ test('the only Computer command is the developer Stop All, in no menu', () => {
 
 test("Production's welcome says when the project is open in another Studio window, and names no config file", () => {
 	const welcome = (manifest.contributes as unknown as { viewsWelcome: { view: string; when: string; contents: string }[] }).viewsWelcome.filter(w => w.view === 'pine.project');
-	assert.deepEqual(welcome.map(w => w.when), ['!pineDrama.projectOpen && !pineDrama.projectElsewhere', 'pineDrama.projectElsewhere'], 'one welcome at a time');
+	assert.deepEqual(welcome.map(w => w.when), ['!pineDrama.projectOpen && !pineDrama.projectElsewhere && !pineDrama.projectOfMajor1', 'pineDrama.projectElsewhere', 'pineDrama.projectOfMajor1'], 'one welcome at a time');
 	assert.match(welcome[0].contents, /^No drama project is open\.\n\[Open Project Folder\]/);
 	assert.doesNotMatch(welcome[0].contents, /drama-cli|cfg\.yaml/);
 	assert.match(welcome[1].contents, /^This project is open in another Pine Drama Studio window\./);
+	// A drama of major 1 is offered its conversion (projectCommands.ts), the one way into it.
+	assert.match(welcome[2].contents, /^This project was made by an earlier Pine Drama Studio\. .*\n\[Convert This Project…\]\(command:pineDrama\.convertMajor1Project\)$/);
 });

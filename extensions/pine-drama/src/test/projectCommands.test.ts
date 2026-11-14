@@ -52,7 +52,7 @@ for (const window of ['empty', 'empty-array', 'folder', 'workspace'] as const) {
 		folders = window === 'empty' ? undefined : window === 'folder' ? [{ uri: { fsPath: root } }] : [];
 		workspaceFile = window === 'workspace' ? {} : undefined;
 		writeFileSync(join(root, 'pine-drama-project.json'), '{"schema":2}\n');
-		register({ subscriptions: [] } as unknown as vscode.ExtensionContext, { appendLine() {} } as unknown as vscode.OutputChannel);
+		register({ subscriptions: [] } as unknown as vscode.ExtensionContext, { appendLine() {} } as unknown as vscode.OutputChannel, undefined);
 		await commands.get('pineDrama.openProject')!();
 		const preserve = window === 'folder' || window === 'workspace';
 		assert.deepEqual(calls, [['vscode.openFolder', { fsPath: root }, { forceNewWindow: preserve, forceReuseWindow: !preserve }]]);
@@ -71,7 +71,7 @@ const output = { appendLine() {} } as unknown as vscode.OutputChannel;
 
 test('native New then Open reopens the new drama as it is, with no CLI', async () => {
 	const root = setup();
-	register(context(), output);
+	register(context(), output, undefined);
 	await commands.get('pineDrama.newProject')!();
 	assert.deepEqual(readdirSync(root).sort(), ['.git', 'pine-drama-project.json']);
 	const written = readFileSync(join(root, 'pine-drama-project.json'), 'utf8');
@@ -85,7 +85,7 @@ test('native New then Open reopens the new drama as it is, with no CLI', async (
 for (const kind of ['new', 'open']) {
 	test(`cancelling ${kind} leaves the directory and navigation untouched`, async () => {
 		const root = setup(); cancelled = true;
-		register(context(), output);
+		register(context(), output, undefined);
 		await commands.get(`pineDrama.${kind}Project`)!();
 		assert.deepEqual(readdirSync(root), []); assert.deepEqual(calls, []); assert.deepEqual(errors, []);
 	});
@@ -94,7 +94,7 @@ for (const kind of ['new', 'open']) {
 // The folder the person chooses is the project.
 test('New Project asks for a folder in the native picker, and the empty folder chosen is the drama, with only its pine-drama-project.json made, and committed', async () => {
 	const parent = setup(); const root = join(parent, 'long-bai-gu-jing-001'); mkdirSync(root); picked = root;
-	register(context(), output);
+	register(context(), output, undefined);
 	await commands.get('pineDrama.newProject')!();
 	assert.deepEqual(dialogs.map(({ title, openLabel, canSelectFolders, canSelectFiles, canSelectMany }) => ({ title, openLabel, canSelectFolders, canSelectFiles, canSelectMany })),
 		[{ title: 'New Project', openLabel: 'Create Project', canSelectFolders: true, canSelectFiles: false, canSelectMany: false }]);
@@ -108,7 +108,7 @@ test('New Project asks for a folder in the native picker, and the empty folder c
 
 test('an initialized project opens as it is, whatever its config says: opening writes nothing, the first send validates it', async () => {
 	const root = setup(); writeFileSync(join(root, 'pine-drama-project.json'), '{"schema":2}\n');
-	register(context(), output);
+	register(context(), output, undefined);
 	await commands.get('pineDrama.openProject')!();
 	assert.deepEqual(errors, []);
 	assert.deepEqual(calls, [['vscode.openFolder', { fsPath: root }, { forceNewWindow: false, forceReuseWindow: true }]]);
@@ -121,7 +121,7 @@ test('Open Project on the parent of one project offers it; choosing it opens tha
 	const inner = join(parent, 'Untitled Project'); mkdirSync(inner);
 	writeFileSync(join(inner, 'pine-drama-project.json'), '{"schema":2}\n');
 	writeFileSync(join(parent, 'notes.txt'), 'the person\'s own file');
-	register(context(), output);
+	register(context(), output, undefined);
 	answer = 'Open Untitled Project';
 	await commands.get('pineDrama.openProject')!();
 	assert.deepEqual(infos, [[`Pine: ${parent} is not a drama itself; the drama is inside it: ${inner}.`, 'Open Untitled Project']]);

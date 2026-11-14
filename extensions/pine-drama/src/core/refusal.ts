@@ -8,6 +8,7 @@ export interface RefusalCommands {
 	readonly openFolder: string;
 	readonly newFolder: string;
 	readonly openGivenFolder: string;
+	readonly convertMajor1Project: string;
 }
 
 export type Situation =
@@ -87,7 +88,10 @@ export function refusalOf(situation: Situation, commands: RefusalCommands, messa
 				actions: [{ label: 'Open That Project', command: commands.openGivenFolder, args: [situation.project] }, ...folderActions], ...given,
 			};
 		case 'otherFormat':
-			return { line: `Not sent: this folder is a drama of format ${situation.schema}, which this Studio does not open. Nothing is touched.${kept(BELOW)}`, actions: folderActions, ...given };
+			return {
+				line: `Not sent: this folder is a drama of format ${situation.schema}, which this Studio does not open. Nothing is touched.${kept(BELOW)}`,
+				actions: [...situation.schema === 1 ? [{ label: 'Convert This Project…', command: commands.convertMajor1Project, args: [] }] : [], ...folderActions], ...given,
+			};
 	}
 }
 
@@ -129,5 +133,5 @@ export function enabledCommands(refusal: Refusal): string[] {
 
 /** The chat line alone, for a refusal found again at the send itself (the window's check and the send are not one step). */
 export function refusalLine(situation: Situation): string {
-	return refusalOf(situation, { openFolder: '', newFolder: '', openGivenFolder: '' }).line;
+	return refusalOf(situation, { openFolder: '', newFolder: '', openGivenFolder: '', convertMajor1Project: '' }).line;
 }

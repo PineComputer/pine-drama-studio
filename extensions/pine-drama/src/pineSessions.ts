@@ -1,5 +1,5 @@
 import { registerReviewCards, reviewCardMarkdown } from './reviewCard';
-import { NEW_PROJECT_COMMAND } from './projectCommands';
+import { CONVERT_MAJOR_1_PROJECT_COMMAND, NEW_PROJECT_COMMAND } from './projectCommands';
 import * as vscode from 'vscode';
 import { activityRow } from './core/activityRow';
 import { withoutRepeatedQuestion } from './core/askedOnce';
@@ -39,7 +39,7 @@ const ATTACH_FILES_COMMAND = 'pineDrama.attachFiles';
 const OPEN_FOLDER_COMMAND = 'pineDrama.openFolderForDrama';
 const NEW_FOLDER_COMMAND = 'pineDrama.newFolderForDrama';
 const OPEN_GIVEN_FOLDER_COMMAND = 'pineDrama.openSessionFolder';
-const REFUSAL_COMMANDS: RefusalCommands = { openFolder: OPEN_FOLDER_COMMAND, newFolder: NEW_FOLDER_COMMAND, openGivenFolder: OPEN_GIVEN_FOLDER_COMMAND };
+const REFUSAL_COMMANDS: RefusalCommands = { openFolder: OPEN_FOLDER_COMMAND, newFolder: NEW_FOLDER_COMMAND, openGivenFolder: OPEN_GIVEN_FOLDER_COMMAND, convertMajor1Project: CONVERT_MAJOR_1_PROJECT_COMMAND };
 
 /** The window's folders on this computer. */
 export function windowFileFolders(): string[] {

@@ -18,11 +18,18 @@ export async function projectAt(folder: string): Promise<{ readonly root: string
 	const here = projectIdentity(folder);
 	// A drama of another major is never written (doc/protocol.md, section 7): it is not used as a new one.
 	const schema = readProjectMajor(here);
-	if (schema !== undefined) { throw new Error(`${folder} is a drama of format ${schema}, which this Studio does not open. Nothing was written.`); }
+	if (schema !== undefined) { throw new ProjectOfAnotherMajorError(here, schema); }
 	const inside = projectsBelow(here);
 	if (inside.length) { throw new ProjectsInsideError(folder, inside); }
 	if (existsSync(join(here, PROJECT_MARKER_FILE))) { throw new Error(`${join(here, PROJECT_MARKER_FILE)} is not a file, so ${folder} is neither a drama nor a folder for a new one. Nothing was written.`); }
 	return { root: here, initialized: false };
+}
+
+/** The chosen folder is a drama of another major (doc/protocol.md, section 7): never opened or written as it is. */
+export class ProjectOfAnotherMajorError extends Error {
+	constructor(readonly folder: string, readonly schema: number) {
+		super(`${folder} is a drama of format ${schema}, which this Studio does not open. Nothing was written.`);
+	}
 }
 
 /**

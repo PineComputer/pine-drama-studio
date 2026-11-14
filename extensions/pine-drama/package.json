@@ -160,6 +160,11 @@
         "title": "Edit in Canvas",
         "category": "Pine",
         "icon": "$(type-hierarchy)"
+      },
+      {
+        "command": "pineDrama.convertMajor1Project",
+        "title": "Convert Project from an Earlier Studio",
+        "category": "Pine"
       }
     ],
     "configurationDefaults": {
@@ -268,6 +273,10 @@
         {
           "command": "pineDrama.openBible",
           "when": "pineDrama.projectOpen"
+        },
+        {
+          "command": "pineDrama.convertMajor1Project",
+          "when": "pineDrama.projectOfMajor1"
         }
       ],
       "view/title": [
@@ -375,13 +384,18 @@
     "viewsWelcome": [
       {
         "view": "pine.project",
-        "when": "!pineDrama.projectOpen && !pineDrama.projectElsewhere",
+        "when": "!pineDrama.projectOpen && !pineDrama.projectElsewhere && !pineDrama.projectOfMajor1",
         "contents": "No drama project is open.\n[Open Project Folder](command:workbench.action.files.openFolder)"
       },
       {
         "view": "pine.project",
         "when": "pineDrama.projectElsewhere",
         "contents": "This project is open in another Pine Drama Studio window. Work on it there, or close that window and reload this one."
+      },
+      {
+        "view": "pine.project",
+        "when": "pineDrama.projectOfMajor1",
+        "contents": "This project was made by an earlier Pine Drama Studio. To open it here, this Studio converts it, after a backup copy beside it.\n[Convert This Project…](command:pineDrama.convertMajor1Project)"
       },
       {
         "view": "pine.versions",

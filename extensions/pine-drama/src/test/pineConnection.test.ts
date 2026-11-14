@@ -116,7 +116,7 @@ test('credential invalidation keeps admitted turns followable and blocks a new s
 });
 
 test('the actual disconnected refusal renders connection wording and the Accounts route', () => {
-	const refusal = refusalOf({ kind: 'pine', text: notSetUpText({ kind: 'disconnected' }) }, { openFolder: '', newFolder: '', openGivenFolder: '' }, '');
+	const refusal = refusalOf({ kind: 'pine', text: notSetUpText({ kind: 'disconnected' }) }, { openFolder: '', newFolder: '', openGivenFolder: '', convertMajor1Project: '' }, '');
 	assert.match(refusal.line, /Open Accounts \(bottom left\) → Pine Computer… to connect with your project key/, 'what only the modal said before (Codex on #584)');
 	assert.doesNotMatch(refusal.line, /environment/);
 });

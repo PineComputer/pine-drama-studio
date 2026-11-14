@@ -6,7 +6,8 @@ import { Latest } from './core/latest';
 import { PROJECT_VIEW_ID, startOnProduction } from './productionStart';
 import { ProjectFinder, PROJECT_FILES } from './core/projectFinder';
 import { PROJECT_MARKER_FILE } from './core/protocol';
-import { DramaProject, NOTE_ATTACH, NOTE_INTAKE, type OutlineNode, type ProjectReadModel, type Role } from './core/project';
+import { major1ConversionPending } from './core/convertMajor1ProjectToMajor2';
+import { DramaProject, NOTE_ATTACH, NOTE_INTAKE, readProjectMajor, type OutlineNode, type ProjectReadModel, type Role } from './core/project';
 import { listHistoryOfFile, type FileHistoryEntry } from './core/projectHistory';
 import { holdsNoProject } from './core/binding';
 import { decomposition, detachedStage, kindRow, lockOf, openSteps, sectionLines } from './core/threeSteps';
@@ -423,6 +424,13 @@ export async function registerProjectViews(context: vscode.ExtensionContext, out
 	);
 	/** The window's project: the first one found, kept for the window, because the pages opened from it read its files. */
 	let first: ProjectViews | undefined;
+	// The window's one folder is a drama of major 1, or one whose conversion was cut off: the Project view offers its
+	// conversion (package.json, viewsWelcome).
+	const showMajor1Project = (noProject: boolean) => {
+		const folders = (vscode.workspace.workspaceFolders ?? []).filter(folder => folder.uri.scheme === 'file').map(folder => folder.uri.fsPath);
+		const major1 = noProject && folders.length === 1 && (readProjectMajor(folders[0]) === 1 || major1ConversionPending(context.globalStorageUri.fsPath, folders[0]));
+		return vscode.commands.executeCommand('setContext', 'pineDrama.projectOfMajor1', major1);
+	};
 	const finder = new ProjectFinder(
 		() => (vscode.workspace.workspaceFolders ?? []).filter(folder => folder.uri.scheme === 'file').map(folder => folder.uri.fsPath),
 		async root => {
@@ -438,6 +446,7 @@ export async function registerProjectViews(context: vscode.ExtensionContext, out
 			projectTree.project = project;
 			versions.project = project;
 			await vscode.commands.executeCommand('setContext', 'pineDrama.projectOpen', !!project);
+			await showMajor1Project(!project);
 			if (!project) {
 				output.appendLine(`project: ${first?.project.root} is no longer a drama (its choices.json is gone)`);
 				latest.next();
@@ -476,6 +485,7 @@ export async function registerProjectViews(context: vscode.ExtensionContext, out
 	await vscode.commands.executeCommand('setContext', 'pineDrama.projectOpen', false);
 	if (!await finder.scan()) {
 		output.appendLine(`project: no workspace folder is a drama yet (no ${PROJECT_MARKER_FILE}); watching for one`);
+		await showMajor1Project(true);
 	}
 	return finder;
 }

@@ -159,14 +159,17 @@ export class DramaRecord {
 
 	/**
 	 * Writes into the folder every return this record dealt with whose turn the folder lacks: those dealt with before turns
-	 * travelled with the folder, or by a Studio stopped between the two writes. Returns how many it wrote.
+	 * travelled with the folder, or by a Studio stopped between the two writes.
 	 */
-	async publishKept(): Promise<number> {
+	async publishKept(): Promise<void> {
+		for (const done of this.keptReturns()) { await this.publish(done); }
+	}
+
+	/** The returns publishKept writes: those this record dealt with whose turn the folder lacks. */
+	keptReturns(): Installed[] {
 		const dir = join(this.dir, 'returns');
-		const kept = (existsSync(dir) ? readdirSync(dir).filter(n => n.endsWith('.json')) : []).map(n => readJson<Installed>(join(dir, n))!)
+		return (existsSync(dir) ? readdirSync(dir).filter(n => n.endsWith('.json')) : []).map(n => readJson<Installed>(join(dir, n))!)
 			.filter(done => done.installed && !existsSync(join(this.root, 'turns', `${done.task}.json`)));
-		for (const done of kept) { await this.publish(done); }
-		return kept.length;
 	}
 
 	/** Every request sent from this drama, oldest first. */
@@ -228,12 +231,15 @@ export function dramaRecordOf(storage: string, root: string): DramaRecord {
  * Writes into the folder at `root` the turns every record of this Studio profile holds for it and the folder lacks
  * (DramaRecord.publishKept): the protocol storage of each connection, and the one used before connections had their own.
  */
-export async function publishKeptTurns(globalStorage: string, root: string): Promise<number> {
+export async function publishKeptTurns(globalStorage: string, root: string): Promise<void> {
+	for (const record of dramaRecordsOf(globalStorage, root)) { await record.publishKept(); }
+}
+
+/** Every record of this Studio profile for the drama at `root`: the protocol storage of each connection, and the one used before connections had their own. */
+export function dramaRecordsOf(globalStorage: string, root: string): DramaRecord[] {
 	const connections = join(globalStorage, 'connections');
 	const storages = [join(globalStorage, 'protocol'), ...(existsSync(connections) ? readdirSync(connections).map(c => join(connections, c, 'protocol')) : [])];
-	let written = 0;
-	for (const storage of storages) { written += await dramaRecordOf(storage, root).publishKept(); }
-	return written;
+	return storages.map(storage => dramaRecordOf(storage, root));
 }
 
 /**

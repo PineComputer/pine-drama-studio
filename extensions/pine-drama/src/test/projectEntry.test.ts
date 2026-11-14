@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { test } from 'node:test';
 import { readProjectMajor } from '../core/project';
-import { projectAt, ProjectsInsideError } from '../core/projectEntry';
+import { projectAt, ProjectOfAnotherMajorError, ProjectsInsideError } from '../core/projectEntry';
 import { projectIdentity, projectPlaceOf, owningChat } from '../core/projectPlace';
 import { entryFor } from '../core/binding';
 import { Store } from '../core/store';
@@ -92,7 +92,8 @@ test('a drama of another format is never taken for a new one: a format-1 folder 
 	const old = temp();
 	writeFileSync(join(old, 'choices.json'), '{"schema":1,"objects":{},"added":[],"imports":[]}\n');
 	assert.equal(readProjectMajor(old), 1);
-	await assert.rejects(projectAt(old), /is a drama of format 1, which this Studio does not open\. Nothing was written\./);
+	await assert.rejects(projectAt(old), (error: unknown) => error instanceof ProjectOfAnotherMajorError && error.schema === 1 && error.folder === projectIdentity(old)
+		&& /is a drama of format 1, which this Studio does not open\. Nothing was written\./.test(error.message), 'Open Project offers its conversion (projectCommands.ts)');
 	assert.deepEqual(readdirSync(old), ['choices.json']);
 	const newer = temp();
 	writeFileSync(join(newer, 'pine-drama-project.json'), '{"schema":3}\n');

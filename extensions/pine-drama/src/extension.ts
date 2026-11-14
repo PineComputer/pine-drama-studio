@@ -5,7 +5,6 @@ import { registerPineConnection, CONNECTION_COMMAND } from './pineConnection';
 import { mkdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { ChatService, stopAllSummary } from './core/chats';
-import { publishKeptTurns } from './core/taskRun';
 import { commitFilesFoundOnDisk } from './core/projectHistory';
 import type { SecretVault } from './core/pinePort';
 import { setAsideNotice, Store } from './core/store';
@@ -90,18 +89,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 			galleries: registerGalleries(context, views, output),
 		};
 		projectOpened?.();
-		// Turns this profile dealt with before they travelled with the folder go into it once (core/taskRun.ts,
-		// publishKeptTurns), under this window's project lock; the folder's watcher then refreshes the views.
-		// Then whatever the folder holds that no commit records, changed by hand or by a Studio stopped mid-change, is
-		// committed once as client-found-changes-on-disk (core/projectHistory.ts): from here on, each change the Studio makes is its own commit.
-		void publishKeptTurns(context.globalStorageUri.fsPath, root)
-			.then(written => { if (written) { log(`project: ${written} turns from this profile's records written into ${root}/turns`); } })
-			.catch(error => log(`project: writing this profile's turns into ${root}/turns: ${(error as Error).stack ?? error}`))
-			.then(() => commitFilesFoundOnDisk(root, 'Changes found on disk when the project opened'))
+		// Whatever the folder holds that no commit records, changed by hand or by a Studio stopped mid-change, is committed
+		// once as client-found-changes-on-disk (core/projectHistory.ts): from here on, each change the Studio makes is its own commit.
+		void commitFilesFoundOnDisk(root, 'Changes found on disk when the project opened')
 			.catch(error => log(`project: committing the changes found on disk in ${root}: ${(error as Error).message}`));
 	});
 
-	registerProjectCommands(context, output);
+	registerProjectCommands(context, output, held);
 
 	let connectionCurrent = true;
 	const usesDeveloperFile = !!developerConnectionFile(context.extensionMode === vscode.ExtensionMode.Development, process.env.PINE_DRAMA_ENV_FILE);
