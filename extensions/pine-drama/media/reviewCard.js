@@ -94,6 +94,9 @@
 				if (focused === item.key && selection) { note.focus(); note.setSelectionRange(selection[0], selection[1]); }
 			}
 		}
+		// An item deleted or removed since the review was made takes no verdict; the answer tells the agent (reviews.ts standing).
+		// A card state an earlier Studio saved (the reloaded receipt) has no `withdrawn`.
+		for (const item of review.withdrawn ?? []) { el('p', `${item.label}: ${item.why === 'deleted' ? 'Deleted by you on the canvas' : 'Removed by you'}`, details).className = 'withdrawn'; }
 		if (review.state === 'open' && !review.submitted) {
 			const label = el('label', 'Anything else for the agent? (optional)', details); label.className = 'words';
 			const field = el('textarea', '', label); field.value = words; field.dataset.note = WORDS; field.disabled = data.locked;

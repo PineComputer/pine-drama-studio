@@ -29,3 +29,4 @@ textarea { box-sizing: border-box; width: 100%; min-height: 70px; margin-top: 5p
 #error { color: var(--vscode-errorForeground); }
 .thumbnail { width: 100%; padding: 6px; }
 .thumbnail img { display: block; width: 100%; height: 130px; object-fit: contain; margin-bottom: 6px; }
+.withdrawn { color: var(--vscode-descriptionForeground); }

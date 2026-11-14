@@ -7,6 +7,8 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { ChatService, type Update } from '../core/chats';
 import { readChoices } from '../core/choices';
+import { runCardAction } from '../core/entryActions';
+import { answerFor } from '../core/reviews';
 import { REVIEW_APPROVAL_STATEMENT } from '../core/reviewCardProtocol';
 import { Store } from '../core/store';
 import { FakePine, MemoryVault } from './fakePine';
@@ -109,6 +111,41 @@ test('Review Submit writes the chosen versions with the person\'s words into cho
 		f.service.approveAll('main', review.id);
 		await f.service.recordReviewDecisionsLocally('main', review.id);
 		assert.deepEqual((await readChoices(f.root))!.objects['assets/props/umbrella'], { chosen: { version: 'v1', words: REVIEW_APPROVAL_STATEMENT } });
+	} finally { f.store.close(); }
+});
+
+// A version the person deletes on the canvas after its review opened leaves the review: no Approve, no choice written, and
+// the answer tells the agent, so a submit never approves what the folder's choices withdrew (one rule: reviews.ts standing).
+test('a review reads the current choices: a version deleted since it opened is withdrawn from it and from the answer', async () => {
+	const f = fixture();
+	try {
+		f.pine.plans = [reviewPlan([{ object: 'assets/props/umbrella', version: 'v1', files: { 'image-1.png': 'umbrella' } },
+			{ object: 'assets/props/taxi', version: 'v1', files: { 'image-1.png': 'taxi' } }])];
+		await f.send('draw the props');
+		const id = f.service.openReview('main')!.review.id;
+		f.service.approveAll('main', id);
+		await runCardAction(f.root, { action: 'discard', object: 'assets/props/umbrella', version: 'v1' }, { description: async () => undefined, file: async () => undefined });
+		const review = f.service.openReview('main')!.review;
+		assert.deepEqual([review.items.map(i => i.label), review.withdrawn], [['taxi · v1'], [{ key: 'assets/props/umbrella/v1', label: 'umbrella · v1', why: 'deleted' }]]);
+		await f.service.recordReviewDecisionsLocally('main', id);
+		const objects = (await readChoices(f.root))!.objects;
+		assert.deepEqual([objects['assets/props/umbrella'], objects['assets/props/taxi']?.chosen?.version], [{ discarded: ['v1'] }, 'v1']);
+		// The answer names it for the agent, whatever kind of review the stop's snapshot made it (this fake one names no type).
+		assert.match(answerFor({ ...review, verdicts: { 'assets/props/taxi/v1': { verdict: 'approve', reason: '' } } }, ''), /^umbrella · v1: deleted by me\.$/m);
+	} finally { f.store.close(); }
+});
+
+// A delete still being written when Submit runs: Submit reads what stands from the choices it changes, after that write.
+test('a version deleted while Submit waits to write is not approved', async () => {
+	const f = fixture();
+	try {
+		f.pine.plans = [reviewPlan([{ object: 'assets/props/umbrella', version: 'v1', files: { 'image-1.png': 'umbrella' } }])];
+		await f.send('draw the umbrella');
+		const id = f.service.openReview('main')!.review.id;
+		f.service.approveAll('main', id);
+		const discard = runCardAction(f.root, { action: 'discard', object: 'assets/props/umbrella', version: 'v1' }, { description: async () => undefined, file: async () => undefined });
+		await Promise.all([discard, f.service.recordReviewDecisionsLocally('main', id)]);
+		assert.deepEqual((await readChoices(f.root))!.objects['assets/props/umbrella'], { discarded: ['v1'] });
 	} finally { f.store.close(); }
 });
 

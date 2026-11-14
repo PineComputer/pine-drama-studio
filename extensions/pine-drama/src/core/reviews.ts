@@ -62,7 +62,10 @@ export interface ReviewView {
 	kind: ReviewKind;
 	subject: string;
 	question: string;
+	/** The items still standing: those the person can decide on. */
 	items: ReviewItem[];
+	/** The items the person withdrew since the review was made, by the current choices: computed when read, never stored. */
+	withdrawn: WithdrawnItem[];
 	verdicts: Verdicts;
 	state: 'open' | 'answered' | 'closed';
 	/** When the review was made (its row's created_at): the Review index lists the newest first. */
@@ -70,6 +73,28 @@ export interface ReviewView {
 	submitted?: boolean;
 	/** Its stop's files are still being saved (its settles row is not settled): computed when read. */
 	settling?: boolean;
+}
+
+/** An item whose version the person deleted, or whose object they removed, after the review was made (doc/protocol.md 3.1). */
+export interface WithdrawnItem {
+	readonly key: string;
+	readonly label: string;
+	readonly why: 'deleted' | 'removed';
+}
+
+/**
+ * The review as the current choices leave it (project.ts withdrawnIn): the items still standing, and those withdrawn.
+ * Every decision works on the standing items alone; the card and the answer name the withdrawn ones.
+ */
+export function standing(view: ReviewView, withdrawn: (target: ReviewTarget) => WithdrawnItem['why'] | null): ReviewView {
+	const why = new Map(view.items.map(item => [item.key, (item.targets ?? []).map(withdrawn).find(w => w !== null) ?? null]));
+	return { ...view, items: view.items.filter(item => !why.get(item.key)),
+		withdrawn: [...view.withdrawn, ...view.items.flatMap(item => { const w = why.get(item.key); return w ? [{ key: item.key, label: item.label, why: w }] : []; })] };
+}
+
+/** Whether a review is about versions, standing or withdrawn; one about none is a question, answered in words. */
+export function hasItems(view: Pick<ReviewView, 'items' | 'withdrawn'>): boolean {
+	return view.items.length + view.withdrawn.length > 0;
 }
 
 // ---- a review whose stop is still being saved ----
@@ -138,13 +163,13 @@ export function subjectOf(kind: ReviewKind): string {
 }
 
 export function viewOf(row: ReviewRow): ReviewView {
-	return { id: row.id, turnId: row.turn_id, kind: row.kind, subject: row.subject, question: row.question, items: JSON.parse(row.items) as ReviewItem[], verdicts: JSON.parse(row.verdicts) as Verdicts, state: row.state, createdAt: row.created_at };
+	return { id: row.id, turnId: row.turn_id, kind: row.kind, subject: row.subject, question: row.question, items: JSON.parse(row.items) as ReviewItem[], withdrawn: [], verdicts: JSON.parse(row.verdicts) as Verdicts, state: row.state, createdAt: row.created_at };
 }
 
-/** Whether every item has a verdict, and so the decision may be sent (main `verdicts-missing`). A review with no items is a question. */
-export function complete(view: Pick<ReviewView, 'items' | 'verdicts'> & { settling?: boolean }): boolean {
+/** Whether every item has a verdict, and so the decision may be sent (main `verdicts-missing`). A review of nothing is a question. */
+export function complete(view: Pick<ReviewView, 'items' | 'withdrawn' | 'verdicts'> & { settling?: boolean }): boolean {
 	// "Every item has a verdict" waits for the stop's files: more items' files may still come.
-	return view.items.length > 0 && !arriving(view) && view.items.every(item => view.verdicts[item.key] !== undefined);
+	return hasItems(view) && !arriving(view) && view.items.every(item => view.verdicts[item.key] !== undefined);
 }
 
 // ---- the verdicts so far, as the Review view and the refusals show them ----
@@ -165,7 +190,7 @@ export function undecided(view: Pick<ReviewView, 'items' | 'verdicts'>): ReviewI
 }
 
 /** How far the person is: "7 of 10 decided", or that the review is ready to send. */
-function progressText(view: Pick<ReviewView, 'items' | 'verdicts' | 'settling'>): string {
+function progressText(view: Pick<ReviewView, 'items' | 'withdrawn' | 'verdicts' | 'settling'>): string {
 	if (arriving(view)) {
 		const { here, of } = filesHere(view);
 		return `${here} of ${of} here`;
@@ -187,7 +212,6 @@ function decisionOf(view: Pick<ReviewView, 'items' | 'verdicts'>, words: string)
 // ---- the answer (main decisions.ts, word for word) ----
 
 interface DecisionContext {
-	kind: ReviewKind;
 	/** What was reviewed, e.g. "the storyboards" or "the leads' looks". */
 	subject: string;
 	/** Item key → how the agent named it (seg03, Lin Xiaoyu…). */
@@ -196,6 +220,8 @@ interface DecisionContext {
 	paths: Map<number, string>;
 	/** Item key → the stage versions approving it accepts (acceptTargets). */
 	targets?: Map<string, readonly AcceptTarget[]>;
+	/** The items the person withdrew since the review was made: named, so the agent neither waits for nor redoes them. */
+	withdrawn: readonly WithdrawnItem[];
 }
 
 function percent(value: number): string {
@@ -222,11 +248,8 @@ function where(note: Note, paths: Map<number, string>): string {
 	return parts.length ? ` (${parts.join(', ')})` : '';
 }
 
-export function answerText(decision: Decision, context: DecisionContext): string {
+function answerText(decision: Decision, context: DecisionContext): string {
 	const words = decision.words.trim();
-	if (context.kind === 'question') {
-		return words;
-	}
 	const label = (key: string) => context.labels.get(key) ?? key;
 	const approved = decision.items.filter(item => item.verdict === 'approve');
 	const revise = decision.items.filter(item => item.verdict === 'revise');
@@ -252,6 +275,9 @@ export function answerText(decision: Decision, context: DecisionContext): string
 			}
 		}
 	}
+	for (const item of context.withdrawn) {
+		lines.push(`${item.label}: ${item.why} by me.`);
+	}
 	// Notes on approved items are kept as remarks: approved, with something to know.
 	for (const item of approved) {
 		for (const note of item.notes.filter(n => n.text.trim())) {
@@ -268,17 +294,20 @@ export function answerText(decision: Decision, context: DecisionContext): string
 interface AcceptTarget { readonly stage: string; readonly version: string }
 
 
-/** The text of a decision on a review: the one answer the agent receives. */
+/** The text of a decision on a review: the one answer the agent receives; a question's is the person's words alone. */
 export function answerFor(view: ReviewView, words: string): string {
+	if (!hasItems(view)) {
+		return words.trim();
+	}
 	const files = view.items.flatMap(item => item.files);
 	const decision = decisionOf(view, words);
 	const targets = new Map(view.items.map(item => [item.key, (item.targets ?? []).map(t => ({ stage: `drama/${t.object}`, version: t.version }))]));
 	const answer = answerText(decision, {
-		kind: view.kind,
 		subject: view.subject,
 		labels: new Map(view.items.map(item => [item.key, item.label])),
 		paths: new Map(files.map(file => [file.id, file.relPath])),
 		targets,
+		withdrawn: view.withdrawn,
 	});
 	return answer;
 }
@@ -289,6 +318,6 @@ export function decisionRun(answer: string): string {
 }
 
 /** Why a Chat waits for the person, for the status bar: its review and how far they are, or its question. */
-export function waitingReason(label: string, view: Pick<ReviewView, 'subject' | 'items' | 'verdicts'> | undefined): string {
-	return view && view.items.length > 0 ? `${label}: review of ${view.subject}, ${progressText(view)}` : `${label}: the agent asks you something`;
+export function waitingReason(label: string, view: Pick<ReviewView, 'subject' | 'items' | 'withdrawn' | 'verdicts'> | undefined): string {
+	return view && hasItems(view) ? `${label}: review of ${view.subject}, ${progressText(view)}` : `${label}: the agent asks you something`;
 }

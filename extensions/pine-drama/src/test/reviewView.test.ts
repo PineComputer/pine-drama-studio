@@ -63,7 +63,7 @@ function setup(verdict: 'approve' | 'revise' | null = 'approve') {
 	let committing: () => Promise<void> = async () => {};
 	let current: ReviewView | undefined = { id: 'review-a', turnId: 'turn-a', createdAt: '2026-11-06T00:00:00.000Z', kind: 'screenplay', subject: 'the screenplay',
 		question: 'OFFLINE: review this fixture.', state: 'open', items: [{ key: 'screenplay/v3', label: 'screenplay v3', files: [] }],
-		verdicts: verdict ? { 'screenplay/v3': { verdict, reason: '' } } : {} };
+		withdrawn: [], verdicts: verdict ? { 'screenplay/v3': { verdict, reason: '' } } : {} };
 	const service = {
 		projectRoot: (key: string) => key === 'a' ? '/fixture' : '/elsewhere',
 		reviews: (key: string) => key === 'a' && current ? [current] : [],
