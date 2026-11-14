@@ -66,6 +66,28 @@ async function canvasCase(source: Source, episode: string): Promise<Case> {
 		expect: { selector: '.react-flow__node-card', count: message.cards.filter(onBoard).length }, interact: { answer: () => null, check } };
 }
 
+/**
+ * A take as drama-cli records it lists every version it was made from, its keyframe's pictures and the breakdown too
+ * (doc/protocol.md 2.1). Each one on the board has its line into the take; the breakdown, not on the board, has none:
+ * the person once saw a take with no line from the pictures it was made from. `source`'s drama is changed: give it a
+ * fresh one.
+ */
+async function takeLinesCase(source: Source): Promise<Case> {
+	const take = 'episodes/EP001/segments/seg01';
+	const pictures = ['assets/characters/lin', 'assets/scenes/office', 'episodes/EP001/keyframe/seg01/shot01'];
+	const listed = [...pictures, 'episodes/EP001/breakdown'];
+	Object.assign(source.drama.objects.get(take)!.versions.find(v => v.id === 'v1')!.record, { inputs: listed.map(object => ({ object, version: 'v1' })) });
+	const c = await canvasCase(source, 'EP001');
+	const check = async (page: Page, posted: readonly unknown[]): Promise<string[]> => {
+		const problems = await c.interact!.check(page, posted);
+		const edges = page.locator('.react-flow__edge');
+		const into = (await Promise.all(Array.from({ length: await edges.count() }, (_, i) => edges.nth(i).getAttribute('data-id'))))
+			.filter(id => id?.endsWith(`->${take}`)).map(id => id!.slice(0, -`->${take}`.length)).sort();
+		return JSON.stringify(into) === JSON.stringify([...pictures].sort()) ? problems : [...problems, `the take's lines come from ${into.join(', ') || 'nothing'}`];
+	};
+	return { ...c, name: `${source.name}: a take's lines come from every picture it lists on the board`, interact: { answer: () => null, check } };
+}
+
 /** The prompt the box shows for an object (episodeCanvas.ts detailReply). */
 function promptOf(source: Source, id: string): CanvasPrompt | null {
 	const object = source.drama.objects.get(id);
@@ -555,14 +577,14 @@ async function main(): Promise<number> {
 	// The protocol fixture (test-fixtures/protocol/README.md): the Project Chat's snapshot, then an episode session's.
 	const read = (name: string) => JSON.parse(readFileSync(join(FIXTURES, name), 'utf8')) as Snapshot;
 	const root = join(FIXTURES, 'drama');
-	const drama = await readDrama(root, () => [
+	const readFixture = () => readDrama(root, () => [
 		{ scope: 'project', snapshot: read('snapshot-project.json'), task: 'task-1', sent: '2026-11-12T13:00:00Z', installed: '2026-11-12T13:01:00Z' },
 		{ scope: 'episodes', snapshot: read('snapshot-episodes.json'), task: 'task-2', sent: '2026-11-12T13:02:00Z', installed: '2026-11-12T13:03:00Z' },
 	]);
-	const source: Source = { name: 'protocol fixture', root, drama };
+	const source: Source = { name: 'protocol fixture', root, drama: await readFixture() };
 	const cases: Case[] = [
 		await canvasCase(source, ASSETS_CANVAS), await boxCase(source), await faceCase(source), await toolsCase(source), await variantBoxCase(source), await longNameCase(source),
-		await canvasCase(source, 'EP001'), await openingCase(source, 'EP001'), await episodeBoxCase(source),
+		await canvasCase(source, 'EP001'), await takeLinesCase({ ...source, drama: await readFixture() }), await openingCase(source, 'EP001'), await episodeBoxCase(source),
 		await galleryCase(source, 'characters'), await galleryCase(source, 'scenes'), await galleryCase(source, 'props'), await gridClickCase(source),
 		await segCase(source, 'EP001'),
 	];
