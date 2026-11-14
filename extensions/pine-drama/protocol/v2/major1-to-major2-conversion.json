@@ -57,6 +57,21 @@
         "from_base_value": "base",
         "when_base": "assets/<kind>/<id>",
         "otherwise": "assets/<kind>/<id>/variants/<from>"
+      },
+      "relation_target_from_entry_value": {
+        "inside_of": {
+          "only_on": "scenes",
+          "value": "one id",
+          "first_existing_of": [
+            "assets/props/<value>",
+            "assets/scenes/<value>"
+          ],
+          "why": "a scene's inside_of names a key prop (a vehicle) or an exterior scene (a building), as drama-cli's plan.outside_stage resolves it, props first"
+        },
+        "appears_in": {
+          "value": "a list of episode ids, one relation per item",
+          "target": "episodes/<value>"
+        }
       }
     },
     {
