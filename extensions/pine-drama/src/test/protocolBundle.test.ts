@@ -6,7 +6,7 @@ import { buildSync } from 'esbuild';
 
 // A release ships the extension as one esbuild bundle, out/extension.js (scripts/package-macos.sh, stage_extension), so
 // a path the code finds from its own compiled location does not exist there. The bundle here sits where protocol/ is not
-// two folders up, as in the app, and must still check documents.
+// two folders up, as in the app, and must still check paths.
 const ROOT = join(__dirname, '..', '..');
 
 test('the protocol schema travels inside a one-file bundle, as a release ships the extension', () => {
@@ -19,7 +19,7 @@ test('the protocol schema travels inside a one-file bundle, as a release ships t
 			packages: 'external', outfile, logLevel: 'silent' });
 		// A require of the bundle esbuild just wrote: its exports are the module's, typed by that module.
 		const bundled = require(outfile) as typeof import('../core/protocol');
-		assert.deepEqual(bundled.check('choices', { schema: 1, objects: {}, added: [], imports: [] }, 'choices.json'), { schema: 1, objects: {}, added: [], imports: [] });
+		assert.deepEqual([bundled.matches('path', 'assets/characters/lin'), bundled.matches('path', '../lin')], [true, false]);
 	} finally {
 		rmSync(dir, { recursive: true, force: true });
 	}

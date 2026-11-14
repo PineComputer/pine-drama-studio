@@ -8,11 +8,11 @@ import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, posix, win32 } from 'node:path';
 import { extract as extractTar } from 'tar';
-import { readChoices, updateChoices, withObject, writeWhole } from './choices';
+import { readChoices, updateChoices, versionRecordOf, withObject, writeWhole } from './choices';
 import { within } from './placement';
 import { snapshotState, variantRoot } from './project';
-import { check, MAJOR, matches, ProtocolDocumentError, UnsupportedMajor, type Request, type Return, type VersionRef } from './protocol';
-import { fetchKept, fileKey, MismatchedArtifact, MissingArtifact, sha256, stateKey, versionKey, type ArtifactStore } from './taskArtifacts';
+import { listOf, MAJOR, mapOf, matches, UnsupportedMajor, type Progress, type Request, type Return, type VersionRef } from './protocol';
+import { fetchKept, fileKey, MismatchedArtifact, MissingArtifact, returnKey, sha256, stateKey, versionKey, type ArtifactStore } from './taskArtifacts';
 import { scopedSnapshots, tasksOf, type DramaRecord, type Installed } from './taskRun';
 
 /** A path's identity: two paths that differ only by case are the same path (doc/protocol.md section 1 and 4.4). */
@@ -57,36 +57,17 @@ export interface LeftOut {
 }
 
 /**
- * Reads a return (4.3), keeping what it can use. Its envelope (`schema`, `turn`, `state`) must match the protocol; every
- * other part is checked on its own against its part of the schema, each version and review entry one by one, so a part
- * that does not match is left out, not the return. Throws when nothing can be read: not JSON (SyntaxError), another major
- * (UnsupportedMajor), or an envelope that does not match (ProtocolDocumentError).
+ * Reads task `task`'s return (4.3) as it is: nothing in it is refused. The Studio uses what it knows of it through its usual
+ * paths and passes over the rest, as a proto3 reader keeps an enum value it does not know rather than rejecting the message
+ * (protobuf.dev/programming-guides/enum); its lists are read as lists (listOf). The return is the task's by its place in
+ * the store, so its `turn` is the task.
+ * Throws only when nothing can be read: not JSON (SyntaxError), or another major (UnsupportedMajor).
  */
-export function readReturn(bytes: Buffer, what: string): { readonly ret: Return; readonly leftOut: readonly LeftOut[] } {
-	const doc: unknown = JSON.parse(bytes.toString('utf8'));
-	if (typeof doc !== 'object' || doc === null || Array.isArray(doc)) { throw new ProtocolDocumentError(what, '/ must be object'); }
-	const given = doc as Record<string, unknown>;
-	if (given.schema !== MAJOR && given.schema !== undefined) { throw new UnsupportedMajor(what, given.schema); }
-	const bad = ['schema', 'turn', 'state'].filter(key => !matches(`return/properties/${key}`, given[key]));
-	if (bad.length) { throw new ProtocolDocumentError(what, bad.map(key => `/${key} does not match`).join('; ')); }
-	const ret: Record<string, unknown> = { schema: given.schema, turn: given.turn, state: given.state };
-	const leftOut: LeftOut[] = [];
-	for (const [key, part, kind] of [['versions', 'folders', 'version'], ['reviews', 'reviewFiles', 'review']] as const) {
-		if (given[key] === undefined) { continue; }
-		const container = typeof given[key] === 'object' && given[key] !== null && !Array.isArray(given[key]);
-		if (!container) { leftOut.push({ path: `the return's ${key}`, why: 'it does not match the protocol', kind: 'part' }); }
-		const entries = container ? Object.entries(given[key] as object) : [];
-		ret[key] = Object.fromEntries(entries.filter(([path, hash]) => matches(part, { [path]: hash }) || !leftOut.push({ path, why: 'its entry in the return does not match the protocol', kind })));
-	}
-	// A stopped or ended return carries the session's private state (4.3): one missing is said, and the session keeps the one it had.
-	if (['stopped', 'ended'].includes(given.state as string) && given.private_state === undefined) {
-		leftOut.push({ path: 'the return\'s private state', why: 'it is missing', kind: 'part' });
-	}
-	for (const key of ['private_state', 'snapshot', 'problems', 'question', 'review', 'error']) {
-		if (given[key] === undefined) { continue; }
-		if (matches(`return/properties/${key}`, given[key])) { ret[key] = given[key]; } else { leftOut.push({ path: `the return's ${key.replace('_', ' ')}`, why: 'it does not match the protocol', kind: 'part' }); }
-	}
-	return { ret: ret as unknown as Return, leftOut };
+export function readReturn(bytes: Buffer, task: string): Return {
+	const given = Object(JSON.parse(bytes.toString('utf8'))) as Partial<Return>;
+	if (given.schema !== MAJOR && given.schema !== undefined) { throw new UnsupportedMajor(returnKey(task), given.schema); }
+	const snapshot = given.snapshot && { ...Object(given.snapshot), objects: mapOf(given.snapshot.objects), edges: listOf(given.snapshot.edges) };
+	return { ...given, turn: task, versions: { ...given.versions }, reviews: { ...given.reviews }, snapshot, problems: listOf(given.problems), review: listOf(given.review) } as Return;
 }
 
 /** A Windows reserved name, with or without an extension (doc/protocol.md section 1). */
@@ -154,8 +135,7 @@ function extractSafely(archive: string, dir: string, skipped: (name: string) => 
  * Installs return `ret` of `request` into the folder at `root`, in two passes (doc/protocol.md, 4.4). The first fetches
  * every archive and review file, checks it against its hash, and extracts or writes it beside its place. The second
  * renames each into place. Nothing is refused whole: a part that cannot be used is left out, with every returned version
- * made from it (`inputs`, 2.1, the full list) and its reviews, and said in `leftOut`, with what `readReturn` left out
- * (`unread`). Repeating it is safe: the return is recorded before the first rename, so a run cut off part way finds its own
+ * made from it (`inputs`, 2.1, the full list) and its reviews, and said in `leftOut`. Repeating it is safe: the return is recorded before the first rename, so a run cut off part way finds its own
  * folders known and skips them.
  */
 export function installReturn(o: Parameters<typeof installNow>[0]): Promise<{ readonly done: Installed; readonly leftOut: readonly LeftOut[] }> {
@@ -178,8 +158,6 @@ async function installNow(o: {
 	readonly store: ArtifactStore;
 	readonly request: Request;
 	readonly ret: Return;
-	/** What reading the return left out (readReturn). */
-	readonly unread?: readonly LeftOut[];
 }): Promise<{ readonly done: Installed; readonly leftOut: readonly LeftOut[] }> {
 	const { root, record, kept, store, request, ret } = o;
 	const returned = ret.versions ?? {};
@@ -187,12 +165,12 @@ async function installNow(o: {
 	const sent = record.sentTask(ret.turn)!;
 	// What is left out, by path (without regard to case), with why: the first reason given for a path is the one said.
 	// Members skipped in an archive are said too, apart: they leave out nothing returned on its own.
-	const left = new Map<string, LeftOut>((o.unread ?? []).map(l => [pathKey(l.path), l]));
+	const left = new Map<string, LeftOut>();
 	const members: LeftOut[] = [];
 	const leave = (path: string, why: string, kind: LeftOut['kind']) => { if (!left.has(pathKey(path))) { left.set(pathKey(path), { path, why, kind }); } };
 	const isLeft = (path: string) => left.has(pathKey(path));
 	const out = (path: string) => dropped.has(path) || isLeft(path);
-	const kindOf = (path: string): LeftOut['kind'] => path in returned ? 'version' : 'review';
+	const kindOf = (path: string): LeftOut['kind'] => Object.hasOwn(returned, path) ? 'version' : 'review';
 	// A returned path left out by its exact spelling only (a second spelling of another): the other spelling stays.
 	const dropped = new Set<string>();
 	const paths = [...Object.keys(returned), ...Object.keys(returnedReviews)];
@@ -230,7 +208,8 @@ async function installNow(o: {
 	const under = (path: string, object: string) => pathKey(path) === pathKey(object) || pathKey(path).startsWith(`${pathKey(object)}/`);
 	const insideMade = (object: string) => marked.some(m => under(object, m) && held.some(f => under(f, variantRoot(edges, m)) && !under(f, m)));
 	for (const path of paths) {
-		if (!validPath(path) || !within(root, join(root, path))) { leave(path, 'its name is not a path in the project', kindOf(path)); }
+		// A review file goes only in a version's reviews/ folder (2.2), so it never lands on what a version brings.
+		if (!validPath(path) || !within(root, join(root, path)) || !(Object.hasOwn(returned, path) || /\/reviews\/[^/]+$/.test(path))) { leave(path, 'its name is not a path in the project', kindOf(path)); }
 		else if (!inScope(path, request.scope, object => isNew(object) || insideMade(object))) { leave(path, `this session may not add there (${request.scope === 'project' ? 'only an episode\'s sessions add under episodes/' : 'an episode\'s session adds to a shared object only when it is new'})`, kindOf(path)); }
 	}
 
@@ -263,10 +242,9 @@ async function installNow(o: {
 		}
 	};
 	for (const dir of new Set(paths.filter(p => !out(p)).map(p => dirname(join(root, p))))) { removeLeftovers(dir); }
-	// A private state that cannot be used, here or when the return was read, is left out: the session's next task carries
-	// the one it had.
+	// A private state that is missing or cannot be used is left out: the session's next task carries the one it had.
 	const previous = () => record.latest(sent.chat)?.private_state ?? null;
-	let privateState = ret.private_state ?? ((o.unread ?? []).some(l => l.path === 'the return\'s private state') ? previous() : null);
+	let privateState = ret.private_state ?? previous();
 	try {
 		const inputs = new Map<string, string[]>();
 		for (const [folder, hash] of Object.entries(returned).filter(([folder]) => !out(folder) && !existsSync(join(root, folder)))) {
@@ -340,17 +318,15 @@ async function installNow(o: {
 
 /**
  * The versions a version was made from (2.1, `inputs`), as `<object>/<version>`: none for a folder without version.json,
- * which is not a version, and undefined when its version.json is not a file of JSON. Read as leniently as that, not against the
- * schema, so a version.json an older Computer side wrote still installs: an input that is not `{object, version}` is
- * passed over.
+ * which is not a version, and undefined when its version.json is not a file of JSON. Read as the readers read it
+ * (versionRecordOf), so a version.json an older Computer side wrote still installs.
  */
 function inputsOf(versionFile: string): string[] | undefined {
 	if (!existsSync(versionFile)) { return []; }
 	if (!statSync(versionFile).isFile()) { return undefined; }
 	let record: unknown;
 	try { record = JSON.parse(readFileSync(versionFile, 'utf8')); } catch (error) { if (error instanceof SyntaxError) { return undefined; } throw error; }
-	const inputs = (record as { inputs?: unknown } | null)?.inputs;
-	return (Array.isArray(inputs) ? inputs : []).filter((i): i is VersionRef => typeof i?.object === 'string' && typeof i?.version === 'string').map(i => `${i.object}/${i.version}`);
+	return versionRecordOf(record).inputs.map(i => `${i.object}/${i.version}`);
 }
 
 /** Marks the versions of `folders` made, directly or through each other, from a version deleted after `request` was sent. */
@@ -384,13 +360,14 @@ export async function previewProgress(o: { readonly record: DramaRecord; readonl
 		if (existsSync(join(previews, `${hash}.json`))) { continue; }
 		const bytes = await o.store.read(key);
 		if (!bytes) { continue; }
-		// A preview that cannot be used is skipped: its version comes with the return, or is said there.
-		let progress: ReturnType<typeof check<'progress'>>;
+		// A preview is taken as it is, as a return is (readReturn); one that cannot be had at all is skipped: its version comes
+		// with the return, or is said there.
+		let progress: Partial<Progress>;
 		try {
-			progress = check('progress', JSON.parse(bytes.toString('utf8')), key);
+			progress = Object(JSON.parse(bytes.toString('utf8')));
 			await fetchKept(o.store, o.kept, versionKey(hash), hash);
 		} catch (error) {
-			if (error instanceof ProtocolDocumentError || error instanceof SyntaxError || error instanceof MissingArtifact || error instanceof MismatchedArtifact) { continue; }
+			if (error instanceof SyntaxError || error instanceof MissingArtifact || error instanceof MismatchedArtifact) { continue; }
 			throw error;
 		}
 		const target = join(previews, hash);

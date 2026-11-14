@@ -5,9 +5,9 @@
 
 import { readFile, stat } from 'node:fs/promises';
 import { isAbsolute, join } from 'node:path';
-import { CHOICES_FILE, readChoices, readVersions, resolve, VERSION_FILE, type Resolved, type Version as ProtocolVersion } from './choices';
+import { CHOICES_FILE, readChoices, readVersions, resolve, VERSION_FILE, versionRecordOf, type Resolved, type Version as ProtocolVersion } from './choices';
 import { projectIdentity } from './projectPlace';
-import { check, type Add, type Choices, type Edge, type ObjectType, type ProtocolError, type Request, type Snapshot } from './protocol';
+import type { Add, Choices, Edge, ObjectType, ProtocolError, Request, Snapshot } from './protocol';
 
 /**
  * An installed return's snapshot, with the scope of the task it came from (doc/protocol.md, section 1), its task id, when
@@ -175,7 +175,7 @@ export async function readDrama(root: string, snapshotOf: SnapshotOf, previewsOf
 		// A downloaded version shows like any other until its return installs it.
 		const previews = new Map(previewed.filter(p => p.object === id && !installed.some(v => v.id === p.version)).map(p => [p.version, p.dir]));
 		const versions = [...installed, ...await Promise.all([...previews].map(async ([version, dir]) =>
-			({ id: version, reviews: [], record: check('versionRecord', JSON.parse(await readFile(join(dir, VERSION_FILE), 'utf8')), join(dir, VERSION_FILE)) })))]
+			({ id: version, reviews: [], record: versionRecordOf(JSON.parse(await readFile(join(dir, VERSION_FILE), 'utf8'))) })))]
 			.sort((a, b) => a.record.made_at < b.record.made_at ? -1 : a.record.made_at > b.record.made_at ? 1 : a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 		const mine = choices?.objects[id];
 		objects.set(id, {
@@ -192,9 +192,8 @@ export async function readDrama(root: string, snapshotOf: SnapshotOf, previewsOf
 		// A downloaded version's folder is its preview's (absolute), as versionFile reads it; an installed one's, in the project.
 		const folder = previewed.find(p => `${p.object}/${p.version}` === key)?.dir ?? key;
 		const at = join(isAbsolute(folder) ? folder : join(root, ...key.split('/')), VERSION_FILE);
-		// A folder the record names but the project does not hold, or holds unreadable or invalid (its `file` a path the
-		// protocol's versionRecord refuses), shows no picture.
-		const file = await readFile(at, 'utf8').then(text => check('versionRecord', JSON.parse(text), at).file).catch(() => null);
+		// A folder the record names but the project does not hold, or holds unreadable, shows no picture.
+		const file = await readFile(at, 'utf8').then(text => versionRecordOf(JSON.parse(text)).file).catch(() => null);
 		return file ? [[key, { folder, file }] as const] : [];
 	}))).flat());
 	return {

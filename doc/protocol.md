@@ -271,12 +271,11 @@ The client installs one return at a time, finishing one before it starts the nex
      - one missing from the store, or that fails its hash check (4.1); an archive's members as 4.1 says;
      - a folder or a review that already exists with another hash. For a folder, the message says that another session made that version meanwhile, and that the work can be run again;
      - a returned version made from one left out, through the whole of its `inputs` (2.1), and a review of a version left out;
-     - a part of `return.json` that does not match the schema: each part is checked on its own, `versions` and `reviews` entry by entry, and a version entry left out takes what was made from it with it;
      - two returned paths that differ only by case: the second is left out;
-     - a version folder whose archive cannot be read, or whose `version.json` does not match the schema;
-     - a `private_state` that cannot be used: the session's next turn carries the one it had.
+     - a version folder whose archive cannot be read, or whose `version.json` is not JSON;
+     - a `private_state` that is missing or cannot be used: the session's next turn carries the one it had.
 
-     The client tells the person what it left out and why. Only a `return.json` it cannot read at all (not JSON, another major, or a `schema`, `turn` or `state` that does not match) installs nothing, and the person is told so.
+     The client tells the person what it left out and why. Only a `return.json` it cannot read at all (not JSON, or another major) installs nothing, and the person is told so. The client takes the rest of `return.json` as it is, with no check against the schema: a return is the turn's by its place in the store (4.1), and a value the client does not know goes down its usual paths (6.1).
    - **A return is resolved** once it is installed or cannot be read: the session may send its next turn.
 2. **Then rename into place:** version folders first, then review files.
 
@@ -388,8 +387,8 @@ An error is `{"code", "message", "action"?}`:
 
 ### 6.1 Versioning
 
-- **Within major 1.** Fields are only ever added, and every added field is optional. Readers ignore fields they do not know, and enum values are as listed on this page.
-- **Any other major.** A document of any other major is refused whole with `unsupported_schema`. The Computer side answers with a `refused` return, and the client installs nothing.
+- **Within major 1.** Fields are only ever added, and every added field is optional. Writers write the enum values listed on this page. The client reads a return, its snapshot, the version folders it brings, a progress file (4.6) and `choices.json` as they are, as a proto3 reader keeps an enum value it does not know ([protobuf.dev, Enum behavior](https://protobuf.dev/programming-guides/enum/)): a field, an object type, an edge kind or an error code it does not know refuses nothing and falls to its usual handling, such as a plain card for an object type it has no picture for. The schema is for writers.
+- **Any other major.** A document of any other major is refused whole with `unsupported_schema`. The Computer side answers with a `refused` return, and the client installs nothing. A major is the format itself: read by rules it does not follow, a document could put wrong data into the person's folder, so a reader does not use it at all, as Git does not operate on a repository whose `core.repositoryformatversion` it does not understand ([gitrepository-layout, Git Repository Format Versions](https://git-scm.com/docs/gitrepository-layout)).
 
 **What the schema cannot check.** The schema checks each document alone. Implementations check these rules, which span documents:
 - that objects, versions and imports exist;

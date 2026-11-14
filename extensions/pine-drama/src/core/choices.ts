@@ -6,7 +6,7 @@ import { randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
 import { copyFile, mkdir, open, readdir, readFile, rename, unlink } from 'node:fs/promises';
 import { dirname, extname, join } from 'node:path';
-import { check, type Choices, type ObjectChoice, type Review, type VersionRecord } from './protocol';
+import { listOf, MAJOR, mapOf, matches, UnsupportedMajor, type Choices, type ObjectChoice, type Review, type VersionRecord } from './protocol';
 
 export const CHOICES_FILE = 'choices.json';
 export const VERSION_FILE = 'version.json';
@@ -16,7 +16,11 @@ const EMPTY: Choices = { schema: 1, objects: {}, added: [], imports: [] };
 
 const missing = (error: unknown) => (error as NodeJS.ErrnoException).code === 'ENOENT';
 
-/** The folder's `choices.json`, or null when it has none: then nothing is overridden. */
+/**
+ * The folder's `choices.json`, or null when it has none: then nothing is overridden. It is read as it is, as a return is
+ * (readReturn): one hand-edited, synced or written by another Studio keeps every choice it holds, and a part it lacks, or
+ * gives as something else, is empty. Only another major cannot be read.
+ */
 export async function readChoices(root: string): Promise<Choices | null> {
 	let text: string;
 	try {
@@ -25,7 +29,9 @@ export async function readChoices(root: string): Promise<Choices | null> {
 		if (missing(error)) { return null; }
 		throw error;
 	}
-	return check('choices', JSON.parse(text), join(root, CHOICES_FILE));
+	const given = Object(JSON.parse(text)) as Partial<Choices>;
+	if (given.schema !== MAJOR && given.schema !== undefined) { throw new UnsupportedMajor(join(root, CHOICES_FILE), given.schema); }
+	return { ...given, schema: MAJOR, objects: mapOf(given.objects), added: listOf(given.added), imports: listOf(given.imports) };
 }
 
 /**
@@ -54,12 +60,13 @@ const queues = new Map<string, Promise<unknown>>();
 
 /**
  * Changes the folder's choices: `change` gets the current ones (empty when there are none) and returns the new ones,
- * which are checked and written whole. Changes to one folder run one after another, so none is lost; the project window
+ * which are written whole. Only the caller's own change is new: the rest of the file goes back as it was read, so
+ * nothing else in it, hand-edited or written by another Studio, can refuse the person's change. Changes to one folder run one after another, so none is lost; the project window
  * lock keeps every other window out.
  */
 export function updateChoices(root: string, change: (choices: Choices) => Choices): Promise<Choices> {
 	const run = (queues.get(root) ?? Promise.resolve()).catch(() => undefined).then(async () => {
-		const next = check('choices', change((await readChoices(root)) ?? EMPTY), join(root, CHOICES_FILE));
+		const next = change((await readChoices(root)) ?? EMPTY);
 		await writeWhole(join(root, CHOICES_FILE), `${JSON.stringify(next, null, '\t')}\n`);
 		return next;
 	});
@@ -124,17 +131,27 @@ export async function readVersions(root: string, object: string): Promise<Versio
 	for (const id of await dirs(folder)) {
 		const raw = await json(join(folder, id, VERSION_FILE));
 		if (raw === undefined) { continue; }
-		const record = check('versionRecord', raw, join(object, id, VERSION_FILE));
+		const record = versionRecordOf(raw);
 		const reviews: Review[] = [];
 		const reviewDir = join(folder, id, REVIEWS);
 		let names: string[] = [];
 		try { names = (await readdir(reviewDir)).filter(n => n.endsWith('.json') && !n.startsWith('.')); } catch (error) { if (!missing(error)) { throw error; } }
 		for (const name of names.sort()) {
-			reviews.push(check('review', await json(join(reviewDir, name)), join(object, id, REVIEWS, name)));
+			reviews.push(Object(await json(join(reviewDir, name))) as Review);
 		}
 		out.push({ id, record, reviews });
 	}
 	return out.sort((a, b) => a.record.made_at < b.record.made_at ? -1 : a.record.made_at > b.record.made_at ? 1 : byId(a.id, b.id));
+}
+
+/**
+ * A version.json read as it is (doc/protocol.md, 6.1), by the install and the readers alike: of its `inputs`, those that
+ * name a version, and none when it has none. A `file` that is not a path in the version's folder, one that leaves it, is
+ * no file (section 1), so no picture is ever read from outside it.
+ */
+export function versionRecordOf(raw: unknown): VersionRecord {
+	const record = Object(raw) as Partial<VersionRecord>;
+	return { ...record, file: matches('path', record.file) ? record.file : null, inputs: Object.values(record.inputs ?? {}).filter(i => typeof i?.object === 'string' && typeof i?.version === 'string') } as VersionRecord;
 }
 
 /** Version ids in order: letters as strings, then digits as numbers, so v9 comes before v10. */
@@ -165,13 +182,14 @@ export function resolve(versions: readonly Version[], choices: Choices | null, o
 	const entry = choices?.objects[object] ?? {};
 	const discarded = new Set(entry.discarded ?? []);
 	const removed = entry.removed === true;
-	const own = (v: Version) => v.record.from_import !== null;
+	// Made from an import only when it names one: an older record has no `from_import` at all.
+	const own = (v: Version) => v.record.from_import != null;
 	const live = versions.filter(v => !discarded.has(v.id));
 	const chosenId = entry.chosen?.version
 		?? (entry.chosen?.import !== undefined ? versions.find(v => v.record.from_import === entry.chosen!.import)?.id : undefined);
 	const named = removed || chosenId === undefined || discarded.has(chosenId) ? undefined : versions.find(v => v.id === chosenId);
 	// No choice when it lacks the words it needs.
-	const chosen = named && (entry.chosen?.words || named.reviews.length > 0 || named.record.from_import !== null) ? named : undefined;
+	const chosen = named && (entry.chosen?.words || named.reviews.length > 0 || own(named)) ? named : undefined;
 	const newest = (list: readonly Version[]) => list.length ? list[list.length - 1] : undefined;
 	const byPerson = newest(live.filter(v => v.reviews.some(r => r.person !== undefined)));
 	const byAnyone = newest(live.filter(v => v.reviews.length > 0));

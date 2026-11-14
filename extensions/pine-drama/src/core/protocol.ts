@@ -1,7 +1,7 @@
-// The Pine Drama protocol, major version 1 (doc/protocol.md): its documents' types, and their check against the public
-// schema (protocol/v1/protocol.schema.json) with Ajv, a maintained JSON Schema validator, and ajv-formats for
-// `date-time`. The schema checks each document alone; the rules that span documents are the
-// callers' (doc/protocol.md, section 6.1). No vscode import.
+// The Pine Drama protocol, major version 1 (doc/protocol.md): its documents' types, and the public schema
+// (protocol/v1/protocol.schema.json) with Ajv, a maintained JSON Schema validator, and ajv-formats for `date-time`. The
+// Studio reads every document as it is (section 6.1); the schema checks only that a returned path is a path of the
+// project. No vscode import.
 
 import Ajv2020 from 'ajv/dist/2020';
 import addFormats from 'ajv-formats';
@@ -151,23 +151,14 @@ export interface Return {
 	readonly error?: ProtocolError;
 }
 
-interface Defs {
-	choices: Choices;
-	versionRecord: VersionRecord;
-	review: Review;
-	request: Request;
-	return: Return;
-	snapshot: Snapshot;
-	progress: Progress;
-}
+/**
+ * A list of a document read as one, whatever it was given as, and each member as an object: a reader then finds nothing in
+ * what it does not know, rather than failing on it (section 6.1).
+ */
+export const listOf = <T>(value: unknown): T[] => Object.values(value ?? {}).map(Object) as T[];
 
-/** A document that does not match the protocol, with the schema's words for what is wrong. */
-export class ProtocolDocumentError extends Error {
-	constructor(readonly what: string, problems: string) {
-		super(`${what} does not match the Pine Drama protocol: ${problems}`);
-		this.name = 'ProtocolDocumentError';
-	}
-}
+/** A map of a document read as one, each member as an object (listOf). */
+export const mapOf = <T>(value: unknown): Record<string, T> => Object.fromEntries(Object.entries(Object(value ?? {})).map(([key, member]) => [key, Object(member)]));
 
 /** A document of a major this client does not speak: `unsupported_schema`; nothing of it is applied. */
 export class UnsupportedMajor extends Error {
@@ -204,23 +195,8 @@ function validator(def: string) {
 
 /**
  * Whether `value` matches the part of the schema at `pointer` under its `$defs` (a JSON Pointer, RFC 6901, such as
- * `folders` or `return/properties/snapshot`): how a reader checks each part of a document on its own (doc/protocol.md, 4.4).
+ * `path`): how the install checks that a returned path is a path of the project (doc/protocol.md, section 1).
  */
 export function matches(pointer: string, value: unknown): boolean {
 	return validator(pointer)(value) as boolean;
-}
-
-/**
- * Checks `value` as the protocol document `def` and returns it typed. A document whose `schema` is not this major
- * throws UnsupportedMajor before any other check, so it is never partly applied.
- */
-export function check<K extends keyof Defs>(def: K, value: unknown, what: string): Defs[K] {
-	if (def !== 'snapshot' && typeof value === 'object' && value !== null && 'schema' in value && (value as { schema: unknown }).schema !== MAJOR) {
-		throw new UnsupportedMajor(what, (value as { schema: unknown }).schema);
-	}
-	const validate = validator(def);
-	if (!validate(value)) {
-		throw new ProtocolDocumentError(what, (validate.errors ?? []).map(e => `${e.instancePath || '/'} ${e.message ?? ''}`).join('; '));
-	}
-	return value as Defs[K];
 }

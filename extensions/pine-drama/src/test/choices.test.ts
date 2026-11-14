@@ -3,9 +3,9 @@ import { cp, mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { readChoices, readVersions, resolve, updateChoices, withObject, writeWhole } from '../core/choices';
+import { readChoices, readVersions, resolve, updateChoices, versionRecordOf, withObject, writeWhole } from '../core/choices';
 import { Holders } from '../core/taskArtifacts';
-import { check, ProtocolDocumentError, UnsupportedMajor, type Choices } from '../core/protocol';
+import { UnsupportedMajor, type Choices } from '../core/protocol';
 
 // The protocol's rules that can lose the person's decision (doc/protocol.md, section 3.2), on a fixture drama in protocol
 // form (test-fixtures/protocol/README.md).
@@ -56,20 +56,29 @@ test('an import is the person\'s own and resolves once its version exists', asyn
 	} finally { await rm(root, { recursive: true }); }
 });
 
-test('choices.json is written whole: a change lands, an invalid one leaves the file as it was, and no temporary file stays', async () => {
+test('choices.json is written whole: the person\'s pick lands beside what a hand edit left, untouched, and no temporary file stays', async () => {
 	const root = await copy();
 	try {
-		await updateChoices(root, c => withObject(c, 'assets/characters/lin', e => ({ ...e, discarded: ['v2'] })));
-		const before = await readFile(join(root, 'choices.json'), 'utf8');
-		assert.deepEqual((await readChoices(root))?.objects['assets/characters/lin'], { discarded: ['v2'] });
-		await assert.rejects(updateChoices(root, c => withObject(c, 'assets/characters/lin', () => ({ chosen: {} }))), ProtocolDocumentError);
-		assert.equal(await readFile(join(root, 'choices.json'), 'utf8'), before);
+		const edited = { 'assets/characters/lin': { discarded: ['v2'], chosen: {}, pinned: 'later' } };
+		await writeWhole(join(root, 'choices.json'), JSON.stringify({ schema: 1, objects: edited, added: [{ id: 'x' }], imports: [] }));
+		await updateChoices(root, c => withObject(c, 'assets/scenes/office', () => ({ chosen: { version: 'v1', words: 'This one.' } })));
+		const choices = await readChoices(root);
+		assert.deepEqual(choices?.objects, { ...edited, 'assets/scenes/office': { chosen: { version: 'v1', words: 'This one.' } } });
+		assert.deepEqual(choices?.added, [{ id: 'x' }]);
 		assert.deepEqual((await readdir(root)).filter(n => n.endsWith('.tmp')), []);
 	} finally { await rm(root, { recursive: true }); }
 });
 
-test('another major is refused whole, before any other check', () => {
-	assert.throws(() => check('choices', { schema: 2, objects: {}, added: [], imports: [] }, 'choices.json'), UnsupportedMajor);
+test('a choices.json hand-edited, synced or written by another Studio is read as it is, keeping every choice it holds', async () => {
+	const root = await copy();
+	try {
+		await writeWhole(join(root, 'choices.json'), JSON.stringify({ schema: 1, objects: { 'assets/characters/lin': { discarded: ['v2'], chosen: {}, pinned: 'later' }, 'assets/props/gone': null }, added: {} }));
+		const choices = await readChoices(root);
+		assert.deepEqual(choices?.objects['assets/characters/lin']?.discarded, ['v2']);
+		assert.deepEqual([choices?.added, choices?.imports, choices?.objects['assets/props/gone']], [[], [], {}], 'a part it lacks, or gives as something else, is empty');
+		await writeWhole(join(root, 'choices.json'), JSON.stringify({ schema: 2, objects: {} }));
+		await assert.rejects(readChoices(root), UnsupportedMajor, 'only another major cannot be read');
+	} finally { await rm(root, { recursive: true }); }
 });
 
 test('a choice without the words it needs, or naming a version the client lacks, is no choice', () => {
@@ -80,6 +89,9 @@ test('a choice without the words it needs, or naming a version the client lacks,
 	assert.equal(resolve(versions, choices({ version: 'v2' }), 'o').accepted, 'v1', 'v2 needs words: the agent\'s review stands');
 	assert.equal(resolve(versions, choices({ version: 'v2', words: 'Yes.' }), 'o').accepted, 'v2');
 	assert.equal(resolve(versions, choices({ version: 'v7', words: 'Yes.' }), 'o').current, 'v2', 'an unknown version is no choice');
+	// An older record names no `from_import` at all: it is not the person's own, so it needs words too.
+	const older = { ...version('v3', false), record: versionRecordOf({ schema: 1, made_at: '2026-11-12T09:02:00Z', file: null, inputs: [], prompt: null, from_choice: null }) };
+	assert.equal(resolve([...versions, older], choices({ version: 'v3' }), 'o').accepted, 'v1');
 });
 
 // B9: two sessions preparing at once record holders in one folder at the same moment. Each write's temporary file must

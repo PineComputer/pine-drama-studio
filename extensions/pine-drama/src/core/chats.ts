@@ -35,8 +35,8 @@ import { entryFor, type Entry } from './binding';
 import { givenBack, refusalLine } from './refusal';
 import { Holders, keptBytes, putAll, requestKey, returnKey, sha256 } from './taskArtifacts';
 import { dramaRecordOf, installedSnapshots, requestKeys, requestOf, taskMessage, type DramaRecord } from './taskRun';
-import { installReturn, previewProgress, readReturn, type LeftOut, type ReviewTarget } from './resultImporter';
-import { ProtocolDocumentError, UnsupportedMajor, type Return } from './protocol';
+import { installReturn, previewProgress, readReturn, type ReviewTarget } from './resultImporter';
+import { UnsupportedMajor, type Return } from './protocol';
 import { copyImport, readChoices, updateChoices, withObject, writeWhole } from './choices';
 import { resolveReturned, type ResolveSources, type Resolved } from './resolve';
 import { localProjectFile } from './chatLinks';
@@ -2010,7 +2010,7 @@ export class ChatService {
 		this.write(key, epoch, () => this.store.startTurnFollowUp(key, turn.turnId, turn.state, turn.asked));
 		// A large return takes minutes to install after the agent's reply (B5): the Chat says so until the install ends,
 		// as a progress part (ChatResponseStream.progress), which the turn's last words then follow. The words hold whatever
-		// the return turns out to be: none, refused or invalid is collected and said too, and only a valid one installs.
+		// the return turns out to be: none, refused or unreadable is collected and said too, and the rest installs.
 		yield { kind: 'progress', text: 'Collecting the turn\'s result into your project…' };
 		const shown: Update[] = [];
 		const tell = (line: string, unused = false) => {
@@ -2032,9 +2032,8 @@ export class ChatService {
 					// 4.5: no return. Only the person decides whether to run the work again.
 					if (!bytes) { await record.handle(task); tell(NO_RETURN, true); continue; }
 					let back: Return;
-					let unread: readonly LeftOut[];
-					try { ({ ret: back, leftOut: unread } = readReturn(bytes, returnKey(task))); } catch (error) {
-						if (!(error instanceof UnsupportedMajor || error instanceof ProtocolDocumentError || error instanceof SyntaxError)) { throw error; }
+					try { back = readReturn(bytes, task); } catch (error) {
+						if (!(error instanceof UnsupportedMajor || error instanceof SyntaxError)) { throw error; }
 						await record.handle(task);
 						tell(`This turn's result couldn't be read: ${(error as Error).message.replace(/[.\s]+$/, '')}. Nothing was installed; ask it to continue.`, true);
 						continue;
@@ -2044,7 +2043,7 @@ export class ChatService {
 						tell(`The Computer refused this task: ${back.error?.message ?? 'it gave no reason'}${back.error?.action ? ` ${back.error.action}` : ''}`, true);
 						continue;
 					}
-					const { done, leftOut } = await this.held(key, epoch, () => installReturn({ root, record, kept: join(proto.storage, 'kept'), store, request: sent.request, ret: back, unread }));
+					const { done, leftOut } = await this.held(key, epoch, () => installReturn({ root, record, kept: join(proto.storage, 'kept'), store, request: sent.request, ret: back }));
 					const installed = Object.keys(done.versions).length;
 					returned.push(...Object.keys(done.versions));
 					// The Computer that returned them holds them: the next task copies from it rather than uploading.
@@ -2059,7 +2058,7 @@ export class ChatService {
 						tell(`The task broke off: ${back.error?.message ?? 'no reason was given'}${back.error?.action ? ` ${back.error.action}` : ''} ${installed
 							? 'What it finished is in your project.' : 'No new version was added to your project. To go on, ask it to continue in a new message.'}`, true);
 					}
-					for (const problem of back.problems ?? []) { tell(`${problem.ref}: ${problem.error.message}`); }
+					for (const problem of back.problems ?? []) { tell(`${problem.ref}: ${problem.error?.message}`); }
 					review.push(...(back.review ?? []));
 				}
 			});

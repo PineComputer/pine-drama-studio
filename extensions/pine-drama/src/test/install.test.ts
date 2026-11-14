@@ -7,7 +7,8 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { readChoices, updateChoices } from '../core/choices';
-import type { Request, Return } from '../core/protocol';
+import { UnsupportedMajor, type Request, type Return } from '../core/protocol';
+import { readDrama, roleOf } from '../core/project';
 import { list as listTar } from 'tar';
 import { installReturn, previewProgress, readReturn } from '../core/resultImporter';
 import { fileKey, Holders, putAll, sha256, stateKey, versionKey, type ArtifactStore } from '../core/taskArtifacts';
@@ -100,6 +101,8 @@ test('a part that cannot be used is left out and said, never the whole return; t
 		['a folder of another scope', d => ({ versions: { 'episodes/EP001/breakdown/v1': archive(d.store, { 'version.json': version() }) } }), 'episodes/EP001/breakdown/v1', /may not add there/],
 		['an archive whose bytes do not match its hash', d => { const hash = archive(d.store, { 'version.json': version() }); d.store.files.set(versionKey(hash), Buffer.from('other')); return { versions: { 'assets/props/a/v1': hash } }; }, 'assets/props/a/v1', /do not match/],
 		['a review file missing from the store', () => ({ reviews: { 'assets/props/good/v1/reviews/r.json': sha256('absent') } }), 'assets/props/good/v1/reviews/r.json', /did not store it/],
+		['a review file named as a property every object inherits', d => { const bytes = Buffer.from('other'); d.store.files.set(fileKey(sha256(bytes)), bytes); return { reviews: { constructor: sha256(bytes) } }; }, 'constructor', /not a path in the project/],
+		['a review file outside a version\'s reviews/, among what the version brings', d => { const bytes = Buffer.from('other'); d.store.files.set(fileKey(sha256(bytes)), bytes); return { reviews: { 'assets/props/good/v1/extra.json': sha256(bytes) } }; }, 'assets/props/good/v1/extra.json', /not a path in the project/],
 	];
 	for (const [what, ret, path, why] of cases) {
 		const d = await drama();
@@ -128,45 +131,57 @@ test('an archive member that is not a plain file of the project is skipped, neve
 	assert.deepEqual(leftOut.map(l => l.path).sort(), ['assets/props/a/v1/._image-1.png', 'assets/props/a/v1/link', 'assets/props/a/v1/reviews', 'assets/props/a/v1/reviews/r.json']);
 });
 
-test('a returned version made from one left out is left out too, through every input it lists', async () => {
+test('a returned version made from one left out is left out too, through every input it lists, and so are their reviews', async () => {
 	const d = await drama();
 	const a = archive(d.store, { 'version.json': version(), 'image-1.png': 'a' });
 	d.store.files.set(versionKey(a), Buffer.from('not the archive'));
 	const b = archive(d.store, { 'version.json': version([{ object: 'assets/props/a', version: 'v1' }]) });
 	const c = archive(d.store, { 'version.json': version([{ object: 'assets/props/x', version: 'v1' }, { object: 'assets/props/b', version: 'v1' }]) });
 	const e = archive(d.store, { 'version.json': version() });
-	const { leftOut } = await d.install(await d.send('task-0001', '2026-11-12T10:00:00Z'), { versions: { 'assets/props/a/v1': a, 'assets/props/b/v1': b, 'assets/props/c/v1': c, 'assets/props/e/v1': e } });
+	const review = Buffer.from('{"schema":1,"accepted_at":"2026-11-12T10:00:00Z","reason":"ok"}');
+	d.store.files.set(fileKey(sha256(review)), review);
+	const { leftOut } = await d.install(await d.send('task-0001', '2026-11-12T10:00:00Z'), { versions: { 'assets/props/a/v1': a, 'assets/props/b/v1': b, 'assets/props/c/v1': c, 'assets/props/e/v1': e },
+		reviews: { 'assets/props/a/v1/reviews/r.json': sha256(review) } });
 	assert.deepEqual(leftOut.map(l => [l.path, l.why]), [
 		['assets/props/a/v1', 'its bytes do not match what the Computer named'],
 		['assets/props/b/v1', 'it was made from assets/props/a/v1, which was left out'],
 		['assets/props/c/v1', 'it was made from assets/props/b/v1, which was left out'],
+		['assets/props/a/v1/reviews/r.json', 'its version, assets/props/a/v1, was left out'],
 	]);
-	assert.deepEqual(['a', 'b', 'c', 'e'].filter(x => existsSync(join(d.root, `assets/props/${x}/v1`))), ['e']);
+	assert.deepEqual(readdirSync(join(d.root, 'assets/props')), ['e'], 'nothing left out leaves a folder behind');
 });
 
-test('a return is read for what it can use: a bad entry or snapshot is left out; only an unreadable envelope reads nothing', () => {
-	const hash = 'a'.repeat(64);
-	const { ret, leftOut } = readReturn(Buffer.from(JSON.stringify({ schema: 1, turn: 'task-0001', state: 'ended',
-		versions: { 'assets/props/a/v1': hash, '../x/v1': hash, 'assets/props/b/v1': 'nothash' }, reviews: {}, private_state: 7, snapshot: { objects: 3 }, problems: 'none' })), 'return.json');
-	assert.deepEqual(ret.versions, { 'assets/props/a/v1': hash });
-	assert.equal(ret.snapshot, undefined);
-	assert.deepEqual(leftOut.map(l => [l.path, l.kind]), [['../x/v1', 'version'], ['assets/props/b/v1', 'version'], ["the return's private state", 'part'], ["the return's snapshot", 'part'], ["the return's problems", 'part']]);
-	assert.throws(() => readReturn(Buffer.from('{"schema":1,"turn":"task-0001"}'), 'return.json'), /state does not match/);
-	assert.throws(() => readReturn(Buffer.from('null'), 'return.json'), /must be object/);
-	assert.throws(() => readReturn(Buffer.from('not json'), 'return.json'), SyntaxError);
-});
-
-test('a version entry left out when the return is read takes what was made from it and its reviews with it', async () => {
+// The person asked for no refusal logic at all, not a skip for what is unknown: a return is taken as it is, and what this
+// Studio does not know goes down its usual paths (doc/protocol.md, 6.1).
+test('a return is taken as it is: an object or edge of a kind this Studio does not know shows with the rest', async () => {
 	const d = await drama();
-	const b = archive(d.store, { 'version.json': version([{ object: 'assets/props/a', version: 'v1' }]) });
-	const review = Buffer.from('{"schema":1,"accepted_at":"2026-11-12T10:00:00Z","reason":"ok"}');
-	d.store.files.set(fileKey(sha256(review)), review);
+	// A version.json and reviews as an older Computer side wrote them, which the schema no longer matches; a snapshot and problems whose lists are no lists, with empty members.
+	const older = (inputs: unknown[] = []) => JSON.stringify({ schema: 1, made_at: '2026-11-12T10:00:00Z', file: 'image-1.png', inputs, prompt: null, from_choice: null });
+	const lin = archive(d.store, { 'version.json': older([{ object: 'assets/old/x', version: 'v1' }, null]), 'image-1.png': 'lin' });
+	const x = archive(d.store, { 'version.json': older(), 'image-1.png': 'x' });
+	const review = Buffer.from('{"schema":1,"accepted_at":"2026-11-12T10:00:00Z","reason":""}');
+	const empty = Buffer.from('null');
+	for (const bytes of [review, empty]) { d.store.files.set(fileKey(sha256(bytes)), bytes); }
+	const preview = temp('preview');
+	writeFileSync(join(preview, 'version.json'), JSON.stringify({ schema: 1, made_at: '2026-11-12T10:00:00Z', file: 'image-1.png' }));
 	const request = await d.send('task-0001', '2026-11-12T10:00:00Z');
-	const { ret, leftOut: unread } = readReturn(Buffer.from(JSON.stringify({ schema: 1, turn: request.turn, state: 'ended',
-		versions: { 'assets/props/a/v1': 'nothash', 'assets/props/b/v1': b }, reviews: { 'assets/props/a/v1/reviews/r.json': sha256(review) }, snapshot: { observed_at: '2026-11-12T10:00:00Z', objects: {}, edges: [] }, problems: [] })), 'return.json');
-	const { leftOut } = await installReturn({ root: d.root, record: d.record, kept: join(d.storage, 'kept'), store: d.store, request, ret, unread });
-	assert.deepEqual(leftOut.map(l => l.path), ['assets/props/a/v1', "the return's private state", 'assets/props/b/v1', 'assets/props/a/v1/reviews/r.json']);
-	assert.equal(existsSync(join(d.root, 'assets')), false, 'nothing left out leaves a folder behind');
+	const object = (type: string, name: string) => ({ type, name, segment: null, usable: true, from_add: null });
+	const ret = readReturn(Buffer.from(JSON.stringify({ schema: 1, turn: 'another', state: 'ended', versions: { 'assets/characters/lin/v1': lin, 'assets/old/x/v1': x, '../x/v1': lin, 'assets/props/b/v1': 'nothash' },
+		reviews: { 'assets/characters/lin/v1/reviews/r.json': sha256(review), 'assets/characters/lin/v1/reviews/n.json': sha256(empty), 'assets/characters/lin/v1/reviews/director.notes.json': sha256(review) },
+		snapshot: { observed_at: '2026-11-12T10:01:00Z', objects: { 'assets/characters/lin': object('character', 'Lin'), 'plans/p1': object('plan', 'Plan'), 'assets/props/b': { ...object('prop', 'B'), usable: 'later' }, 'assets/props/n': null }, edges: { e: null } },
+		problems: { first: { ref: 'plans/p1', error: { code: 'too_early', message: 'later' } }, second: null } })), request.turn);
+	const { leftOut } = await installReturn({ root: d.root, record: d.record, kept: join(d.storage, 'kept'), store: d.store, request, ret });
+	assert.deepEqual(leftOut.map(l => [l.path, l.why]), [['../x/v1', 'its name is not a path in the project'], ['assets/props/b/v1', 'the Computer did not store it']]);
+	const read = await readDrama(d.root, () => installedSnapshots(d.root), () => [{ object: 'plans/p1', version: 'v1', dir: preview }], tasksOf(d.record, d.root));
+	assert.deepEqual([...read.objects.keys()].sort(), ['assets/characters/lin', 'assets/props/b', 'assets/props/n', 'plans/p1']);
+	assert.equal(roleOf(read, read.objects.get('plans/p1')!), 'other', 'a type with no mapping is a plain card');
+	assert.equal(read.objects.get('plans/p1')!.problem?.message, 'later');
+	assert.deepEqual(read.objects.get('assets/characters/lin')!.versions.map(v => [v.id, v.reviews.length]), [['v1', 3]], 'an older version.json and reviews still read');
+	assert.deepEqual(read.objects.get('plans/p1')!.versions.map(v => v.id), ['v1'], 'and an older preview');
+	assert.equal(read.unlisted.get('assets/old/x/v1')?.file, 'image-1.png', 'and an older version an object was made from');
+	assert.deepEqual(readReturn(Buffer.from('{"versions":"x"}'), 'task-0001').versions, { 0: 'x' }, 'a map given as something else is read as one');
+	assert.throws(() => readReturn(Buffer.from('{"schema":2}'), 'task-0001'), UnsupportedMajor);
+	assert.throws(() => readReturn(Buffer.from('not json'), 'task-0001'), SyntaxError);
 });
 
 test('a version whose archive or version.json cannot be read is left out alone; paths differing only by case are one', async () => {
@@ -293,9 +308,12 @@ test('a version announced while its task runs is previewed from the record, then
 	const hash = archive(d.store, { 'version.json': version(), 'image-1.png': 'lin' });
 	const request = await d.send('task-0001', '2026-11-12T10:00:00Z');
 	d.store.files.set(`turns/task-0001/progress/${hash}.json`, Buffer.from(JSON.stringify({ schema: 1, object: 'assets/characters/lin', version: 'v1', file: 'image-1.png' })));
-	assert.equal(await previewProgress({ record: d.record, kept: join(d.storage, 'kept'), store: d.store, task: 'task-0001' }), 1);
+	// A progress file that names no object is taken as it is too, and shows nowhere.
+	const unnamed = archive(d.store, { 'version.json': version(), 'image-1.png': 'unnamed' });
+	d.store.files.set(`turns/task-0001/progress/${unnamed}.json`, Buffer.from(JSON.stringify({ schema: 1, version: 'v1' })));
+	assert.equal(await previewProgress({ record: d.record, kept: join(d.storage, 'kept'), store: d.store, task: 'task-0001' }), 2);
 	assert.equal(await previewProgress({ record: d.record, kept: join(d.storage, 'kept'), store: d.store, task: 'task-0001' }), 0, 'once');
-	const [preview] = previewVersions(d.storage, d.root);
+	const preview = previewVersions(d.storage, d.root).find(p => p.object)!;
 	assert.deepEqual([preview.object, preview.version, preview.task], ['assets/characters/lin', 'v1', 'task-0001']);
 	assert.equal(readFileSync(join(preview.dir, 'image-1.png'), 'utf8'), 'lin');
 	assert.equal(existsSync(join(d.root, 'assets')), false, 'nothing reaches the folder before the return');
