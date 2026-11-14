@@ -1,12 +1,12 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Pine Drama Studio Authors <authors@example.invalid>
 Date: Wed, 11 Nov 2026 19:05:07 -0800
-Subject: [PATCH 31/33] pine(L2): Release Notes in the update tooltip opens the
+Subject: [PATCH 28/30] pine(L2): Release Notes in the update tooltip opens the
  Studio's GitHub Release
 
 
 diff --git a/src/vs/workbench/contrib/pine/browser/pine.contribution.ts b/src/vs/workbench/contrib/pine/browser/pine.contribution.ts
-index 8522dca0065..b62f6abb28b 100644
+index 1074e4900f2..157ef32f046 100644
 --- a/src/vs/workbench/contrib/pine/browser/pine.contribution.ts
 +++ b/src/vs/workbench/contrib/pine/browser/pine.contribution.ts
 @@ -4,6 +4,7 @@

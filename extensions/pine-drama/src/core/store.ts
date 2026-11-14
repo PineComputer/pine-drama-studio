@@ -59,8 +59,6 @@ export interface SavedSend {
 	state: SavedSendState;
 	turn_id: string | null;
 	error: string | null;
-	/** Unused since chats cannot be cancelled; kept so a database opens unchanged. */
-	cancel_requested: number;
 	/** The Chat's last applied event id when it was saved: its input event can only come after. */
 	after_event: number | null;
 	/** The review this send answers; the review is answered when the send is. */
@@ -156,7 +154,6 @@ create table if not exists saved_sends (
   state text not null,                -- pending | sent | unknown | failed
   turn_id text,                       -- the turn it opened
   error text,
-  cancel_requested integer not null default 0, -- unused since D25 (no Stop); kept so a database opens unchanged
   after_event integer,                -- the last applied event id when it was saved
   review_id text,                     -- the review this send answers; it is answered when the send is
   created_at text not null,

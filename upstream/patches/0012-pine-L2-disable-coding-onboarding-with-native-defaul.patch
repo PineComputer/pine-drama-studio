@@ -1,12 +1,12 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Pine Drama Studio Authors <authors@example.invalid>
 Date: Wed, 4 Nov 2026 21:16:26 -0800
-Subject: [PATCH 15/33] pine(L2): disable coding onboarding with native
+Subject: [PATCH 12/30] pine(L2): disable coding onboarding with native
  defaults
 
 
 diff --git a/src/vs/workbench/contrib/pine/browser/pine.contribution.ts b/src/vs/workbench/contrib/pine/browser/pine.contribution.ts
-index 227fc940ec7..a767c674a61 100644
+index 5d4d7d98088..5103ed0bd3b 100644
 --- a/src/vs/workbench/contrib/pine/browser/pine.contribution.ts
 +++ b/src/vs/workbench/contrib/pine/browser/pine.contribution.ts
 @@ -20,6 +20,9 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis

@@ -17,9 +17,10 @@ import { REVIEW_APPROVAL_STATEMENT } from './reviewCardProtocol';
 //    session generation (core/pineSessionGeneration.ts): a pass of a session that was since replaced cannot write.
 // 6. "Reconnected" means the remote session and its Task matched; a session found gone at any
 //    point ends, keeps its history and waits for the person before a new session starts.
-// 7. No cancellation in v1: nothing here cancels or steers a turn on Pine. A message that arrives while a turn runs
-//    waits for it and then goes as the answer or a new run; a reply whose view goes away is still followed to its end,
-//    and the history shows how it ended.
+// 7. The person's Stop (Code-OSS's own, the request's cancellation) is the one cancel: a send not yet admitted stops
+//    before it uploads or starts anything (its AbortSignal), and a turn Pine runs is cancelled (cancelTurn). Nothing
+//    steers a turn: a message that arrives while one runs waits for it and then goes as the answer or a new run, and
+//    the next follower shows how a turn ended.
 // 8. When a turn ends, its returned files are settled into the library (core/settle.ts) under the same generation;
 //    a settle that fails is logged and shown, and is taken up again at the next send or follow.
 // 9. Files the person attaches wait in the library and go up with the Chat's next run, once each; the Studio's
@@ -306,14 +307,15 @@ export class ChatService {
 
 	/**
 	 * Sends the person's message: a run, or the answer to a waiting question. `folder` is the window's one folder: the
-	 * first message binds a new session to it. Nothing the person does stops
-	 * its work: a reply whose view goes away is still followed to its end, and the history shows how it ended.
+	 * first message binds a new session to it. Only the person's Stop (`signal`) stops its work: a send not yet admitted
+	 * starts no turn, and a turn that runs is cancelled; the history shows how it ended.
 	 */
-	submit(key: string, text: string, label: string, folder?: string): AsyncGenerator<Update> {
-		return this.submitOnce(key, text, label, folder);
+	submit(key: string, text: string, label: string, folder?: string, signal?: AbortSignal): AsyncGenerator<Update> {
+		return this.submitOnce(key, text, label, folder, [], signal);
 	}
 
-	private async *submitOnce(key: string, text: string, label: string, folder: string | undefined, files: readonly ChatFile[] = []): AsyncGenerator<Update> {
+	/** `signal`: the person's Stop of this send; once aborted, nothing more goes up and no turn is started (sendTask). */
+	private async *submitOnce(key: string, text: string, label: string, folder: string | undefined, files: readonly ChatFile[] = [], signal?: AbortSignal): AsyncGenerator<Update> {
 		// Capture the question/turn before waiting in the local send queue; a preceding reply may ask a new question.
 		const atSend = this.store.chat(key);
 		const intendedAtSend = atSend ? intent(atSend) : { kind: 'run' as const, target: null };
@@ -339,12 +341,12 @@ export class ChatService {
 			// already is given back when the send ends, whichever way it ends.
 			const shown = { given: false };
 			try {
-				yield* givingBack(this.sendPersonMessageToPine(key, text, label, folder, restarted ? { kind: 'run', target: null } : intendedAtSend, files, ending), shown);
+				yield* givingBack(this.sendPersonMessageToPine(key, text, label, folder, restarted ? { kind: 'run', target: null } : intendedAtSend, files, ending, undefined, false, signal), shown);
 				if (ending.said) {
 					// The session ended on Pine's evidence before the message reached it. Sending is the person's
 					// explicit action, so the Studio starts the agent again and sends the same message there, in this send (the
 					// person, 2026-11-05): no "not sent" line.
-					yield* givingBack(this.replacePineSessionAndSend(key, text, label, folder, files, ending), shown);
+					yield* givingBack(this.replacePineSessionAndSend(key, text, label, folder, files, ending, signal), shown);
 				}
 			} catch (error) {
 				if (!ending.op && !shown.given) { yield unsentLine(text, files, (error as Error).message.replace(/[.\s]+$/, '')); }
@@ -364,7 +366,7 @@ export class ChatService {
 	 * person's words and decision recorded with it become this operation's, so the Chat shows one message, sent once.
 	 * `changedBefore` says that what it was written for changed before that end, so its note goes with it here too.
 	 */
-	private async *sendPersonMessageToPine(key: string, text: string, label: string, folder: string | undefined, intendedAtSend: ReturnType<typeof intent>, files: readonly ChatFile[], ending: Ending, resends?: string, changedBefore = false): AsyncGenerator<Update> {
+	private async *sendPersonMessageToPine(key: string, text: string, label: string, folder: string | undefined, intendedAtSend: ReturnType<typeof intent>, files: readonly ChatFile[], ending: Ending, resends?: string, changedBefore = false, signal?: AbortSignal): AsyncGenerator<Update> {
 		if (this.options.connectionCurrent?.() === false) { throw new Error('The Pine connection changed. Reload the window before sending more work.'); }
 		let conv = this.store.chat(key);
 		const env = conv ? this.pineOf(conv) : this.thePine();
@@ -441,7 +443,7 @@ export class ChatService {
 			return;
 		}
 		if (intended.kind === 'busy' && intent(conv).kind === 'busy' && conv.current_turn_id === intended.target) {
-			// Nothing cancels or steers a running turn: the message waits for it, followed as any turn is, and then goes
+			// A message never cancels or steers a running turn (only the person's Stop does): it waits for it, followed as any turn is, and then goes
 			// as what it is at that moment, the answer to the question it ended on or a new run. A turn whose Computer Pine says
 			// is gone is not waited for: the follow below ends the session, and the message goes to the agent started again
 			// (`ending`), never queued behind a turn that cannot end.
@@ -457,7 +459,7 @@ export class ChatService {
 			if (!gone) {
 				yield { kind: 'markdown', text: WAITING };
 			}
-			yield* unsent(this.streamPineTurnEvents(key, env, epoch, session));
+			yield* unsent(this.streamPineTurnEvents(key, env, epoch, session, signal));
 			conv = this.store.chat(key)!;
 			if (conv.pine_session_state !== 'open') {
 				return;
@@ -500,17 +502,21 @@ export class ChatService {
 		const noted = [body, changed ? CHANGED_TARGET_NOTE : undefined, note].filter((part): part is string => !!part).join('\n\n');
 		// A run or an answer is a task (doc/protocol.md, 4.1): its request and every archive and file it names are on the
 		// Computer before the message that starts it is sent, and the task id is the message's Idempotency-Key.
+		// Said before anything is recorded: from the record to the run nothing yields, so a Stop leaves no send to resend.
+		if (changed) {
+			yield { kind: 'markdown', text: '\n\n_What your message was written for changed while it waited (shown above), so it goes as a new message, with a note telling the agent so._\n\n' };
+		}
 		const opId = randomUUID();
 		let task: boolean;
 		try {
-			task = await this.sendTask(key, env, epoch, opId);
+			task = await this.sendTask(key, env, epoch, opId, signal);
 		} catch (error) {
 			this.log(`${key}: task ${opId} could not be prepared: ${(error as Error).stack ?? error}`);
 			yield unsentLine(text, files, `the project could not be sent to the Computer (${(error as Error).message.replace(/[.\s]+$/, '')})`);
 			return;
 		}
 		const said = standing ? withStandingInstructions(noted, episodesOnly) : noted;
-		const op: SavedSend = { id: opId, chat_key: key, kind, text: task ? taskMessage(opId, said) : said, target_turn_id: target, state: 'pending', turn_id: null, error: null, cancel_requested: 0, after_event: conv.last_applied_event_id, review_id: reviewId, created_at: '' };
+		const op: SavedSend = { id: opId, chat_key: key, kind, text: task ? taskMessage(opId, said) : said, target_turn_id: target, state: 'pending', turn_id: null, error: null, after_event: conv.last_applied_event_id, review_id: reviewId, created_at: '' };
 		this.write(key, epoch, () => {
 			this.store.insertSavedSend(op);
 			// The person's message is recorded as typed; the instructions are the Studio's, in a message of their own.
@@ -536,12 +542,15 @@ export class ChatService {
 			}
 		});
 		ending.op = op.id;
-		if (changed) {
-			yield { kind: 'markdown', text: '\n\n_What your message was written for changed while it waited (shown above), so it goes as a new message, with a note telling the agent so._\n\n' };
-		}
-		const result = yield* unsent(this.send(key, env, epoch, session, op));
-		if (result.kind === 'sent') {
-			yield* this.streamPineTurnEvents(key, env, epoch, session);
+		// A Stop that reached the run after its last check (sendTask) cancels the turn the run started, whether the reply
+		// ends before its follow begins or during it.
+		try {
+			const result = yield* unsent(this.send(key, env, epoch, session, op));
+			if (result.kind === 'sent') {
+				yield* this.streamPineTurnEvents(key, env, epoch, session, signal);
+			}
+		} finally {
+			if (signal?.aborted) { await this.cancelTurn(key); }
 		}
 	}
 
@@ -555,9 +564,9 @@ export class ChatService {
 	 * .getOrCreateChatSession, chatSessions.contribution.ts:1327-1331), so its live response is the one place the card
 	 * can reach it; without it the review gates the input with no card to answer it (the person's run).
 	 */
-	async *attachChatToPineTurn(key: string, shown: ReadonlySet<string> = new Set()): AsyncGenerator<Update> {
+	async *attachChatToPineTurn(key: string, shown: ReadonlySet<string> = new Set(), signal?: AbortSignal): AsyncGenerator<Update> {
 		const seen = new Set(shown);
-		for await (const update of this.attachChatToRunningPineTurn(key)) {
+		for await (const update of this.attachChatToRunningPineTurn(key, signal)) {
 			if (update.kind === 'review') { seen.add(update.review.id); }
 			yield update;
 		}
@@ -569,7 +578,7 @@ export class ChatService {
 		}
 	}
 
-	private async *attachChatToRunningPineTurn(key: string): AsyncGenerator<Update> {
+	private async *attachChatToRunningPineTurn(key: string, signal?: AbortSignal): AsyncGenerator<Update> {
 		const conv = this.store.chat(key);
 		// A Chat that is not running can still owe the folder the result of a task that ended before a restart.
 		if (!conv || (conv.state !== 'running' && !this.hasUnfinishedTurnFollowUp(key))) {
@@ -587,7 +596,7 @@ export class ChatService {
 			return;
 		}
 		if (conv.state === 'running' && (yield* this.checkUnconfirmedSendsWithPine(key, env, epoch, session))) {
-			yield* this.streamPineTurnEvents(key, env, epoch, session);
+			yield* this.streamPineTurnEvents(key, env, epoch, session, signal);
 		}
 	}
 
@@ -626,7 +635,7 @@ export class ChatService {
 	 * guarantees holds (replaceEndedPineSession: confirmed stop of the old binding, saved results published). A restart
 	 * that does not happen gives the message back, in one line with why (unsentLine).
 	 */
-	private async *replacePineSessionAndSend(key: string, text: string, label: string, folder: string | undefined, files: readonly ChatFile[], ending: Ending): AsyncGenerator<Update> {
+	private async *replacePineSessionAndSend(key: string, text: string, label: string, folder: string | undefined, files: readonly ChatFile[], ending: Ending, signal?: AbortSignal): AsyncGenerator<Update> {
 		// The first attempt's operation, if it recorded one, and whether what the message was written for changed before it.
 		const resends = ending.op;
 		const changed = ending.changed ?? false;
@@ -646,7 +655,7 @@ export class ChatService {
 			yield* said;
 			// The same Ending as the first attempt's, so the send this one records is the message's (submitOnce).
 			ending.said = false;
-			yield* this.sendPersonMessageToPine(key, text, label, folder, intent(conv), files, ending, resends, changed);
+			yield* this.sendPersonMessageToPine(key, text, label, folder, intent(conv), files, ending, resends, changed, signal);
 			if (ending.said) { yield unsentLine(text, files, 'the new session ended before it took the message'); }
 			return;
 		}
@@ -1373,8 +1382,27 @@ export class ChatService {
 	 * Project packs one), anything that is not a file on this computer. Issue: a .docx added this way never left the
 	 * desktop, and the agent found its attachments empty.
 	 */
-	submitWithFiles(key: string, text: string, label: string, files: readonly ChatFile[], folder?: string): AsyncGenerator<Update> {
-		return this.submitOnce(key, text, label, folder, files);
+	submitWithFiles(key: string, text: string, label: string, files: readonly ChatFile[], folder?: string, signal?: AbortSignal): AsyncGenerator<Update> {
+		return this.submitOnce(key, text, label, folder, files, signal);
+	}
+
+	/**
+	 * The person's Stop of a followed turn (streamPineTurnEvents): Pine cancels the Chat's turn, the one it runs or that
+	 * waits on a question (PinePort.cancel). The follow then reads it `canceled`, and what it returned, or that it returned
+	 * nothing, is said as for any turn's end (doc/protocol.md, 4.5). A Chat with no turn of its own running has nothing to
+	 * cancel.
+	 */
+	private async cancelTurn(key: string): Promise<void> {
+		const conv = this.store.chat(key);
+		if (!conv?.current_turn_id || !conv.pine_session_name || (conv.state !== 'running' && conv.state !== 'needs_input')) {
+			return;
+		}
+		const secrets = await this.secrets(conv);
+		if (!secrets?.binding || !secrets.sessionToken) {
+			return;
+		}
+		this.log(`${key}: Stop: cancelling turn ${conv.current_turn_id}`);
+		await this.port.cancel(this.pineOf(conv), { credentials: secrets.credentials, binding: secrets.binding, name: conv.pine_session_name, token: secrets.sessionToken }, conv.current_turn_id);
 	}
 
 	/**
@@ -1521,7 +1549,18 @@ export class ChatService {
 	 * with a line that offers Reload Window, as VS Code's "Cannot reconnect. Please reload the window." does
 	 * (src/vs/workbench/contrib/remote/browser/remote.ts:1011); a reload attaches to the turn again (attachChatToPineTurn).
 	 */
-	private async *streamPineTurnEvents(key: string, env: PineConnection, epoch: number, session: PineSession): AsyncGenerator<Update> {
+	private async *streamPineTurnEvents(key: string, env: PineConnection, epoch: number, session: PineSession, signal?: AbortSignal): AsyncGenerator<Update> {
+		// The person's Stop (`signal`) cancels the turn this follows, whenever it comes; the follow then reads it canceled.
+		const stop = () => void this.cancelTurn(key).catch(error => this.log(`${key}: Stop: ${(error as Error).message}`));
+		if (signal?.aborted) { stop(); } else { signal?.addEventListener('abort', stop, { once: true }); }
+		try {
+			yield* this.followTurnWithReconnects(key, env, epoch, session);
+		} finally {
+			signal?.removeEventListener('abort', stop);
+		}
+	}
+
+	private async *followTurnWithReconnects(key: string, env: PineConnection, epoch: number, session: PineSession): AsyncGenerator<Update> {
 		const waits = this.options.reconnectWaitsMs ?? RECONNECT_WAITS_MS;
 		const limit = this.options.reconnectLimitMs ?? RECONNECT_LIMIT_MS;
 		let since: Date | undefined;
@@ -1873,7 +1912,8 @@ export class ChatService {
 	 * uploaded; then the request itself is written. False when the
 	 * Chat has no folder or Computer: its message then goes as it is.
 	 */
-	private async sendTask(key: string, env: PineConnection, epoch: number, task: string): Promise<boolean> {
+	private async sendTask(key: string, env: PineConnection, epoch: number, task: string, signal?: AbortSignal): Promise<boolean> {
+		signal?.throwIfAborted();
 		const proto = this.options.protocol;
 		const root = this.projectRoot(key);
 		const conv = this.store.chat(key);
@@ -1901,8 +1941,10 @@ export class ChatService {
 			return here;
 		};
 		const size = (artifact: string): number => { const path = existsSync(join(kept, artifact)) ? join(kept, artifact) : clientFile.get(artifact); return path && existsSync(path) ? statSync(path).size : -1; };
-		const put = await this.held(key, epoch, () => putAll(target, conv.computer_id!, this.holders(), requestKeys(request), bytes, size));
-		await this.held(key, epoch, () => target.upload(requestKey(task), Buffer.from(JSON.stringify(request))));
+		const put = await this.held(key, epoch, () => putAll(target, conv.computer_id!, this.holders(), requestKeys(request), bytes, size, signal));
+		await this.held(key, epoch, () => target.upload(requestKey(task), Buffer.from(JSON.stringify(request)), signal));
+		// The last point a Stop keeps the turn from starting; after it the run goes, and a Stop cancels its turn (cancelTurn).
+		signal?.throwIfAborted();
 		this.generations.assert(key, epoch);
 		await record.sentRequest(request, conv.computer_id, key);
 		this.log(`${key}: task ${task} (${scope}): ${Object.keys(request.versions).length} version(s), ${put.copied} copied, ${put.uploaded} uploaded`);
@@ -2291,7 +2333,7 @@ export class ChatService {
 
 /**
  * What a message sent now would be: a run, or the answer to the waiting question. While a turn runs it is neither yet:
- * v1 neither cancels nor steers a running turn, so the message waits for the turn to end (sendPersonMessageToPine).
+ * a message neither cancels nor steers a running turn, so it waits for the turn to end (sendPersonMessageToPine).
  */
 /** What a send learns from its own attempt: the session ended before the message reached Pine, and the operation it recorded. */
 type Ending = { said: boolean; op?: string; changed?: boolean };

@@ -228,7 +228,7 @@ test('a message sent while a turn runs waits for it, then goes as a new run, an 
 	assert.equal((store.db.prepare('select kind from saved_sends order by created_at desc limit 1').get() as { kind: string }).kind, 'run', 'a finished turn: a new run');
 });
 
-test('a reply whose view ended stops reading; the next message follows the turn, shows how it ended, then is sent (D25; Codex at ed5ee3b)', async () => {
+test('a reply that stops reading without a Stop leaves the turn running; the next message follows it, shows how it ended, then is sent (Codex at ed5ee3b)', async () => {
 	const { window, pine } = setup();
 	const { store, service } = window();
 	pine.plans = [{ state: 'running' }];
@@ -238,7 +238,7 @@ test('a reply whose view ended stops reading; the next message follows the turn,
 		assert.ok(Date.now() < end, 'the turn runs');
 		await first.next();
 	}
-	await first.return(undefined); // the view ended (pineSessions.ts, replyEnded)
+	await first.return(undefined); // the reply stops reading with no Stop (no signal aborted): the turn goes on
 	pine.finish(store.chat(KEY)!.current_turn_id!, { state: 'completed', text: 'The drama is made.' });
 	const next = markdown(await send(service, 'and the poster'));
 	assert.match(next, /Pine Computer is still running this turn[^]*The drama is made\.[^]*done: and the poster/);
