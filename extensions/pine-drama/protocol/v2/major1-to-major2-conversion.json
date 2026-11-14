@@ -2,13 +2,18 @@
   "schema": 2,
   "description": "How a client converts a major-1 drama into major 2 (doc/protocol.md, section 8). Normative data: the client applies it as written and knows no major-1 record format beyond it. Every path is project-relative; {object} is a v1 object id with its version segment removed, {owner} the object a record stage belongs to, {file} a path inside a version folder.",
   "version_folders": {
-    "a_version_folder_is": "a folder holding version.json whose name matches one of version_folder_name_patterns",
+    "a_version_folder_is": "a folder holding records_in_a_version_folder.version_record whose name matches one of version_folder_name_patterns",
     "its_object_is": "the folder that holds it ({object})",
     "applied_in_order": "one global order across all objects: by version.json made_at, then object id, then version id. Each version that changes a file makes one commit, authored client-found-changes-on-disk; a version that changes nothing (its files equal what is already there) makes no commit, and its bytes are already in history. So history reads as it happened, and every input a receipt names is already at its major-2 path.",
     "version_folder_name_patterns": [
       "^v\\d+$",
       "^t\\d{2,}$"
-    ]
+    ],
+    "records_in_a_version_folder": {
+      "version_record": "version.json",
+      "outputs_and_metadata": "artifact.json",
+      "paid_call": "job.json"
+    }
   },
   "record_stages": [
     {
@@ -103,7 +108,7 @@
   ],
   "every_other_version": {
     "operation": "copy_outputs_into_object_folder",
-    "copies": "each file artifact.json lists under outputs, at {object}/{file}, except what skip_folders_in_version and skip_files_in_version name; input/ is copied, which keeps bible/input/brief.md and bible/input/screenplay.md",
+    "copies": "each file records_in_a_version_folder.outputs_and_metadata lists under outputs, at {object}/{file}, except what skip_folders_in_version and skip_files_in_version name; input/ is copied, which keeps bible/input/brief.md and bible/input/screenplay.md",
     "a_file_dropped_by_a_later_version": "is deleted in that version's commit, with its receipt, when the later version no longer lists it",
     "also_copies": {
       "episodes/*/edit": [
@@ -121,7 +126,7 @@
     "also_copies_note": "a key matches a v1 object id, * standing for one path segment; technical-check.json is written after artifact.json, so artifact.json does not list it"
   },
   "receipt_rule": {
-    "when": "the version folder has job.json",
+    "when": "the version folder holds records_in_a_version_folder.paid_call",
     "beside": "each file the version copies (outputs), as <file>.receipt.json, in the same commit",
     "fields": {
       "paid_call_id": "job.json attempt_id",
