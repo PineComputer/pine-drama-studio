@@ -79,14 +79,14 @@ test('a default main entry is deterministic and creates no Store row, runtime or
 	store.close();
 });
 
-test('Generate and Start Episode ask the session that owns the item: its episode\'s one session, else the Project Chat', () => {
+test('Generate asks the session that owns the item: its episode\'s one session, else the Project Chat', () => {
 	const { dir, root, other, store } = fixture();
 	const before = projectSessions(sessionProjectRoot([root])!, store.chats());
 	associateProject(store, 'main', root, { kind: 'main' });
 	const after = projectSessions(sessionProjectRoot([root])!, store.chats());
 	const ep6 = ownerOf(after, 'episodes/EP006');
-	// B2: a second Start Episode, sent or not, in this window or another, opens the same session, before the Project
-	// Chat exists as after. B6: the seg editor's and the canvas's Generate on the episode's items ask it too.
+	// B6: the seg editor's and the canvas's Generate on the episode's items ask its one session; asking again, sent or
+	// not, in this window or another, before the Project Chat exists as after, opens the same one.
 	for (const id of ['episodes/EP006', 'episodes/EP006/seg01', 'episodes/EP006/seg01/shot01/keyframe']) {
 		assert.equal(ownerOf(after, id), ep6, id);
 		assert.equal(ownerOf(before, id), ep6, `${id} before the Project Chat`);

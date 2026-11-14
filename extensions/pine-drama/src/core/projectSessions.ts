@@ -24,7 +24,7 @@ export function sessionProjectRoot(folders: readonly string[]): string | undefin
 const entryKey = (root: string) => `pine-computer:/project-${createHash('sha256').update(root).digest('hex')}`;
 
 /**
- * The session that owns the item `id` of the project, where its Generate and Start Episode ask: an episode's items its
+ * The session that owns the item `id` of the project, where its Generate asks: an episode's items its
  * episode's one session, every other item, shared, the Project Chat, which may add to any shared object (doc/protocol.md, section 1). An episode's key is
  * fixed by the project and the episode as the entry's is, so asking again, sent or not, opens the same session, as
  * Code-OSS reveals a chat session already open rather than opening it again (chatWidgetService.ts, openSession).

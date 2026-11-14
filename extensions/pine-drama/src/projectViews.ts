@@ -187,10 +187,6 @@ class ProjectProvider implements vscode.TreeDataProvider<OutlineNode> {
 			item.description = describeStage(detail);
 			item.tooltip = `${node.stagePath}\n${item.description}`;
 		}
-		if (node.role === 'script-episode') {
-			// No breakdown at all, not even one in review: Start Episode opens a session to make it (B8).
-			item.contextValue = `${item.contextValue} startable`;
-		}
 		if (node.role === 'script') {
 			// Open Bible: the bible has no row of its own; its file is one click from Script.
 			item.contextValue = `${item.contextValue} scriptStep`;

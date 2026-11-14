@@ -251,8 +251,8 @@ export function registerPineSessions(
 	const reviewCards = registerReviewCards(context, service, output, key => scope()?.chats.some(c => c.key === key) ?? false, (key, id, words) => review.submitReviewDecisions(key, id, words), id => review.continuing(id));
 	context.subscriptions.push(review.onDidChangeContinuing(() => reviewCards.refresh()));
 	const controller = vscode.chat.createChatSessionItemController(SESSION_TYPE, async () => refresh());
-	// New Session's native "+" makes a new session; Start Episode and Generate open the item owner's (ownerOf) the same
-	// way, as it is listed once it has been sent.
+	// New Session's native "+" makes a new session; Generate opens the item owner's (ownerOf) the same way, as it is
+	// listed once it has been sent.
 	const newSession = (key = vscode.Uri.from({ scheme: SESSION_TYPE, path: `/session-${randomUUID()}` }).toString()): vscode.ChatSessionItem => {
 		const project = scope();
 		if (!project) {
