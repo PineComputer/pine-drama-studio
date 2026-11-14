@@ -171,7 +171,8 @@
     "one_source_per_field": {
       "type, name, setting, variant_of, relations": "from the object's current entry version when it has an entry stage (record_stages /entry), otherwise from the latest snapshot that lists it (type, name, segment; relations from its edges inside_of, appears_in, needs; variant_of from its edge variant_of)",
       "segment": "from that snapshot",
-      "shown_file": "always the current version's version.json file"
+      "shown_file": "always the current version's version.json file",
+      "objects_sent_by_draw_request": "for an object with a current version: that version's version.json inputs, in order, keeping only inputs whose version has a shown file (the pictures the draw sent), each mapped to its object id; for a planned object with no version: the inputs of the latest snapshot that lists it, in order. Absent when the list would be empty."
     },
     "written_in": "the last commit (current), once, so no commit order decides a field"
   }
