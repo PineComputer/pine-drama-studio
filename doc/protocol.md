@@ -11,7 +11,7 @@ The Computer side also works with no client: driven by Pine Computer's own agent
 **The drama's folder is a git repository** (section 2).
 - **One current file per object.** Each object has one current copy of each of its files, and history is the repository's commits.
 - **No version numbers, no choices file, no acceptance state, no scopes.**
-- **Any number of sessions** may work on one drama at once. Two results that change the same file conflict, and a conflict loses nothing (4.4).
+- **Any number of sessions** may work on one drama at once. The newest result lands, and history keeps every earlier one (4.4).
 
 A client can be built from this page and one schema file, [`protocol/v2/protocol.schema.json`](../extensions/pine-drama/protocol/v2/protocol.schema.json).
 - **This page is normative.** Each document is one entry of the schema's `$defs`, named where the document is defined.
@@ -83,7 +83,7 @@ The rest of the receipt (the request and response as sent) belongs to the Comput
 
 - **The person changes any file in the folder**, through the client or by hand. A change through the client is a plain write (a temporary sibling, then a rename) and a `person` commit of the paths it wrote.
 - **Hand changes** are committed as `client-found-changes-on-disk` at the next opening or seed.
-- **A running turn** sees a change only at its next seed (4.2). A result that lands over a file the person changed meanwhile conflicts (4.4).
+- **A running turn** sees a change only at its next seed (4.2). A person's edit made while a turn runs can be replaced by that turn's later write to the same file; it stays in the file's history, one restore away (4.4).
 
 ## 4. The turn
 
@@ -119,7 +119,6 @@ The rest of the receipt (the request and response as sent) belongs to the Comput
 | `seed_files` | The seed: every file of the drama at the commit the client made for it, `{<path>: <hash>}`. Paths starting with `.` are left out (section 1). |
 | `session_private_state` | The hash of the session's private state from its last return, or `null`. |
 | `notes_for_pine_computer` | The person's feedback for Pine Computer, each `{object_id, text, attached_file?, position_in_shown_file?: {x, y}, seconds_into_video?}`. `attached_file` is a file of `seed_files` (a picture the person attached), `position_in_shown_file` gives fractions 0–1 of the shown file's width and height, and `seconds_into_video` gives seconds into a video. A note decides nothing. |
-| `changes_client_kept_aside_as_conflicts` | The changes of this session's earlier turns that the client kept aside as conflicts since its last request (4.4), each `{turn_id, change_number, paths}`, so Pine Computer learns of them. |
 
 - **The seed commit.** Before writing the request, the client commits whatever is uncommitted as `client-found-changes-on-disk`, so the seed is a commit and every input the turn may read is in history.
 - **Restore.** The Computer side writes exactly `seed_files` into its workspace, then restores the private state outside it: private state never holds a file of the drama, so it cannot overwrite the seed. A file of the tree the Computer side rewrites only for its own machine, such as a path in its configuration, is kept outside the workspace too, so it never comes back as a change.
@@ -129,31 +128,28 @@ The rest of the receipt (the request and response as sent) belongs to the Comput
 Each result the turn finishes is one **change** (`$defs/change`) at `turns/<turn id>/changes/<change number>.json`: an output with its receipt, or a text write. `change_number` counts from 1 within the turn.
 
 ```
-change = { schema, turn_id, change_number, previous_change_sha256, files: { <path>: { sha256_before, sha256_after } } }
+change = { schema, turn_id, change_number, previous_change_sha256, files_after_change: { <path>: <hash> | null } }
 ```
 
 | Field | Meaning |
 |---|---|
 | `previous_change_sha256` | The hash of the previous change's bytes, or `null` for the first. A client that missed one finds it by its number in the store. |
-| `sha256_before` | The hash of the file as the turn read it, or `null` for a file the turn creates. |
-| `sha256_after` | The hash of the file the change writes, or `null` for a file it deletes. |
+| `files_after_change` | Each path the change writes, with the hash of its new bytes, or `null` for a file it deletes. |
 
-- **Bytes first.** The Computer side stores every `sha256_after` file at `files/<hash>` before it writes the change.
+- **Bytes first.** The Computer side stores every file of `files_after_change` at `files/<hash>` before it writes the change.
 - **Every changed file comes back.** A file the Computer side changes in its workspace by any means (its own commands, or its agent editing the file directly) comes back as a change. Before each of its commands and before its return, the Computer side writes a change for every workspace file that differs from `seed_files` and from what its earlier changes wrote.
-- **Rerolls.** The attempts of one turn on one file chain: each attempt's `sha256_before` is the previous attempt's `sha256_after`. So they apply in order, and the file's history holds every one.
 
 ### 4.4 Applying a change (client)
 
 The client applies a turn's changes in `change_number` order, through the one queue that also writes the person's changes, so two never write at once. For each change:
 
-1. **Resolved already?** A change is resolved when a commit carries its trailers `Pine-Turn-Id: <turn id>` and `Pine-Change-Number: <change number>`, or when its conflicting-change ref exists. Then it is skipped. The repository is the record, so it travels with the folder. If every path's current hash equals its `sha256_after` (a crash's files that a `client-found-changes-on-disk` commit took), the client records it with an empty commit carrying those trailers, and goes on.
-2. **Conflict.** If any path's current hash differs from its `sha256_before`, nothing is written. The whole change is kept aside: committed, unapplied, under the ref `refs/pine/conflicting-changes/<turn id>/<change number>`, and the client tells the person which paths conflicted. Nothing the turn paid for is lost: the ref keeps it, and the person or a later turn can apply it.
-3. **Write.** Each file is written by a temporary sibling and a rename, receipts before the outputs they describe. A `sha256_after` of `null` deletes the file.
-4. **Commit.** The client commits exactly those paths (`git commit --only -- <paths>`) as `pine-computer`, with the trailers `Pine-Turn-Id` and `Pine-Change-Number`.
+1. **Resolved already?** A change is resolved when a commit carries its trailers `Pine-Turn-Id: <turn id>` and `Pine-Change-Number: <change number>`. Then it is skipped. The repository is the record, so it travels with the folder. If every path's current hash already equals its hash in `files_after_change` (a crash's files that a `client-found-changes-on-disk` commit took), the client records it with an empty commit carrying those trailers, and goes on.
+2. **Write.** Each file is written by a temporary sibling and a rename, receipts before the outputs they describe. A `null` deletes the file.
+3. **Commit.** The client commits exactly those paths (`git commit --only -- <paths>`) as `pine-computer`, with the trailers `Pine-Turn-Id` and `Pine-Change-Number`.
 
-**A crash** between steps 3 and 4 leaves the files on disk. The next opening commits them as `client-found-changes-on-disk`, and step 1 then finds the change applied.
+**A crash** between steps 2 and 3 leaves the files on disk. The next opening commits them as `client-found-changes-on-disk`, and step 1 then finds the change applied.
 
-A client that moves or exports the repository keeps `refs/pine/conflicting-changes/*` with it (for example `git clone --mirror`).
+**The newest result lands.** There is no check against what a file held before and no refusal: whichever change is applied last is the file's current content, and the file's history keeps every earlier one, the person's included. The same one rule covers a reroll's attempts, two sessions writing one file, and a turn writing over a person's edit. "Use" (section 5) brings any earlier one back.
 
 ### 4.5 Paid calls (Computer side)
 
@@ -189,7 +185,7 @@ A paid-call state carries `{schema, paid_call_id, object_id, state, state_writte
 
 **Fields by state.** `pine_computer_refused_the_turn_before_running` carries `error` only. `pine_computer_is_waiting_for_person_answer`, `pine_computer_finished_the_work` and `pine_computer_broke_off_the_turn_partway` carry `last_change`, `session_private_state` and `pine_computer_could_not_do`. `pine_computer_is_waiting_for_person_answer` adds `question_for_person`, and `pine_computer_broke_off_the_turn_partway` adds `error`.
 
-- **Resolved.** A return is resolved once its changes up to `last_change` are applied or kept aside as conflicts. The session may then send its next turn.
+- **Resolved.** A return is resolved once its changes up to `last_change` are applied. The session may then send its next turn.
 - **Private state.** The client keeps a copy of every private-state archive a return named, by hash, and the session's next request names the one its latest resolved return gave. A `pine_computer_refused_the_turn_before_running` or missing return keeps the one before.
 - **Stops are questions.** The five stops of the drama workflow are `pine_computer_is_waiting_for_person_answer` returns: the person's answer is the approval of the next paid work, given before it, as a coding agent asks for approval before it acts (Codex's AskForApproval). There is no acceptance after the fact.
 
@@ -206,7 +202,7 @@ A paid-call state carries `{schema, paid_call_id, object_id, state, state_writte
 
 ## 5. What the client shows
 
-- **The cards** show what the folder holds: each object's `object.json`, its `shown_file` and its receipts. A history is `git log` of a path, and a conflicting-change ref is listed with the history of the paths it holds.
+- **The cards** show what the folder holds: each object's `object.json`, its `shown_file` and its receipts. A history is `git log` of a path.
 - **"Use" on a past result** restores every file of that result's change (the commit carrying its `Pine-Change-Number`), receipts with them, as a `person` commit. So an output never sits beside another result's sibling or receipt.
 
 ## 6. Errors

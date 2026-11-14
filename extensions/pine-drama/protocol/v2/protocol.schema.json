@@ -310,33 +310,6 @@
           "items": {
             "$ref": "#/$defs/note"
           }
-        },
-        "changes_client_kept_aside_as_conflicts": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "required": [
-              "turn_id",
-              "change_number",
-              "paths"
-            ],
-            "properties": {
-              "paths": {
-                "type": "array",
-                "minItems": 1,
-                "items": {
-                  "$ref": "#/$defs/path"
-                }
-              },
-              "turn_id": {
-                "$ref": "#/$defs/clientId"
-              },
-              "change_number": {
-                "type": "integer",
-                "minimum": 1
-              }
-            }
-          }
         }
       }
     },
@@ -348,47 +321,11 @@
         "turn_id",
         "change_number",
         "previous_change_sha256",
-        "files"
+        "files_after_change"
       ],
       "properties": {
         "schema": {
           "$ref": "#/$defs/schema"
-        },
-        "files": {
-          "type": "object",
-          "minProperties": 1,
-          "propertyNames": {
-            "$ref": "#/$defs/path"
-          },
-          "additionalProperties": {
-            "type": "object",
-            "required": [
-              "sha256_before",
-              "sha256_after"
-            ],
-            "properties": {
-              "sha256_before": {
-                "anyOf": [
-                  {
-                    "$ref": "#/$defs/hash"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ]
-              },
-              "sha256_after": {
-                "anyOf": [
-                  {
-                    "$ref": "#/$defs/hash"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ]
-              }
-            }
-          }
         },
         "turn_id": {
           "$ref": "#/$defs/clientId"
@@ -406,6 +343,24 @@
               "type": "null"
             }
           ]
+        },
+        "files_after_change": {
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": {
+            "$ref": "#/$defs/path"
+          },
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/hash"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "description": "Each path the change writes, with the hash of its new bytes, or null for a file it deletes."
         }
       }
     },
