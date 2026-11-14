@@ -157,14 +157,28 @@ test('Script lists the episodes under way, folds the ones not started into one r
 	const rows = await drama.children(script);
 	assert.deepEqual(rows.map(r => r.label), ['EP001 The Interview', '2 not started yet']);
 	assert.deepEqual((await drama.children(rows[1])).map(r => [r.label, r.episode]), [['EP002 Second', 'episodes/EP002'], ['EP003 Third', 'episodes/EP003']]);
-	const objects = (await drama.drama()).objects;
-	assert.equal(decomposition(objects.get('episodes/EP001/breakdown')).text, 'Shots planned');
-	assert.equal(decomposition(undefined).text, 'Not started');
+	const made = await drama.drama();
+	assert.equal(decomposition(made, made.objects.get('episodes/EP001/breakdown')).text, 'Takes shot', 'EP001 has takes: its furthest stage with a version');
+	assert.equal(decomposition(made, undefined).text, 'Not started');
 	assert.deepEqual((await drama.locate('#script/episodes/EP003')).map(n => n.id), ['screenplay', '#script/later', '#script/episodes/EP003'], 'a folded episode is still found');
 	// Its canvas and seg editor open from its row (Codex on B18): the row names its episode.
 	const folded = (await drama.children(rows[1]))[1];
 	assert.equal(episodeOfNode(folded), 'EP003');
 	assert.equal(episodeOfNode(rows[0]), 'EP001');
+});
+
+// Finished episodes, with a cut, read "Shots planned" under Script, which a beginner reads as not done.
+test('An episode under Script is labelled by its furthest stage that has a version', async () => {
+	const root = folder();
+	const cut = join(root, 'episodes', 'EP001', 'cut', 'v1');
+	mkdirSync(cut, { recursive: true });
+	writeFileSync(join(cut, 'cut.mp4'), '');
+	writeFileSync(join(cut, 'version.json'), JSON.stringify({ schema: 1, made_at: '2026-11-12T12:00:00Z', file: 'cut.mp4', inputs: [{ object: 'episodes/EP001/segments/seg01', version: 'v1' }], prompt: null, from_import: null }));
+	const planned: Snapshot = { ...EPISODES, objects: { ...EPISODES.objects,
+		'episodes/EP001/cut': { type: 'cut', name: 'EP001 cut', segment: null, usable: true, from_add: null },
+		'episodes/EP001/subtitles': { type: 'subtitles', name: 'EP001 subtitles', segment: null, usable: true, from_add: null } } };
+	const made = await readDrama(root, () => [project(PROJECT, 1), episodes(planned, 2)]);
+	assert.deepEqual(decomposition(made, made.objects.get('episodes/EP001/breakdown')), { text: 'Edited', decomposed: true }, 'the cut has a version; the subtitles, planned, have none');
 });
 
 // B13: a review card titled versions by their folders' paths ("episodes/EP001/segments/seg02 t01"); the canvas's
