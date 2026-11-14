@@ -126,8 +126,11 @@ button.labeled:disabled { opacity: 0.5; cursor: default; }
 .card .card-status.warn { color: var(--vscode-editorWarning-foreground); }
 /* Group frames carry the asset's or the segment's name, read zoomed out as the footer is. */
 
-/* The composer, under the picked card (the person's design): one surface; its text flat on it, no box around it. */
-.composer { width: 560px; border-radius: 16px; padding: 12px 14px 10px; display: flex; flex-direction: column; gap: 10px; cursor: default; }
+/* The composer, under the picked card (the person's design): one surface; its text flat on it, no box around it. It is
+   at most the pane's width less Floating UI's shift padding (canvas.tsx UnderCard), so it fits a narrow editor. Above the
+   cards and edges in the renderer, as NodeToolbar's was. */
+.under-card { z-index: 5; }
+.composer { width: min(560px, calc(100vw - 16px)); box-sizing: border-box; border-radius: 16px; padding: 12px 14px 10px; display: flex; flex-direction: column; gap: 10px; cursor: default; }
 .composer-row, .composer-bar { display: flex; align-items: center; gap: 6px; }
 .composer-bar { border-top: 1px solid var(--vscode-widget-border, var(--vscode-panel-border)); padding-top: 8px; }
 .composer .spacer { flex: 1; }
@@ -136,7 +139,8 @@ button.chip-button { display: inline-flex; align-items: center; gap: 4px; paddin
 button.quiet { padding: 5px 6px; border: 0; background: none; cursor: pointer; color: var(--vscode-descriptionForeground); }
 button.quiet:hover:not(:disabled) { color: var(--vscode-foreground); }
 button.chip-button:disabled, button.quiet:disabled { opacity: 0.45; cursor: default; }
-button.generate { width: 34px; height: 34px; border-radius: 50%; border: 0; cursor: pointer; color: var(--vscode-button-foreground); background: var(--vscode-button-background); display: inline-flex; align-items: center; justify-content: center; }
+/* Generate says its name, as a primary button does; the arrow is the Chat's send. */
+button.generate { height: 30px; padding: 0 12px 0 10px; gap: 4px; border-radius: 15px; border: 0; font: inherit; font-weight: 600; cursor: pointer; color: var(--vscode-button-foreground); background: var(--vscode-button-background); display: inline-flex; align-items: center; justify-content: center; }
 button.generate:hover:not(:disabled) { background: var(--vscode-button-hoverBackground); }
 button.generate:disabled { opacity: 0.45; cursor: default; }
 .composer-refs { display: flex; align-items: center; gap: 8px; }

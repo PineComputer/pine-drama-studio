@@ -553,6 +553,7 @@
     "test": "npm run compile && node --test --test-concurrency=4 --test-timeout=120000 --test-force-exit \"out/test/*.test.js\""
   },
   "devDependencies": {
+    "@floating-ui/react-dom": "2.1.9",
     "@types/node": "^24.0.0",
     "@types/react": "19.2.2",
     "@types/react-dom": "19.2.1",

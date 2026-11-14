@@ -179,13 +179,12 @@ async function boxCase(source: Source): Promise<Case> {
 			problems.push('the card or the box has no box on screen');
 		} else {
 			if (b.y < c.y + c.height) { problems.push(`the composer starts at y ${b.y}, above the card's bottom ${c.y + c.height}`); }
-			const offset = Math.abs((b.x + b.width / 2) - (c.x + c.width / 2));
-			if (offset > 2) { problems.push(`the composer is ${offset.toFixed(0)} px off the card's centre`); }
+			problems.push(...underCard(c, b, (await page.locator('.react-flow').first().boundingBox())!));
 		}
 		if (process.env.PDS_RENDER_SHOTS) { await new Promise(resolve => setTimeout(resolve, 800)); await page.screenshot({ path: join(process.env.PDS_RENDER_SHOTS, 'shot-box-under-card.png') }); }
 		// Generate is last in the composer's bottom bar.
 		const generate = box.locator('button.generate');
-		const row = await box.locator('.composer-bar').evaluate(element => Array.from((element as { querySelectorAll(selector: string): ArrayLike<{ getAttribute(n: string): string | null }> }).querySelectorAll('button'), b => b.getAttribute('aria-label')));
+		const row = await box.locator('.composer-bar').evaluate(element => Array.from((element as { querySelectorAll(selector: string): ArrayLike<{ textContent: string | null }> }).querySelectorAll('button'), b => b.textContent?.trim()));
 		if (row.at(-1) !== 'Generate') { problems.push(`Generate is not last in the bottom bar (${JSON.stringify(row)})`); }
 		if (await generate.isDisabled()) { problems.push('Generate is disabled with no edit'); }
 		await generate.click();
@@ -242,6 +241,99 @@ async function boxCase(source: Source): Promise<Case> {
 		return problems;
 	};
 	return { ...c, name: `${source.name}: the composer under an asset card`, interact: { answer, check } };
+}
+
+type Box = { x: number; y: number; width: number; height: number };
+/** The composer is centred under its card, unless that would cross the pane's edge: then it is shifted to 8 px inside it (UnderCard). */
+function underCard(card: Box, box: Box, pane: Box): string[] {
+	const x = Math.min(Math.max(card.x + card.width / 2 - box.width / 2, pane.x + 8), pane.x + pane.width - 8 - box.width);
+	return Math.abs(box.x - x) > 2 ? [`the composer is at x ${box.x.toFixed(0)}, not ${x.toFixed(0)} (centred under its card, inside the pane)`] : [];
+}
+
+const overlap = (a: Box, b: Box) => a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+const at = (r: Box) => `(${r.x.toFixed(0)}, ${r.y.toFixed(0)}) ${r.width.toFixed(0)} × ${r.height.toFixed(0)}`;
+
+/** Click a card with Select and read its composer once Floating UI has placed it (autoUpdate): two reads a frame apart agree. */
+async function openComposer(page: Page, card: Locator): Promise<Box | null> {
+	const box = page.locator('.composer');
+	await page.keyboard.press('v');
+	await card.click({ position: { x: 12, y: 12 } });
+	if (await box.waitFor({ timeout: WAIT_MS }).then(() => false, () => true)) { return null; }
+	let [now, was] = [await box.boundingBox(), null as Box | null];
+	for (const until = Date.now() + WAIT_MS; Date.now() < until && JSON.stringify(now) !== JSON.stringify(was);) {
+		await new Promise(resolve => setTimeout(resolve, 16));
+		[was, now] = [now, await box.boundingBox()];
+	}
+	return now;
+}
+
+/**
+ * In a narrow editor, as with the chat and Sessions open beside it, the composer of a card at the pane's left edge stays
+ * inside the pane rather than starting mid-word past it, and its Generate says its name. A card near the bottom has its
+ * composer above it (flip), so the minimap covers neither.
+ */
+async function narrowBoxCase(source: Source): Promise<Case> {
+	const c = await canvasCase(source, ASSETS_CANVAS);
+	const pane = { width: 480, height: 800 };
+	const check = async (page: Page): Promise<string[]> => {
+		const problems: string[] = [];
+		const [p, m] = [(await page.locator('.react-flow').first().boundingBox())!, await page.locator('.react-flow__minimap').boundingBox()];
+		if (!m) { return ['no minimap']; }
+		const first = page.locator('.react-flow__node-card').first();
+		const b = await openComposer(page, first);
+		if (!b) { return ['no composer opened under the first card']; }
+		if (b.x < p.x || b.x + b.width > p.x + p.width) { problems.push(`the composer spans x ${b.x.toFixed(0)} to ${(b.x + b.width).toFixed(0)}, past the pane's ${p.x.toFixed(0)} to ${(p.x + p.width).toFixed(0)}`); }
+		problems.push(...underCard((await first.boundingBox())!, b, p));
+		const label = await textOf(page.locator('.composer button.generate'));
+		if (label?.trim() !== 'Generate') { problems.push(`Generate reads ${JSON.stringify(label)}`); }
+		if (overlap(b, m)) { problems.push(`the minimap ${at(m)} covers the composer ${at(b)} under the first card`); }
+		await page.keyboard.press('Escape');
+		// The same card panned down to just above the minimap: no room below it, so its composer goes above it (flip).
+		const k = (await first.boundingBox())!;
+		const [from, dy] = [{ x: k.x + k.width / 2, y: k.y + k.height / 2 }, m.y - 20 - (k.y + k.height)];
+		await page.keyboard.press('h');
+		await page.mouse.move(from.x, from.y);
+		await page.mouse.down();
+		for (let i = 1; i <= 8; i++) { await page.mouse.move(from.x, from.y + dy * i / 8); }
+		await page.mouse.up();
+		const a = await openComposer(page, first);
+		const low = (await first.boundingBox())!;
+		if (!a) { return [...problems, 'no composer opened under the card near the bottom']; }
+		if (overlap(a, m)) { problems.push(`the minimap ${at(m)} covers the composer ${at(a)} of the card ${at(low)} near the bottom`); }
+		if (a.y + a.height > low.y) { problems.push(`the composer of the card near the bottom ends at y ${(a.y + a.height).toFixed(0)}, not above its top ${low.y.toFixed(0)}`); }
+		return problems;
+	};
+	return { ...c, pane, name: `${source.name}: in a narrow pane the composer stays inside it, clear of the minimap, and Generate says its name`, interact: { answer: recordAnswer(source), check } };
+}
+
+/**
+ * A pane too short for the composer on either side of its card: Floating UI's own behaviour, nothing of ours
+ * (https://floating-ui.com/docs/flip, fallbackStrategy; https://floating-ui.com/docs/shift, crossAxis). flip's default
+ * 'bestFit' "will use the placement which fits best on the checked axes": the side with more room, the room below ending
+ * at the minimap (flip's padding). shift moves it along the main axis only (crossAxis defaults to false), so it stays
+ * inside the pane across, never covers its card, and runs past the pane's edge, or under the minimap, on that side; the
+ * person pans the board to read the rest, as the composer moves with it.
+ */
+async function shortPaneBoxCase(source: Source): Promise<Case> {
+	const c = await canvasCase(source, ASSETS_CANVAS);
+	const pane = { width: 480, height: 480 };
+	const check = async (page: Page): Promise<string[]> => {
+		const problems: string[] = [];
+		const [p, m] = [(await page.locator('.react-flow').first().boundingBox())!, await page.locator('.react-flow__minimap').boundingBox()];
+		if (!m) { return ['no minimap']; }
+		const card = page.locator('.react-flow__node-card').first();
+		const b = await openComposer(page, card);
+		const k = (await card.boundingBox())!;
+		if (!b) { return ['no composer opened under the first card']; }
+		const [above, below] = [k.y - 14 - p.y, m.y - (k.y + k.height + 14)];
+		console.log(`    short pane ${at(p)}: card ${at(k)}, composer ${at(b)}, minimap ${at(m)}; room above ${above.toFixed(0)}, below ${below.toFixed(0)}`);
+		if (b.height <= Math.max(above, below)) { problems.push(`the composer (${b.height.toFixed(0)} px) fits on a side of its card (above ${above.toFixed(0)}, below ${below.toFixed(0)}): this pane is not short enough for the case`); }
+		const side = b.y >= k.y + k.height ? 'below' : b.y + b.height <= k.y ? 'above' : 'over';
+		if (side !== (above > below ? 'above' : 'below')) { problems.push(`the composer is ${side} its card, not on the side with more room (bestFit)`); }
+		if (b.x < p.x || b.x + b.width > p.x + p.width) { problems.push(`the composer spans x ${b.x.toFixed(0)} to ${(b.x + b.width).toFixed(0)}, past the pane's ${p.x.toFixed(0)} to ${(p.x + p.width).toFixed(0)}`); }
+		return problems;
+	};
+	return { ...c, pane, name: `${source.name}: in a pane too short for the composer, it takes the side of its card with more room`, interact: { answer: recordAnswer(source), check } };
 }
 
 /**
@@ -833,7 +925,7 @@ async function main(): Promise<number> {
 	]);
 	const source: Source = { name: 'protocol fixture', root, drama: await readFixture() };
 	const cases: Case[] = [
-		await canvasCase(source, ASSETS_CANVAS), await boxCase(source), await faceCase(source), await toolsCase(source), await clickModelCase(source, ASSETS_CANVAS), await variantBoxCase(source), await longNameCase(source),
+		await canvasCase(source, ASSETS_CANVAS), await boxCase(source), await narrowBoxCase(source), await shortPaneBoxCase(source), await faceCase(source), await toolsCase(source), await clickModelCase(source, ASSETS_CANVAS), await variantBoxCase(source), await longNameCase(source),
 		await canvasCase(source, 'EP001'), await takeLinesCase({ ...source, drama: await readFixture() }), await openingCase(source, 'EP001'), await episodeBoxCase(source), await clickModelCase(source, 'EP001'),
 		await wheelZoomCase(source, ASSETS_CANVAS), await wheelZoomCase(source, 'EP001'),
 		await assetsFloorCase(source), await savedViewportCase(source, ASSETS_CANVAS), await savedViewportCase(source, 'EP001'),
