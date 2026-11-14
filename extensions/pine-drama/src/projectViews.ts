@@ -198,7 +198,7 @@ class ProjectProvider implements vscode.TreeDataProvider<OutlineNode> {
 		if (node.episode && this.project) {
 			// A Script episode: its decomposition.
 			const drama = await this.project.drama();
-			const state = decomposition(node.stagePath ? drama.objects.get(node.stagePath) : undefined);
+			const state = decomposition(drama, node.stagePath ? drama.objects.get(node.stagePath) : undefined);
 			item.description = state.text;
 			item.tooltip = `${node.label}\n\n${state.text}`;
 			if (state.decomposed) { item.contextValue = `${item.contextValue} decomposed`; }

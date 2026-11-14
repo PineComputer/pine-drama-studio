@@ -3,7 +3,9 @@
 
 import { kindCount } from './assetStatus';
 import type { Collection } from './galleryProtocol';
-import type { Drama, DramaObject, OutlineNode } from './project';
+import { TYPES } from './lineage';
+import { episodeIn, type Drama, type DramaObject, type OutlineNode } from './project';
+import type { ObjectType } from './protocol';
 
 /** An episode's decomposition under Script: the label for its row, and whether "Go to episode" applies. */
 interface Decomposition {
@@ -11,12 +13,27 @@ interface Decomposition {
 	readonly decomposed: boolean;
 }
 
-/** An episode's breakdown, in the person's words: none is "Not started"; usable is "Shots planned"; else the snapshot's `why`. */
-export function decomposition(breakdown: DramaObject | undefined): Decomposition {
+/** An episode stage's words once it has a version; the furthest such stage, in pipeline order (TYPES), labels the episode. */
+const REACHED: Partial<Record<ObjectType, string>> = {
+	breakdown: 'Shots planned', storyboard: 'Storyboards drawn', keyframe: 'Keyframes drawn', video_prompts: 'Shot prompts written',
+	take: 'Takes shot', cut: 'Edited', subtitles: 'Subtitled',
+};
+
+/**
+ * An episode's row under Script, from its breakdown: none is "Not started", one not usable says the snapshot's `why`;
+ * else the furthest of the episode's stages that has a version (REACHED).
+ */
+export function decomposition(drama: Drama, breakdown: DramaObject | undefined): Decomposition {
 	if (!breakdown?.versions.length) {
 		return { text: 'Not started', decomposed: false };
 	}
-	return breakdown.usable ? { text: 'Shots planned', decomposed: true } : { text: breakdown.why ?? 'not usable yet', decomposed: false };
+	if (!breakdown.usable) {
+		return { text: breakdown.why ?? 'not usable yet', decomposed: false };
+	}
+	const episode = episodeIn(breakdown.id);
+	const made = new Set([...drama.objects.values()].filter(o => o.versions.length && episodeIn(o.id) === episode).map(o => o.type));
+	const furthest = [...TYPES].reverse().find(type => REACHED[type] && made.has(type))!;
+	return { text: REACHED[furthest]!, decomposed: true };
 }
 
 /** The action on a Script episode not broken down yet: a new session for it (B8; the skill names it too). */
