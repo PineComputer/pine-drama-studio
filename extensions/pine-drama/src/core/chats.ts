@@ -35,6 +35,7 @@ import { entryFor, type Entry } from './binding';
 import { givenBack, refusalLine } from './refusal';
 import { Holders, keptBytes, putAll, requestKey, returnKey, sha256 } from './taskArtifacts';
 import { dramaRecordOf, installedSnapshots, requestKeys, requestOf, taskMessage, type DramaRecord } from './taskRun';
+import { runInProjectWriteQueue } from './projectHistory';
 import { installReturn, previewProgress, readReturn, type ReviewTarget } from './resultImporter';
 import { UnsupportedMajor, type Return } from './protocol';
 import { copyImport, readChoices, updateChoices, withObject, writeWhole } from './choices';
@@ -239,8 +240,6 @@ export class ChatService {
 	private readonly idlePolicies = new Map<string, Promise<IdlePolicy>>();
 	private readonly localSubmissions = new Map<string, Promise<string>>();
 	private readonly reviewContinuations = new Set<string>();
-	/** By project: the local writer's line (inProjectWriter). */
-	private readonly projectWriters = new Map<string, Promise<void>>();
 
 	constructor(private readonly options: ChatServiceOptions) {
 		this.store = options.store;
@@ -1288,7 +1287,7 @@ export class ChatService {
 		if (!complete(view)) { throw new Error('Give every item a verdict after its files have arrived.'); }
 		const approved = view.items.filter(item => view.verdicts[item.key]?.verdict === 'approve').flatMap(item => item.targets ?? []);
 		const answer = source === 'ui' ? answerFor(view, own) + (approved.length ? `\nApproval selected in Studio: ${REVIEW_APPROVAL_STATEMENT}` : '') : answerFor(view, words);
-		await this.inProjectWriter(place.root, async () => {
+		await runInProjectWriteQueue(place.root, async () => {
 			this.generations.assert(key, epoch);
 			await updateChoices(place.root, choices => approved.reduce((next, target) => withObject(next, target.object, entry => ({ ...entry, chosen: { version: target.version, words } })), choices));
 		});
@@ -1955,21 +1954,6 @@ export class ChatService {
 	}
 
 
-	private async inProjectWriter<T>(root: string, work: () => Promise<T>): Promise<T> {
-		const project = projectIdentity(root);
-		const before = this.projectWriters.get(project);
-		let ended!: () => void;
-		const mine = new Promise<void>(resolve => { ended = resolve; });
-		const line = before ? before.then(() => mine) : mine;
-		this.projectWriters.set(project, line);
-		try {
-			await before;
-			return await work();
-		} finally {
-			if (this.projectWriters.get(project) === line) { this.projectWriters.delete(project); }
-			ended();
-		}
-	}
 
 
 
@@ -2021,7 +2005,7 @@ export class ChatService {
 		const review: ReviewTarget[] = [];
 		const returned: string[] = [];
 		try {
-			await this.inProjectWriter(root, async () => {
+			await runInProjectWriteQueue(root, async () => {
 				for (const task of tasks) {
 					this.generations.assert(key, epoch);
 					// The folder is still the bound one: a root moved away or replaced by a link receives nothing.

@@ -9,9 +9,10 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmdirSync
 import { basename, dirname, join, posix, win32 } from 'node:path';
 import { extract as extractTar } from 'tar';
 import { readChoices, updateChoices, versionRecordOf, withObject, writeWhole } from './choices';
+import { validPath } from './applyChange';
 import { within } from './placement';
 import { snapshotState, variantRoot } from './project';
-import { listOf, MAJOR, mapOf, matches, UnsupportedMajor, type Progress, type Request, type Return, type VersionRef } from './protocol';
+import { listOf, MAJOR, mapOf, UnsupportedMajor, type Progress, type Request, type Return, type VersionRef } from './protocol';
 import { fetchKept, fileKey, MismatchedArtifact, MissingArtifact, returnKey, sha256, stateKey, versionKey, type ArtifactStore } from './taskArtifacts';
 import { scopedSnapshots, tasksOf, type DramaRecord, type Installed } from './taskRun';
 
@@ -68,18 +69,6 @@ export function readReturn(bytes: Buffer, task: string): Return {
 	if (given.schema !== MAJOR && given.schema !== undefined) { throw new UnsupportedMajor(returnKey(task), given.schema); }
 	const snapshot = given.snapshot && { ...Object(given.snapshot), objects: mapOf(given.snapshot.objects), edges: listOf(given.snapshot.edges) };
 	return { ...given, turn: task, versions: { ...given.versions }, reviews: { ...given.reviews }, snapshot, problems: listOf(given.problems), review: listOf(given.review) } as Return;
-}
-
-/** A Windows reserved name, with or without an extension (doc/protocol.md section 1). */
-const RESERVED = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i;
-
-/**
- * A path as doc/protocol.md section 1 defines it: NFC, the schema's `$defs/path` (relative, `/`-separated, no empty or
- * hidden segment, no `\` or control character, at most 240 characters), and what a pattern does not hold there: no
- * segment is a Windows reserved name or ends with `.` or a space.
- */
-export function validPath(path: string): boolean {
-	return path.normalize('NFC') === path && matches('path', path) && path.split('/').every(segment => !RESERVED.test(segment) && !/[. ]$/.test(segment));
 }
 
 /** File system errors that are the machine's, not the archive's: an install that meets one is tried again. */
@@ -139,15 +128,10 @@ function extractSafely(archive: string, dir: string, skipped: (name: string) => 
  * folders known and skips them.
  */
 export function installReturn(o: Parameters<typeof installNow>[0]): Promise<{ readonly done: Installed; readonly leftOut: readonly LeftOut[] }> {
-	// One return at a time per drama: two returns that pass their checks together could otherwise rename a folder
-	// before the other's clash is found. A promise chain per folder, as choices.ts's updateChoices; one window holds a
-	// project, so no lock file.
-	const run = (installs.get(o.root) ?? Promise.resolve()).catch(() => undefined).then(() => installNow(o));
-	installs.set(o.root, run);
-	return run;
+	// The caller runs it in the project's one write queue (projectHistory.ts runInProjectWriteQueue): two returns that
+	// pass their checks together could otherwise rename a folder before the other's clash is found.
+	return installNow(o);
 }
-
-const installs = new Map<string, Promise<unknown>>();
 
 async function installNow(o: {
 	readonly root: string;

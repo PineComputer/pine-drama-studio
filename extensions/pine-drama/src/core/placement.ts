@@ -12,7 +12,7 @@ export interface ProjectPlace {
 }
 
 /** The real path `path` has or would have once created; undefined when it passes through a link that leads nowhere. */
-function realTarget(path: string): string | undefined {
+export function realTarget(path: string): string | undefined {
 	const rest: string[] = [];
 	let existing = resolve(path);
 	for (;;) {

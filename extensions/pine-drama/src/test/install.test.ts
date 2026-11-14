@@ -1,5 +1,6 @@
 // Installing a return (doc/protocol.md, 4.4) and putting a task on a Computer: one test per rule that can lose or
 // corrupt the person's drama. System tar makes the archives, as the Computer side does.
+import { runInProjectWriteQueue } from '../core/projectHistory';
 import { strict as assert } from 'node:assert';
 import { execFileSync } from 'node:child_process';
 import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
@@ -61,8 +62,9 @@ async function drama(scope: 'project' | 'episodes' = 'project') {
 		await record.sentRequest(request, 'computer-1', 'chat-1', new Date(at));
 		return request;
 	};
-	const install = (request: Request, ret: Omit<Return, 'schema' | 'turn' | 'state'>) =>
-		installReturn({ root, record, kept: join(storage, 'kept'), store, request, ret: { schema: 1, turn: request.turn, state: 'ended', ...ret } });
+	// In the project's one write queue, as the Chat installs a return (chats.ts).
+	const install = (request: Request, ret: Omit<Return, 'schema' | 'turn' | 'state'>) => runInProjectWriteQueue(root, () =>
+		installReturn({ root, record, kept: join(storage, 'kept'), store, request, ret: { schema: 1, turn: request.turn, state: 'ended', ...ret } }));
 	return { root, storage, record, store, send, install };
 }
 

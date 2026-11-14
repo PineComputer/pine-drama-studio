@@ -1,0 +1,133 @@
+import { strict as assert } from 'node:assert';
+import { createHash } from 'node:crypto';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { test } from 'node:test';
+import { applyChangeToProjectFolder, NotAProjectPathError, type ProjectFolderChange } from '../core/applyChange';
+import { git } from '../core/git';
+import { commitFilesFoundOnDisk, listHistoryOfFile } from '../core/projectHistory';
+
+// Applying a turn's change, a Use or an Undo (doc/protocol.md 4.4): the rules that, broken, would lose a paid result,
+// apply one twice, take one change for another, or write outside the project.
+const project = () => mkdtempSync(join(tmpdir(), 'pine-apply-'));
+const sha = (text: string) => createHash('sha256').update(text).digest('hex');
+/** A store of file bytes by hash, as the Computer's `files/<hash>`. */
+const store = (...texts: string[]) => {
+	const files = new Map(texts.map(text => [sha(text), Buffer.from(text)]));
+	return async (hash: string) => files.get(hash) ?? assert.fail(`${hash} is not in the store`);
+};
+const LOOK = 'assets/characters/lin/look.png';
+const RECEIPT = `${LOOK}.receipt.json`;
+const turnChange = (changeNumber: number, files: Record<string, string | null>): ProjectFolderChange => ({
+	filesAfterChange: Object.fromEntries(Object.entries(files).map(([path, text]) => [path, text === null ? null : sha(text)])),
+	author: 'pine-computer', commitMessage: `Turn turn-0001-abcdef, change ${changeNumber}`, turnChange: { turnId: 'turn-0001-abcdef', changeNumber },
+});
+const out = async (dir: string, ...args: string[]) => (await git(args, dir)).stdout.trim();
+const commitCount = async (dir: string) => Number(await out(dir, 'rev-list', '--count', 'HEAD'));
+
+test("a turn's change is written and committed once, as the Pine Computer's, with its trailers and only its paths", async () => {
+	const dir = project();
+	writeFileSync(join(dir, 'notes.txt'), 'the person\'s, by hand\n');
+	const bytes = store('picture one', '{"paid_call_id":"call-0001"}');
+	const change = turnChange(1, { [LOOK]: 'picture one', [RECEIPT]: '{"paid_call_id":"call-0001"}' });
+	assert.equal(await applyChangeToProjectFolder(dir, change, bytes), 'written and committed');
+	assert.equal(readFileSync(join(dir, LOOK), 'utf8'), 'picture one');
+	assert.equal(await out(dir, 'log', '-1', '--format=%an|%(trailers:key=Pine-Turn-Id,valueonly,separator=)|%(trailers:key=Pine-Change-Number,valueonly,separator=)'),
+		'pine-computer|turn-0001-abcdef|1');
+	assert.deepEqual((await out(dir, 'show', '--name-only', '--format=', 'HEAD')).split('\n').sort(), [LOOK, RECEIPT]);
+	assert.equal(await out(dir, 'status', '--porcelain', '--', 'notes.txt'), '?? notes.txt', 'the hand edit is left for its own commit');
+	const commits = await commitCount(dir);
+	assert.equal(await applyChangeToProjectFolder(dir, change, bytes), 'already in history', 'a change applied once is skipped');
+	assert.equal(await commitCount(dir), commits);
+});
+
+test('change 1 is not change 10: each is found by its own trailers', async () => {
+	const dir = project();
+	const bytes = store('ten', 'one');
+	assert.equal(await applyChangeToProjectFolder(dir, turnChange(10, { [LOOK]: 'ten' }), bytes), 'written and committed');
+	assert.equal(await applyChangeToProjectFolder(dir, turnChange(1, { [LOOK]: 'one' }), bytes), 'written and committed');
+});
+
+test('a change whose files a crash left on disk is recorded with an empty commit, then found in history', async () => {
+	const dir = project();
+	mkdirSync(join(dir, 'assets', 'characters', 'lin'), { recursive: true });
+	writeFileSync(join(dir, LOOK), 'picture one');
+	await commitFilesFoundOnDisk(dir, 'Changes found on disk when the project opened');
+	const change = turnChange(1, { [LOOK]: 'picture one' });
+	assert.equal(await applyChangeToProjectFolder(dir, change, store()), 'already on disk, recorded', 'no bytes are fetched again');
+	assert.equal(await out(dir, 'show', '--name-only', '--format=%an', 'HEAD'), 'pine-computer');
+	assert.equal(await applyChangeToProjectFolder(dir, change, store()), 'already in history');
+});
+
+test("the newest result lands over the person's edit, and the file's history keeps both, a deletion too", async () => {
+	const dir = project();
+	const bytes = store('picture one', 'picture two');
+	await applyChangeToProjectFolder(dir, turnChange(1, { [LOOK]: 'picture one' }), bytes);
+	writeFileSync(join(dir, LOOK), 'the person\'s own picture');
+	await commitFilesFoundOnDisk(dir, 'Changes found on disk before turn-0002');
+	await applyChangeToProjectFolder(dir, turnChange(2, { [LOOK]: 'picture two' }), bytes);
+	await applyChangeToProjectFolder(dir, turnChange(3, { [LOOK]: null }), bytes);
+	assert.equal(existsSync(join(dir, LOOK)), false, 'null deletes the file');
+	const history = await listHistoryOfFile(dir, LOOK);
+	assert.deepEqual(history.map(h => [h.author, h.sha256, h.turnChange?.changeNumber ?? null]), [
+		['pine-computer', null, 3],
+		['pine-computer', sha('picture two'), 2],
+		['client-found-changes-on-disk', sha('the person\'s own picture'), null],
+		['pine-computer', sha('picture one'), 1],
+	]);
+});
+
+test('nothing is written when a file\'s bytes do not match their hash, or a name is not a path of the project', async () => {
+	const dir = project();
+	const wrong = async () => Buffer.from('not the picture');
+	await assert.rejects(applyChangeToProjectFolder(dir, turnChange(1, { [LOOK]: 'picture one' }), wrong), /do not match/);
+	assert.equal(existsSync(join(dir, LOOK)), false);
+	for (const path of ['.git/config', 'assets/../../outside.txt', '/etc/passwd', 'assets/CON', 'a/b.', `${LOOK.toUpperCase()}`]) {
+		const change = turnChange(2, path === LOOK.toUpperCase() ? { [LOOK]: 'x', [path]: 'y' } : { [path]: 'x' });
+		await assert.rejects(applyChangeToProjectFolder(dir, change, store('x', 'y')), (error: Error) => error instanceof NotAProjectPathError, path);
+	}
+	assert.equal(existsSync(join(dir, 'assets')), false, 'nothing of a refused change is written');
+});
+
+test('a change whose bytes the history holds already is still recorded, and its record takes nothing else staged', async () => {
+	const dir = project();
+	const bytes = store('picture one', 'the person\'s');
+	await applyChangeToProjectFolder(dir, turnChange(1, { [LOOK]: 'picture one' }), bytes);
+	// The person's uncommitted edit, and a file they staged themselves: the turn brings back what HEAD holds.
+	writeFileSync(join(dir, LOOK), 'the person\'s');
+	writeFileSync(join(dir, 'notes.txt'), 'staged by hand\n');
+	await out(dir, 'add', 'notes.txt');
+	assert.equal(await applyChangeToProjectFolder(dir, turnChange(2, { [LOOK]: 'picture one' }), bytes), 'written and committed');
+	assert.equal(await out(dir, 'log', '-1', '--format=%(trailers:key=Pine-Change-Number,valueonly,separator=)'), '2', 'the change is recorded');
+	assert.equal(await out(dir, 'show', '--name-only', '--format=', 'HEAD'), '', 'nothing else is in its commit');
+	assert.equal(await out(dir, 'diff', '--cached', '--name-only'), 'notes.txt', 'the person\'s staged file stays staged');
+	assert.equal(await applyChangeToProjectFolder(dir, turnChange(2, { [LOOK]: 'picture one' }), bytes), 'already in history');
+});
+
+test('text quoted in a commit message is no trailer: the change it quotes is still applied', async () => {
+	const dir = project();
+	writeFileSync(join(dir, 'notes.txt'), 'x');
+	await out(dir, 'init', '-q');
+	await out(dir, 'add', '.');
+	await out(dir, '-c', 'user.name=p', '-c', 'user.email=p@x', 'commit', '-q', '-m', 'About it\n\nPine-Turn-Id: turn-0001-abcdef\nPine-Change-Number: 1\n\nNot a trailer block.');
+	assert.equal(await applyChangeToProjectFolder(dir, turnChange(1, { [LOOK]: 'one' }), store('one')), 'written and committed');
+});
+
+test('a folder linked into .git is never written through, and a file named like a cat-file reply keeps its history', async () => {
+	const dir = project();
+	await applyChangeToProjectFolder(dir, turnChange(1, { 'a blob 1000': 'x', [LOOK]: 'one' }), store('x', 'one'));
+	await applyChangeToProjectFolder(dir, turnChange(2, { 'a blob 1000': null, [LOOK]: 'two' }), store('two'));
+	assert.deepEqual((await listHistoryOfFile(dir, 'a blob 1000')).map(h => h.sha256), [null, sha('x')]);
+	assert.deepEqual((await listHistoryOfFile(dir, LOOK)).map(h => h.sha256), [sha('two'), sha('one')]);
+	symlinkSync(join(dir, '.git'), join(dir, 'linked'));
+	const config = readFileSync(join(dir, '.git', 'config'), 'utf8');
+	await assert.rejects(applyChangeToProjectFolder(dir, turnChange(3, { 'linked/config': 'x' }), store('x')), (error: Error) => error instanceof NotAProjectPathError);
+	assert.equal(readFileSync(join(dir, '.git', 'config'), 'utf8'), config);
+	// A link to the project's own folder too: git could not commit the path it names.
+	symlinkSync(join(dir, 'assets'), join(dir, 'also-assets'));
+	await assert.rejects(applyChangeToProjectFolder(dir, turnChange(4, { 'also-assets/characters/lin/look.png': 'x' }), store('x')), (error: Error) => error instanceof NotAProjectPathError);
+	assert.equal(readFileSync(join(dir, LOOK), 'utf8'), 'two');
+	// A change applied before is skipped, though a link now stands where its folder was.
+	assert.equal(await applyChangeToProjectFolder(dir, turnChange(1, { 'also-assets/x.png': 'x' }), store('x')), 'already in history');
+});
