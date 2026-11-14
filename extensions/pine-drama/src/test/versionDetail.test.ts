@@ -39,31 +39,18 @@ async function takeMadeFrom(inputs: { object: string; version: string }[]) {
 	return readDrama(root, () => [snapshot('snapshot-project.json'), snapshot('snapshot-episodes.json')]);
 }
 
-// The person: a take is made from its video prompt, which is made from the breakdown; the editor needs the video prompt,
-// not the chain. A record lists every version its version was made from, the indirect ones too (doc/protocol.md 2.1,
-// which released Studios read for discards); the take panel and seg editor show only those no other listed input was
-// made from in turn. The canvas draws a line from every one: reducing its lines too left a take with none in sight.
-test('a take shows only what it was made from directly: an input another listed input was made from is not shown', async () => {
-	// The fixture's keyframe was made from Lin v1 and the office v1, so a take listing all three was made from the keyframe directly.
-	const drama = await takeMadeFrom([{ object: 'assets/characters/lin', version: 'v1' }, { object: 'assets/scenes/office', version: 'v1' },
-		{ object: 'episodes/EP001/keyframe/seg01/shot01', version: 'v1' }]);
+// The person: a take is made from the pictures its call sent, and its panel showed only its keyframe once it hid every
+// input another listed input was made from (#81). A record lists every version its version was made from (doc/protocol.md
+// 2.1); the panel and the canvas show every one: the pictures in the strip, the rest by name.
+test('a take shows every input it lists: its pictures in the strip, the rest by name, and a line from each on the canvas', async () => {
+	const drama = await takeMadeFrom([{ object: 'episodes/EP001/breakdown', version: 'v1' }, { object: 'assets/characters/lin', version: 'v1' },
+		{ object: 'assets/scenes/office', version: 'v1' }, { object: 'episodes/EP001/keyframe/seg01/shot01', version: 'v1' }]);
 	const detail = versionDetail(drama, 'episodes/EP001/segments/seg01', 'v1', rel => rel)!;
-	assert.deepEqual([...detail.pictures, ...detail.madeFrom].map(r => r.stageId), ['episodes/EP001/keyframe/seg01/shot01']);
+	assert.deepEqual(detail.pictures.map(r => r.stageId), ['assets/characters/lin', 'assets/scenes/office', 'episodes/EP001/keyframe/seg01/shot01']);
+	assert.deepEqual(detail.madeFrom.map(r => r.stageId), ['episodes/EP001/breakdown']);
 	assert.deepEqual(episodeLineage(drama, 'EP001').links.filter(l => l.to === 'episodes/EP001/segments/seg01').map(l => l.from).sort(),
-		['assets/characters/lin', 'assets/scenes/office', 'episodes/EP001/keyframe/seg01/shot01'], 'the canvas draws the take\'s line from every input it lists');
-	// An input none of the others was made from stays, as does one whose own record the drama does not hold.
-	const direct = await takeMadeFrom([{ object: 'assets/characters/lin', version: 'v2' }, { object: 'episodes/EP001/keyframe/seg01/shot01', version: 'v1' }]);
-	assert.deepEqual(versionDetail(direct, 'episodes/EP001/segments/seg01', 'v1', rel => rel)!.pictures.map(r => r.stageId),
-		['assets/characters/lin', 'episodes/EP001/keyframe/seg01/shot01']);
-});
-
-test('two listed inputs each made from the other both stay; an unlisted cycle hides nothing', async () => {
-	const drama = await takeMadeFrom([{ object: 'assets/characters/lin', version: 'v1' }, { object: 'assets/scenes/office', version: 'v1' }]);
-	const lin = drama.objects.get('assets/characters/lin')!.versions.find(v => v.id === 'v1')!;
-	const office = drama.objects.get('assets/scenes/office')!.versions.find(v => v.id === 'v1')!;
-	Object.assign(lin.record, { inputs: [{ object: 'assets/scenes/office', version: 'v1' }] });
-	Object.assign(office.record, { inputs: [{ object: 'assets/characters/lin', version: 'v1' }] });
-	assert.deepEqual(versionDetail(drama, 'episodes/EP001/segments/seg01', 'v1', rel => rel)!.pictures.map(r => r.stageId), ['assets/characters/lin', 'assets/scenes/office']);
+		['assets/characters/lin', 'assets/scenes/office', 'episodes/EP001/breakdown', 'episodes/EP001/keyframe/seg01/shot01'],
+		'the canvas links every input (it draws those on the board)');
 });
 
 // The person: the composer's greyed Model and settings show what the shown version was really made with, read for display

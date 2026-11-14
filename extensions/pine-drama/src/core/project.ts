@@ -7,7 +7,7 @@ import { readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { CHOICES_FILE, readChoices, readVersions, resolve, VERSION_FILE, type Resolved, type Version as ProtocolVersion } from './choices';
 import { projectIdentity } from './projectPlace';
-import { check, type Add, type Choices, type Edge, type ObjectType, type ProtocolError, type Request, type Snapshot, type VersionRef } from './protocol';
+import { check, type Add, type Choices, type Edge, type ObjectType, type ProtocolError, type Request, type Snapshot } from './protocol';
 
 /**
  * An installed return's snapshot, with the scope of the task it came from (doc/protocol.md, section 1), its task id, when
@@ -348,28 +348,6 @@ export interface StageDetail {
 	readonly acceptedBy: 'person' | 'agent' | null;
 	/** Newest first. */
 	readonly versions: readonly Version[];
-}
-
-/**
- * Of `inputs`, those no other of them was made from in turn, by the version records the drama holds: what a version was
- * made from directly. A record lists the indirect ones too (doc/protocol.md 2.1); this is what to show, never what a
- * discard or an install follows. Two inputs each made from the other (a cycle) both stay.
- */
-export function directInputs(drama: Drama, inputs: readonly VersionRef[]): VersionRef[] {
-	const key = (input: VersionRef) => `${input.object}/${input.version}`;
-	const recordOf = (input: VersionRef) => drama.objects.get(input.object)?.versions.find(v => v.id === input.version)?.record;
-	// What each listed input was made from, all the way up, walked without recursion.
-	const ancestors = new Map(inputs.map(input => {
-		const reached = new Set<string>();
-		for (const stack = [input]; stack.length;) {
-			for (const up of recordOf(stack.pop()!)?.inputs ?? []) {
-				if (!reached.has(key(up))) { reached.add(key(up)); stack.push(up); }
-			}
-		}
-		return [key(input), reached];
-	}));
-	const reaches = (from: VersionRef, to: VersionRef) => ancestors.get(key(from))!.has(key(to));
-	return inputs.filter(input => !inputs.some(other => key(other) !== key(input) && reaches(other, input) && !reaches(input, other)));
 }
 
 /**

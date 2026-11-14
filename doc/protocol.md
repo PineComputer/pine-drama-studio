@@ -74,7 +74,7 @@ A client MAY read the Computer side's other files in the folder, such as the req
 |---|---|
 | `made_at` | When it was finished. |
 | `file` | The file it shows (image, video or text), relative to the version folder, or `null`. |
-| `inputs` | The versions it was made from, each `{object, version}`. A reader may show only the direct ones: those no other listed input was made from in turn. |
+| `inputs` | The versions it was made from, each `{object, version}`. |
 | `prompt` | The prompt it was made with, or `null`. |
 | `from_import` | The client id of the import it was made from, or `null`. |
 | `continues` | Optional: the id of the version of the same object this one goes on from, as a bible written in ranges, each range written onto the one before, which may also correct what earlier ranges wrote and is not approved yet. A chain of versions linked by `continues` is one piece of work written in parts. Two versions may continue the same one (a range written again with notes): they are alternatives, not one chain. Absent when a version redoes, replaces or starts its object as a whole, and in records written before this field. |

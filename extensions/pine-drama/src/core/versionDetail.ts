@@ -5,13 +5,14 @@
 import { readdir, readFile } from 'node:fs/promises';
 import { extname, join } from 'node:path';
 import type { CanvasDetail, MadeFrom, MadeWith } from './canvasProtocol';
-import { directInputs, versionFile, versionTitle, type Drama } from './project';
+import { versionFile, versionTitle, type Drama } from './project';
 
 export const IMAGE_SUFFIXES: ReadonlySet<string> = new Set(['.png', '.jpg', '.jpeg', '.webp']);
 
 /**
- * `object`'s version `version` as the panel shows it: its prompt, and the versions it was made from directly, in order, the
- * pictures with their webview address (`src`) and the others by name, each with its card. No input is numbered as the
+ * `object`'s version `version` as the panel shows it: its prompt, and every version its record lists it was made from
+ * (doc/protocol.md 2.1), in order, the pictures with their webview address (`src`) and the others by name, each with its
+ * card. No input is numbered as the
  * prompt's "Image N": that counts the request's images, in an order the record does not give (#77). Null when the drama
  * has no such version.
  */
@@ -20,7 +21,7 @@ export function versionDetail(drama: Drama, object: string, version: string, src
 	if (!record) {
 		return null;
 	}
-	const inputs: MadeFrom[] = directInputs(drama, record.inputs).map(input => {
+	const inputs: MadeFrom[] = record.inputs.map(input => {
 		const used = drama.objects.get(input.object);
 		const file = used ? versionFile(used, input.version) : null;
 		return {

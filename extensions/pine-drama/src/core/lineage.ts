@@ -95,8 +95,8 @@ function partsField(object: DramaObject): { parts?: number } {
 
 /**
  * The objects an object's current version was made from, every one its record lists: which cards an episode's canvas
- * holds, and the lines it draws (a take's from its keyframe, storyboard, places, people and props; the reduction to
- * direct inputs is the take panel's and seg editor's alone, versionDetail.ts); a planned object's planned inputs.
+ * holds, and the lines it draws (a take's from its keyframe, storyboard, places, people and props); a planned object's
+ * planned inputs.
  */
 function inputsOf(object: DramaObject): string[] {
 	const current = object.versions.find(v => v.id === object.resolved.current);
