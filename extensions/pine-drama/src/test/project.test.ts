@@ -88,9 +88,18 @@ test('Script lists the episodes under way, folds the ones not started into one r
 	const rows = await project.children(script);
 	assert.deepEqual(rows.map(r => r.label), ['EP001 The Interview', '2 not started yet']);
 	assert.deepEqual((await project.children(rows[1])).map(r => [r.label, r.episode]), [['EP002 Second', 'episodes/EP002'], ['EP003 Third', 'episodes/EP003']]);
-	const objects = (await project.drama()).objects;
-	assert.equal(decomposition(objects.get('episodes/EP001/breakdown')).text, 'Shots planned');
-	assert.equal(decomposition(undefined).text, 'Not started');
+	const drama = await project.drama();
+	assert.equal(decomposition(drama, drama.objects.get('episodes/EP001/breakdown')).text, 'Takes shot', 'EP001 has a take: its furthest stage that shows a file');
+	assert.equal(decomposition(drama, undefined).text, 'Not started');
+	const object = (id: string, type: string, shown: string | null) => {
+		mkdirSync(join(root, ...id.split('/')), { recursive: true });
+		writeFileSync(join(root, ...id.split('/'), 'object.json'), JSON.stringify({ schema: 2, type, name: id, shown_file: shown }));
+		if (shown) { writeFileSync(join(root, ...shown.split('/')), 'cut'); }
+	};
+	object('episodes/EP001/cut', 'cut', 'episodes/EP001/cut/cut.mp4');
+	object('episodes/EP001/subtitles', 'subtitles', null);
+	const edited = await readProjectFromFolder(root);
+	assert.deepEqual(decomposition(edited, edited.objects.get('episodes/EP001/breakdown')), { text: 'Edited', decomposed: true }, 'the cut shows a file; the subtitles, planned, show none');
 	assert.deepEqual((await project.locate('#script/episodes/EP003')).map(n => n.id), ['screenplay', '#script/later', '#script/episodes/EP003'], 'a folded episode is still found');
 	// Its canvas and seg editor open from its row (Codex on B18): the row names its episode.
 	const folded = (await project.children(rows[1]))[1];

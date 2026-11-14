@@ -3,7 +3,9 @@
 
 import { kindCount } from './assetStatus';
 import type { Collection } from './galleryProtocol';
+import { TYPES } from './lineage';
 import type { OutlineNode, ProjectObject, ProjectReadModel } from './project';
+import type { ObjectType } from './protocol';
 
 /** An episode's decomposition under Script: the label for its row, and whether "Go to episode" applies. */
 interface Decomposition {
@@ -11,9 +13,21 @@ interface Decomposition {
 	readonly decomposed: boolean;
 }
 
-/** An episode's breakdown, in the person's words: none written is "Not started"; a written one is "Shots planned". */
-export function decomposition(breakdown: ProjectObject | undefined): Decomposition {
-	return breakdown?.shownFile ? { text: 'Shots planned', decomposed: true } : { text: 'Not started', decomposed: false };
+/** An episode stage's words once it shows a file; the furthest such stage, in pipeline order (TYPES), labels the episode. */
+const REACHED: Partial<Record<ObjectType, string>> = {
+	breakdown: 'Shots planned', storyboard: 'Storyboards drawn', keyframe: 'Keyframes drawn', video_prompts: 'Shot prompts written',
+	take: 'Takes shot', cut: 'Edited', subtitles: 'Subtitled',
+};
+
+/**
+ * An episode's row under Script, from its breakdown: none written is "Not started"; else the furthest of the episode's
+ * stages that shows a file (REACHED).
+ */
+export function decomposition(project: ProjectReadModel, breakdown: ProjectObject | undefined): Decomposition {
+	if (!breakdown?.shownFile) { return { text: 'Not started', decomposed: false }; }
+	const made = new Set([...project.objects.values()].filter(o => o.shownFile && o.episode === breakdown.episode).map(o => o.type));
+	const furthest = [...TYPES].reverse().find(type => REACHED[type] && made.has(type))!;
+	return { text: REACHED[furthest]!, decomposed: true };
 }
 
 /** The action on a Script episode not broken down yet: a new session for it (B8; the skill names it too). */
