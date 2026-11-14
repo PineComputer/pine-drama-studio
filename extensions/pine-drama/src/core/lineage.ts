@@ -21,7 +21,6 @@ export interface LineageStage {
 	readonly column: number;
 	/** The current version, or null when none is made. */
 	readonly version: string | null;
-	readonly accepted: string | null;
 	/** The file the current version shows (project.ts versionFile), or null. */
 	readonly shows: string | null;
 	/** Its name for the person (the snapshot's `name`). */
@@ -30,8 +29,6 @@ export interface LineageStage {
 	readonly section: string;
 	/** Its segment within its episode, or null. */
 	readonly segment: string | null;
-	/** An object with no version yet: its card stands in its place and says Planned. */
-	readonly planned?: boolean;
 	/** The parts its current version is written in, when more than one (doc/protocol.md 2.1, `continues`). */
 	readonly parts?: number;
 }
@@ -80,10 +77,9 @@ function sectionOf(drama: Drama, object: DramaObject): string {
 
 function stageOf(drama: Drama, object: DramaObject): LineageStage {
 	return {
-		id: object.id, kind: object.type, column: TYPES.indexOf(object.type), version: object.resolved.current, accepted: object.resolved.accepted,
+		id: object.id, kind: object.type, column: TYPES.indexOf(object.type), version: object.resolved.current,
 		shows: versionFile(object, object.resolved.current),
 		label: object.name, section: sectionOf(drama, object), segment: object.segment,
-		...(object.versions.length ? {} : { planned: true }),
 		...partsField(object),
 	};
 }

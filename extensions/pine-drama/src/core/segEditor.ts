@@ -2,9 +2,9 @@
 // what the shown take was made with, or before one its planned prompt, all from the drama (doc/protocol.md). The Studio
 // writes no prompt text. No vscode import.
 
-import { episodeIn, versionFile as shown, type Drama, type DramaObject } from './project';
+import { episodeIn, notMade, standingOf, versionFile as shown, type Drama, type DramaObject } from './project';
 import type { PlannedPrompt, Poster, Seg, SegEditorModel, SegTake } from './segEditorProtocol';
-import { episodeCut, episodeSegs, shownTake, takeBadge, takeLabel } from './segTakes';
+import { episodeCut, episodeSegs, takeLabel } from './segTakes';
 import { versionDetail } from './versionDetail';
 
 export type { Seg, SegEditorModel };
@@ -29,7 +29,8 @@ export function shootRequest(episode: string, seg: string, again: boolean): stri
 export function segEditorModel(drama: Drama, episode: string, uri: (file: string) => string): SegEditorModel {
 	const segs: Seg[] = episodeSegs(drama, episode).map(seg => {
 		const object = seg.take;
-		const take = object && shownTake(object);
+		const standing = object && standingOf(object);
+		const take = standing?.shown ?? null;
 		const video = object && take ? shown(object, take) : null;
 		const frame = seg.keyframes.map(k => shown(k, k.resolved.current)).find(Boolean) ?? null;
 		const poster: Poster | null = video ? { media: 'video', src: uri(video) } : frame ? { media: 'image', src: uri(frame) } : null;
@@ -39,9 +40,9 @@ export function segEditorModel(drama: Drama, episode: string, uri: (file: string
 				const file = shown(object, v.id);
 				return { version: v.id, label: takeLabel(object, v.id), src: file ? uri(file) : null, request: versionDetail(drama, object.id, v.id, uri) };
 			}) : [],
-			shown: take ?? null,
+			shown: take,
 			planned: object && !take ? plannedPrompt(drama, object) : null,
-			badge: takeBadge(object), poster,
+			badge: standing?.words ?? notMade('take'), approved: standing?.approved ?? false, poster,
 		};
 	});
 	const cutObject = episodeCut(drama, episode);

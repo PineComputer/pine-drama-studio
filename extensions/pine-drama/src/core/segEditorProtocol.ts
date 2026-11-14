@@ -12,12 +12,14 @@ export interface Seg {
 	readonly take: string | null;
 	/** Its take's versions the person has not discarded, in version order: the editor plays the chosen one. */
 	readonly takes: readonly SegTake[];
-	/** The version the editor plays first: the accepted take, else the current one (segTakes.ts `shownTake`); null with none. */
+	/** The version the editor plays first, the take's shown one (project.ts `standingOf`); null with none. */
 	readonly shown: string | null;
 	/** Before a take is made, its planned prompt, or null when none is. */
 	readonly planned: PlannedPrompt | null;
-	/** Its badge in the strip (segTakes.ts `takeBadge`). */
+	/** Its badge in the strip: its take's standing in words (project.ts `standingOf`). */
 	readonly badge: string;
+	/** The shown take is the accepted one. */
+	readonly approved: boolean;
 	/** Its tile's picture: the shown take's video, else its first keyframe's picture (webview addresses), else null. */
 	readonly poster: Poster | null;
 }
@@ -25,7 +27,7 @@ export interface Seg {
 /** One take of a seg. */
 export interface SegTake {
 	readonly version: string;
-	/** Its standing (doc/protocol.md, section 3.2): Accepted, Waiting for review, or Earlier take. */
+	/** Its standing (doc/protocol.md, section 3.2): Approved, Waiting for review, or Earlier take. */
 	readonly label: string;
 	/** Its video's webview address, or null when the version shows no file. */
 	readonly src: string | null;

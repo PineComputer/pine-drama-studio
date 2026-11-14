@@ -31,7 +31,8 @@ export interface CanvasCard {
 	readonly column: number;
 	/** The working version the card shows, or null when drama-cli has none (not generated). */
 	readonly version: string | null;
-	readonly accepted: string | null;
+	/** Its standing in words (project.ts `standingOf`). */
+	readonly standing: string;
 	/** The parts `version` is written in, when more than one (lineage.ts `parts`). */
 	readonly parts?: number;
 	/** Why the next steps cannot use it yet, in the snapshot's words (`why`), else null. */
@@ -61,8 +62,6 @@ export interface CanvasCard {
 	readonly problem: { readonly message: string; readonly action: string | null } | null;
 	/** What the person can do to its object (project.ts actionsOf), as the asset grid's tile says it: sent with every redraw. */
 	readonly actions: CardActions;
-	/** A stage its episode plans and has not made yet (lineage `planned`): its card stands in its final place, says Planned. */
-	readonly planned?: boolean;
 }
 
 export interface Point {
@@ -134,7 +133,8 @@ export type ToCanvas =
 export interface CanvasPicture {
 	readonly object: string;
 	readonly current: string | null;
-	readonly accepted: string | null;
+	/** `current` is the accepted version (project.ts `standingOf`). */
+	readonly approved: boolean;
 	readonly usable: boolean;
 	readonly why: string | null;
 	/** The strip: the versions the person has not discarded, oldest first, each with its picture for the thumbnail. */

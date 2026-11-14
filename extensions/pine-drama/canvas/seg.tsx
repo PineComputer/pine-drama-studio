@@ -76,7 +76,7 @@ function Editor({ model, chosen, choose }: { model: SegEditorModel; chosen: stri
 					<button key={s.id} className={s.id === seg?.id ? 'seg chosen' : 'seg'} onClick={() => choose(s.id)}>
 						<Thumb poster={s.poster} icon="device-camera-video" />
 						<span className="name">{s.id}</span>
-						<span className={`badge ${s.badge === 'Approved' ? 'accepted' : s.badge === 'Waiting for review' ? 'review' : ''}`}>{s.badge}</span>
+						<span className={`badge ${s.approved ? 'accepted' : s.shown ? 'review' : ''}`}>{s.badge}</span>
 					</button>
 				))}
 			</nav>

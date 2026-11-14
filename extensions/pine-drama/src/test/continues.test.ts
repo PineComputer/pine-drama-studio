@@ -39,7 +39,7 @@ test('a chain of continues is one entry written in parts; a revision or an older
 
 /** A stage's detail with versions newest first, each continuing the one `continues` names. */
 function detail(pointers: StageDetail['pointers'], versions: [string, string | null][]): StageDetail {
-	return { path: 'bible', pointers, acceptedBy: null, versions: versions.map(([name, continues]): Version =>
+	return { path: 'bible', pointers, acceptedBy: null, standing: 'Waiting for review', versions: versions.map(([name, continues]): Version =>
 		({ name, path: `bible/${name}`, createdAt: '2026-11-13T00:00:00Z', file: null, own: false, discarded: false, reviews: [], continues })) };
 }
 

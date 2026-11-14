@@ -129,15 +129,14 @@ class ProjectProvider implements vscode.TreeDataProvider<OutlineNode> {
 
 	/**
 	 * The file a row opens: an episode under 1. Script the screenplay at its section (the Nth top-level section is the
-	 * Nth episode, else the top), any other stage its approved version, else its current one, else its first.
+	 * Nth episode, else the top), any other stage its shown version (project.ts `standingOf`: the current one).
 	 */
 	async fileOf(node: OutlineNode): Promise<RowFile | undefined> {
 		const project = this.project!;
 		const drama = await project.drama();
 		const path = await this.stageOf(node);
 		const detail = path ? await project.detail(path) : undefined;
-		const name = detail && (detail.pointers.accepted ?? detail.pointers.current);
-		const rel = detail && (detail.versions.find(v => v.name === name) ?? detail.versions[0])?.file;
+		const rel = detail?.versions.find(v => v.name === detail.pointers.current)?.file;
 		if (!rel) { return undefined; }
 		const uri = fileUri(project.root, rel);
 		if (!node.episode) { return { uri }; }
@@ -281,7 +280,7 @@ class TimelineProvider implements vscode.TreeDataProvider<TimelineEntry> {
 		if (entry.kind === 'version') {
 			const { version, detail } = entry;
 			const tags = [
-				detail.pointers.accepted === version.name ? 'accepted' : '',
+				detail.pointers.accepted === version.name ? 'approved' : '',
 				detail.pointers.current === version.name ? 'working' : '',
 				version.own ? 'your import' : '',
 			].filter(Boolean);
@@ -289,7 +288,7 @@ class TimelineProvider implements vscode.TreeDataProvider<TimelineEntry> {
 				: version.reviews.length || version.discarded ? vscode.TreeItemCollapsibleState.Expanded : vscode.TreeItemCollapsibleState.None);
 			const written = entry.parts.length ? `written in ${entry.parts.length + 1} parts` : '';
 			item.description = [[...tags, written].filter(Boolean).join(' · '), shortDate(version.createdAt)].filter(Boolean).join('  ');
-			item.iconPath = new vscode.ThemeIcon(tags.includes('accepted') ? 'pass-filled' : 'circle-small');
+			item.iconPath = new vscode.ThemeIcon(tags.includes('approved') ? 'pass-filled' : 'circle-small');
 			item.tooltip = version.path;
 			if (version.file && this.project) {
 				item.command = { command: 'vscode.open', title: 'Open', arguments: [fileUri(this.project.root, version.file), { preview: true }] };

@@ -5,7 +5,7 @@
 
 import type { CanvasPicture, CanvasRecord } from './canvasProtocol';
 import type { AddType, Collection, GallerySection, GalleryTile } from './galleryProtocol';
-import { actionsOf, marksOf, variantParent, variantsOf, versionFile, type ChatTitle, type Drama, type DramaObject } from './project';
+import { actionsOf, marksOf, standingOf, variantParent, variantsOf, versionFile, type ChatTitle, type Drama, type DramaObject } from './project';
 import { mediaOf } from './versionDetail';
 
 /** The object type of a grid's kind (doc/protocol.md, section 5.1). */
@@ -54,7 +54,7 @@ function picture(object: DramaObject, version: string | null): string | null {
  */
 export function assetGrid(drama: Drama, kind: Collection, chatTitle: ChatTitle = () => undefined): GallerySection {
 	const tiles: GalleryTile[] = assetsOf(drama, kind).map(({ object, made, needed }) => ({
-		stagePath: object.id, name: object.name, note: null, version: object.resolved.current, accepted: object.resolved.accepted,
+		stagePath: object.id, name: object.name, note: null, version: object.resolved.current,
 		file: picture(object, object.resolved.current), description: object.description ?? '',
 		visuals: { made, needed }, ...marksOf(chatTitle, object), actions: actionsOf(object),
 	}));
@@ -77,8 +77,9 @@ export function pictureOf(drama: Drama, id: string, src: (rel: string) => string
 		return null;
 	}
 	const { resolved } = object;
+	const { shown, approved } = standingOf(object);
 	return {
-		object: id, current: resolved.current, accepted: resolved.accepted, usable: object.usable, why: object.usable ? null : object.why,
+		object: id, current: shown, approved, usable: object.usable, why: object.usable ? null : object.why,
 		versions: object.versions.filter(v => !resolved.discarded.has(v.id)).map(v => {
 			// A take's version is a video: its strip shows a frame of it, as its card does.
 			const file = versionFile(object, v.id);

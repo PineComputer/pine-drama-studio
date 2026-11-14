@@ -82,18 +82,16 @@ function measure(card: CanvasCard): Promise<Loaded> {
 }
 
 /**
- * A card's state in words, the same on both canvases: made and approved, made and not approved yet, or not made yet;
- * the parts it is written in; the episodes an asset is used in. No version numbers: those are the Versions view's.
+ * A card's state in words, the same on both canvases and in the seg editor (project.ts `standingOf`); the parts it is
+ * written in; the episodes an asset is used in. No version numbers: those are the Versions view's.
  */
 function statusOf(card: CanvasCard): string {
-	const made = !!card.version && !card.planned;
-	const state = !made ? (card.kind === 'take' || card.kind === 'cut' ? 'Not shot yet' : 'Not drawn yet') : card.accepted === card.version ? 'Approved' : 'Not approved yet';
-	return [state, card.parts ? `written in ${card.parts} parts` : '', card.appearsIn?.length ? `used in ${card.appearsIn.join(', ')}` : ''].filter(Boolean).join(' · ');
+	return [card.standing, card.parts ? `written in ${card.parts} parts` : '', card.appearsIn?.length ? `used in ${card.appearsIn.join(', ')}` : ''].filter(Boolean).join(' · ');
 }
 
 /** What stands where the picture would: each state says what is actually known (review, finding 4). */
 function Placeholder({ card, loaded }: CardData) {
-	const text = card.planned || !card.version ? 'Not drawn yet'
+	const text = !card.version ? card.standing
 		: !card.file ? `${card.version} names no picture`
 		: card.missing ? `File missing: ${card.file}`
 		: loaded && 'error' in loaded ? `Could not load ${card.file}: ${loaded.error}`
@@ -147,7 +145,7 @@ const CardView = memo(({ data, selected, width, height }: NodeProps<CardNode>) =
 			<CardMarks card={card} />
 			<div className="card-foot">
 				<div className="card-name">{card.label}</div>
-				<div className={`card-status${card.version && !card.planned ? '' : ' warn'}`}>{status}</div>
+				<div className={`card-status${card.version ? '' : ' warn'}`}>{status}</div>
 			</div>
 			<Handle type="source" position={Position.Right} isConnectable={false} style={hiddenHandle} />
 		</div>
@@ -217,8 +215,8 @@ function defaults(message: Lineage, loaded: Record<string, Loaded>): Layout {
 /**
  * An asset picture's standing and its versions as Pippit's strip ("The record panel's picture versions"):
  * status's own words for why it is not usable; one thumbnail per version the person has not discarded, the accepted one
- * marked Main; a click on another offers Approve, and Delete on hover discards one (it deletes no
- * file). An import is Main at once: drama-cli accepts it itself.
+ * marked Approved; a click on another offers Approve, and Delete on hover discards one (it deletes no
+ * file). An import is Approved at once: drama-cli accepts it itself.
  */
 function PictureState({ picture, busy, act }: { picture: CanvasPicture; busy: boolean; act: (action: EntryAction) => void }) {
 	const [chosen, setChosen] = useState<string | null>(null);
@@ -227,18 +225,18 @@ function PictureState({ picture, busy, act }: { picture: CanvasPicture; busy: bo
 	const pick = chosen && picture.versions.find(v => v.version === chosen && !v.accepted);
 	return (
 		<div className="picture-state">
-			<span>{[picture.current, shown ? by(shown) : null, picture.accepted === picture.current ? 'Main' : null].filter(Boolean).join(' · ')}</span>
+			<span>{[picture.current, shown ? by(shown) : null, picture.approved ? 'Approved' : null].filter(Boolean).join(' · ')}</span>
 			{picture.why && <div className="detail-note">{picture.why}</div>}
 			{picture.versions.length > 0 && (
 				<div className="strip" role="list">
 					{picture.versions.map(v => (
-						<div key={v.version} role="listitem" className={`version${v.version === chosen ? ' chosen' : ''}`} title={`${v.version} · ${by(v)}${v.accepted ? ' · Main' : ''}`}>
-							<button className="thumb" onClick={() => setChosen(v.version === chosen ? null : v.version)} aria-label={`${v.version}${v.accepted ? ', Main' : ''}`}>
+						<div key={v.version} role="listitem" className={`version${v.version === chosen ? ' chosen' : ''}`} title={`${v.version} · ${by(v)}${v.accepted ? ' · Approved' : ''}`}>
+							<button className="thumb" onClick={() => setChosen(v.version === chosen ? null : v.version)} aria-label={`${v.version}${v.accepted ? ', Approved' : ''}`}>
 								{v.media === 'image' && <img src={v.src!} draggable={false} />}
 								{/* #t=0.5, as the card: frame 0 of a take is often black. */}
 								{v.media === 'video' && <video src={`${v.src}#t=0.5`} preload="metadata" muted playsInline />}
 								{!v.media && <span className="codicon codicon-file-media" />}
-								{v.accepted && <span className="main">Main</span>}
+								{v.accepted && <span className="approved">Approved</span>}
 							</button>
 							<button className="delete" disabled={busy} title={`Delete ${v.version}: it leaves the strip, its files are kept`} aria-label={`Delete ${v.version}`}
 								onClick={() => act({ key: `discard:${picture.object}`, request: { action: 'discard', object: picture.object, version: v.version } })}><span className="codicon codicon-trash" /></button>

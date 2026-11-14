@@ -373,6 +373,8 @@ export interface StageDetail {
 	readonly pointers: Pointers;
 	/** Who accepted the accepted version. */
 	readonly acceptedBy: 'person' | 'agent' | null;
+	/** Its standing in words (standingOf), which the tree says while no version is made. */
+	readonly standing: string;
 	/** Newest first. */
 	readonly versions: readonly Version[];
 }
@@ -430,6 +432,29 @@ export function actionsOf(object: DramaObject): CardActions {
 	};
 }
 
+/** What an object with no version says: a take or a cut is shot, anything else drawn. */
+export const notMade = (type: ObjectType) => (type === 'take' || type === 'cut' ? 'Not shot yet' : 'Not drawn yet');
+
+/** An object's standing, one rule for every view. */
+export interface Standing {
+	/** The version every view shows: the current one (doc/protocol.md 3.2), or null when none is made. */
+	readonly shown: string | null;
+	/** The shown version is the accepted one. */
+	readonly approved: boolean;
+	/** Its state in words: Approved, Waiting for review, Being made, or not made yet. */
+	readonly words: string;
+}
+
+/**
+ * An object's standing in every view: the current version, the newest work the person has to judge, so an older
+ * accepted one never hides a newer one (vocabulary.md, `current`, `candidate`).
+ */
+export function standingOf(object: DramaObject): Standing {
+	const shown = object.resolved.current;
+	const approved = shown !== null && shown === object.resolved.accepted;
+	return { shown, approved, words: approved ? 'Approved' : shown ? 'Waiting for review' : object.making ? 'Being made' : notMade(object.type) };
+}
+
 /** An object's versions and pointers, as Versions shows them. */
 export function detailOf(object: DramaObject): StageDetail {
 	const { resolved } = object;
@@ -437,6 +462,7 @@ export function detailOf(object: DramaObject): StageDetail {
 		path: object.id,
 		pointers: { ...(resolved.current ? { current: resolved.current } : {}), ...(resolved.accepted ? { accepted: resolved.accepted } : {}) },
 		acceptedBy: resolved.acceptedBy,
+		standing: standingOf(object).words,
 		versions: object.versions.map(v => ({
 			name: v.id, path: `${object.id}/${v.id}`, createdAt: v.record.made_at,
 			file: versionFile(object, v.id),
@@ -479,7 +505,7 @@ export function versionRows(detail: Pick<StageDetail, 'versions'>): { version: V
 }
 
 /** An object's pointers in one line, "accepted v2 by you · working v3", and the parts the working one is written in. */
-export function describeStage(detail: Pick<StageDetail, 'pointers' | 'acceptedBy' | 'versions'>): string {
+export function describeStage(detail: Pick<StageDetail, 'pointers' | 'acceptedBy' | 'standing' | 'versions'>): string {
 	const { current, accepted } = detail.pointers;
 	const parts: string[] = [];
 	if (accepted) {
@@ -488,13 +514,12 @@ export function describeStage(detail: Pick<StageDetail, 'pointers' | 'acceptedBy
 	if (current && current !== accepted) {
 		parts.push(`working ${current}`);
 	}
-	// The newest work's parts, after its pointer: the working version's, else the approved one's.
-	const shown = current ?? accepted;
-	const written = shown ? writtenIn(detail, shown) : 1;
+	// The working version's parts, after its pointer.
+	const written = current ? writtenIn(detail, current) : 1;
 	if (written > 1) {
 		parts.push(`written in ${written} parts`);
 	}
-	return parts.length ? parts.join(' · ') : 'no version';
+	return parts.length ? parts.join(' · ') : detail.standing;
 }
 
 /** A review file as the Versions view lists it: when, who, and the person's words or that it has none. */
@@ -611,7 +636,7 @@ export class DramaProject {
 	/** An object's versions and pointers; an object the drama does not list has none. */
 	async detail(object: string): Promise<StageDetail> {
 		const found = (await this.drama()).objects.get(object);
-		return found ? detailOf(found) : { path: object, pointers: {}, acceptedBy: null, versions: [] };
+		return found ? detailOf(found) : { path: object, pointers: {}, acceptedBy: null, standing: 'no version', versions: [] };
 	}
 }
 

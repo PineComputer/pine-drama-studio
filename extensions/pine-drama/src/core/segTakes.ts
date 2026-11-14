@@ -29,22 +29,6 @@ export function episodeCut(drama: Drama, episode: string): DramaObject | undefin
 	return [...drama.objects.values()].find(o => o.type === 'cut' && episodeIn(o.id) === episode);
 }
 
-/** The take a seg shows: its accepted one, else its current one (the person's rule, E4). */
-export function shownTake(take: DramaObject): string | null {
-	return take.resolved.accepted ?? take.resolved.current;
-}
-
-/** A seg's badge in the strip: accepted, waiting for review, being made, or not generated. */
-export function takeBadge(take: DramaObject | null): string {
-	if (take?.resolved.accepted) {
-		return 'Approved';
-	}
-	if (take?.resolved.current) {
-		return 'Waiting for review';
-	}
-	return take?.making ? 'Being made' : 'Not generated';
-}
-
 /** A take's standing among its seg's takes (doc/protocol.md, section 3.2). */
 export function takeLabel(take: DramaObject, version: string): string {
 	return version === take.resolved.accepted ? 'Approved' : version === take.resolved.current ? 'Waiting for review' : 'Earlier take';

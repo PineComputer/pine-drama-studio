@@ -23,7 +23,6 @@ export interface GalleryTile {
 	readonly note: string | null;
 	/** The version the tile shows: the current one. */
 	readonly version: string | null;
-	readonly accepted: string | null;
 	/** The picture of the shown version, project-relative, or null. */
 	readonly file: string | null;
 	/** The text the card's actions change: the person's description where set, else the agent's. */
