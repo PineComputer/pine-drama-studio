@@ -2,9 +2,13 @@
   "schema": 2,
   "description": "How the Studio converts a major-1 drama into major 2 (doc/protocol.md, section 8). Normative data: the client applies it as written and knows no major-1 record format beyond it. Every path is project-relative; {object} is a v1 object id with its version segment removed, {owner} the object a record stage belongs to, {file} a path inside a version folder.",
   "version_folders": {
-    "a_version_folder_is": "a folder holding version.json, named like v<digits> or t<two or more digits>",
+    "a_version_folder_is": "a folder holding version.json whose name matches one of version_folder_name_patterns",
     "its_object_is": "the folder that holds it ({object})",
-    "applied_in_order": "one global order across all objects: by version.json made_at, then object id, then version id; one commit per version, authored studio-found-changes-on-disk. So history reads as it happened, and every input a receipt names is already at its major-2 path."
+    "applied_in_order": "one global order across all objects: by version.json made_at, then object id, then version id; one commit per version, authored studio-found-changes-on-disk. So history reads as it happened, and every input a receipt names is already at its major-2 path.",
+    "version_folder_name_patterns": [
+      "^v\\d+$",
+      "^t\\d{2,}$"
+    ]
   },
   "record_stages": [
     {
@@ -20,9 +24,40 @@
       },
       "writes": {
         "{owner}/description.md": "the description field's text",
-        "{owner}/entry.json": "entry.json without the fields id, name, setting, inside_of, appears_in, from, text and the description field; every other field (look, members, establishing, …) stays"
+        "{owner}/entry.json": "entry.json without entry_json_drop_fields and without the description field (description_field_by_owner_kind); every other field (look, members, establishing, …) stays"
       },
-      "also_gives": "the fields of {owner}'s object.json (see object_json)"
+      "also_gives": "the fields of {owner}'s object.json (see object_json)",
+      "entry_json_drop_fields": [
+        "id",
+        "name",
+        "setting",
+        "inside_of",
+        "appears_in",
+        "from",
+        "text"
+      ],
+      "kind_folder_to_type": {
+        "characters": "character",
+        "scenes": "scene",
+        "props": "prop"
+      },
+      "type_when_owner_is_under": {
+        "variants": "variant"
+      },
+      "object_json_field_from_entry_field": {
+        "name": "name",
+        "setting": "setting"
+      },
+      "relation_kind_from_entry_field": {
+        "inside_of": "inside_of",
+        "appears_in": "appears_in"
+      },
+      "variant_of_rule": {
+        "entry_field": "from",
+        "from_base_value": "base",
+        "when_base": "assets/<kind>/<id>",
+        "otherwise": "assets/<kind>/<id>/variants/<from>"
+      }
     },
     {
       "v1_object_ends_with": "/prompts",
@@ -48,17 +83,22 @@
   ],
   "every_other_version": {
     "operation": "copy_outputs_into_object_folder",
-    "copies": "each file artifact.json lists under outputs, at {object}/{file}; input/ included, which keeps bible/input/brief.md and bible/input/screenplay.md for the stages that read them",
-    "except": [
-      "files under asset/ or reviews/ (a session's upload records and major 1's reviews)",
-      "prompt.json and entry.json (record stages above)"
-    ],
+    "copies": "each file artifact.json lists under outputs, at {object}/{file}, except what skip_folders_in_version and skip_files_in_version name; input/ is copied, which keeps bible/input/brief.md and bible/input/screenplay.md",
     "a_file_dropped_by_a_later_version": "is deleted in that version's commit, with its receipt, when the later version no longer lists it",
     "also_copies": {
-      "episodes/<EP>/edit": [
-        "technical-check.json: written after artifact.json, so artifact.json does not list it"
+      "episodes/*/edit": [
+        "technical-check.json"
       ]
-    }
+    },
+    "skip_folders_in_version": [
+      "asset",
+      "reviews"
+    ],
+    "skip_files_in_version": [
+      "prompt.json",
+      "entry.json"
+    ],
+    "also_copies_note": "a key matches a v1 object id, * standing for one path segment; technical-check.json is written after artifact.json, so artifact.json does not list it"
   },
   "receipt_rule": {
     "when": "the version folder has job.json",
