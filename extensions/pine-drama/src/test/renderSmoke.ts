@@ -45,6 +45,8 @@ interface Case {
 	/** What the page does once it rendered, and what went wrong; `answer` replies to a page message as the extension would. */
 	/** Rendered as on a Mac (MAC's user agent). */
 	readonly mac?: boolean;
+	/** The page's size, when the case needs one (Playwright's default is 1280 x 720). */
+	readonly pane?: { readonly width: number; readonly height: number };
 	readonly interact?: { readonly answer: (message: { type?: string; stageId?: string; version?: string | null }) => unknown; readonly check: (page: Page, posted: readonly unknown[]) => Promise<string[]> };
 }
 
@@ -54,7 +56,7 @@ interface Source { readonly name: string; readonly root: string; readonly drama:
 const fileSrc = (rel: string) => `${ORIGIN}/project/${rel.split('/').map(encodeURIComponent).join('/')}`;
 
 async function canvasCase(source: Source, episode: string): Promise<Case> {
-	const message = await lineageMessage({ root: source.root, episode, drama: source.drama, layout: {}, focus: undefined, src: fileSrc });
+	const message = await lineageMessage({ root: source.root, episode, drama: source.drama, layout: {}, focus: undefined, viewport: undefined, src: fileSrc });
 	// Every recorded link between two cards on the board is drawn, from the card used to the card made from it: the
 	// person missed them once all were dropped, and asked which way a take's line runs.
 	const board = new Set(message.cards.filter(onBoard).map(c => c.id));
@@ -347,7 +349,7 @@ async function wheelZoomCase(source: Source, episode: string): Promise<Case> {
 	const c = await canvasCase(source, episode);
 	const check = async (page: Page): Promise<string[]> => {
 		const problems: string[] = [];
-		const scale = async () => Number(/scale\(([\d.]+)\)/.exec(await page.locator('.react-flow__viewport').first().evaluate(element => (element as { style: { transform: string } }).style.transform))?.[1]);
+		const scale = async () => (await drawnViewport(page)).zoom;
 		const card = page.locator('.react-flow__node-card').first();
 		const pane = page.locator('.react-flow__pane').first();
 		for (const [where, target] of [['a card', card], ['the pane', pane]] as const) {
@@ -368,6 +370,67 @@ async function wheelZoomCase(source: Source, episode: string): Promise<Case> {
 		return problems;
 	};
 	return { ...c, mac: true, name: `${source.name}: ${episode} zooms on ⌘+wheel and Ctrl+wheel`, interact: { answer: () => null, check } };
+}
+
+/** The board's pan and zoom as drawn: React Flow's viewport transform. */
+async function drawnViewport(page: Page): Promise<{ x: number; y: number; zoom: number }> {
+	const transform = await page.locator('.react-flow__viewport').first().evaluate(element => (element as { style: { transform: string } }).style.transform);
+	const [, x, y, zoom] = /translate\(([-\d.]+)px, ([-\d.]+)px\) scale\(([\d.]+)\)/.exec(transform) ?? [];
+	return { x: Number(x), y: Number(y), zoom: Number(zoom) };
+}
+
+/**
+ * The assets canvas opens as the episodes do (openingViewport): a board that fits only below 25 % opens at 25 % with its
+ * top-left at the pane's corner (40, 56), not fitted to an unreadable size. A small pane makes the fixture's board too
+ * large to fit at 25 %.
+ */
+async function assetsFloorCase(source: Source): Promise<Case> {
+	const c = await canvasCase(source, ASSETS_CANVAS);
+	const check = async (page: Page): Promise<string[]> => {
+		await new Promise(resolve => setTimeout(resolve, 500));
+		const { zoom } = await drawnViewport(page);
+		const pane = (await page.locator('.react-flow').first().boundingBox())!;
+		const boxes = page.locator('.react-flow__node');
+		let [left, top] = [Infinity, Infinity];
+		for (let i = 0; i < await boxes.count(); i++) {
+			const box = (await boxes.nth(i).boundingBox())!;
+			[left, top] = [Math.min(left, box.x - pane.x), Math.min(top, box.y - pane.y)];
+		}
+		return [
+			...(Math.abs(zoom - 0.25) < 1e-6 ? [] : [`opened at ${zoom}, not the 25 % floor`]),
+			...(Math.abs(left - 40) < 1 && Math.abs(top - 56) < 1 ? [] : [`the board's top-left is at (${left}, ${top}) in the pane, not (40, 56)`]),
+		];
+	};
+	return { ...c, pane: { width: 320, height: 240 }, name: `${source.name}: the assets canvas too large to fit opens at 25 % at its top-left`, interact: { answer: () => null, check } };
+}
+
+/**
+ * A canvas opens where the person last left it (the message's viewport), and wherever the board comes to rest is posted
+ * back to be kept: here after the bar's Zoom in.
+ */
+async function savedViewportCase(source: Source, episode: string): Promise<Case> {
+	const c = await canvasCase(source, episode);
+	// The board's point left in the middle of the pane, and the zoom (CanvasViewport).
+	const saved = { x: 500, y: 300, zoom: 0.8 };
+	const check = async (page: Page, posted: readonly unknown[]): Promise<string[]> => {
+		const problems: string[] = [];
+		const pane = (await page.locator('.react-flow').first().boundingBox())!;
+		const opened = await drawnViewport(page);
+		const want = { x: pane.width / 2 - saved.x * saved.zoom, y: pane.height / 2 - saved.y * saved.zoom, zoom: saved.zoom };
+		if (Math.abs(opened.x - want.x) > 0.5 || Math.abs(opened.y - want.y) > 0.5 || opened.zoom !== want.zoom) {
+			problems.push(`opened at ${JSON.stringify(opened)}, not ${JSON.stringify(want)} (${saved.x}, ${saved.y} in the middle at ${saved.zoom})`);
+		}
+		// Zoom in keeps the middle where it is, so what is kept next is the same point at a larger zoom.
+		await page.locator('.bar button[aria-label="Zoom in"]').click();
+		type Kept = { type?: string; episode?: string; viewport?: { x: number; y: number; zoom: number } };
+		const kept = () => (posted as Kept[]).filter(m => m.type === 'viewport' && m.episode === episode && m.viewport!.zoom > saved.zoom);
+		for (const until = Date.now() + 2000; !kept().length && Date.now() < until;) { await new Promise(resolve => setTimeout(resolve, 50)); }
+		const last = kept().at(-1)?.viewport;
+		if (!last) { problems.push('after Zoom in, no viewport was posted to keep'); }
+		else if (Math.abs(last.x - saved.x) > 1 || Math.abs(last.y - saved.y) > 1) { problems.push(`after Zoom in, the middle kept is (${last.x}, ${last.y}), not (${saved.x}, ${saved.y})`); }
+		return problems;
+	};
+	return { ...c, message: { ...(c.message as object), viewport: saved }, name: `${source.name}: ${episode} opens where it was left, and keeps where it rests`, interact: { answer: () => null, check } };
 }
 
 /** An element's text as shown, or null when there is none. */
@@ -574,7 +637,7 @@ const TYPES: Record<string, string> = { '.js': 'text/javascript', '.css': 'text/
 /** Loads one case and returns what went wrong, if anything. */
 async function render(browser: Browser, c: Case): Promise<string[]> {
 	const problems: string[] = [];
-	const context = await browser.newContext({ ...(process.env.PDS_RENDER_SHOTS ? { viewport: { width: 1600, height: 1000 } } : {}), ...(c.mac ? { userAgent: MAC } : {}) });
+	const context = await browser.newContext({ ...(c.pane ? { viewport: c.pane } : process.env.PDS_RENDER_SHOTS ? { viewport: { width: 1600, height: 1000 } } : {}), ...(c.mac ? { userAgent: MAC } : {}) });
 	try {
 		const page = await context.newPage();
 		const html = webviewPageHtml(c.page, c.name, c.data, { src: name => `${ORIGIN}/media/${name}`, cspSource: ORIGIN, nonce: 'render-smoke' });
@@ -645,6 +708,7 @@ async function main(): Promise<number> {
 		await canvasCase(source, ASSETS_CANVAS), await boxCase(source), await faceCase(source), await toolsCase(source), await variantBoxCase(source), await longNameCase(source),
 		await canvasCase(source, 'EP001'), await takeLinesCase({ ...source, drama: await readFixture() }), await openingCase(source, 'EP001'), await episodeBoxCase(source),
 		await wheelZoomCase(source, ASSETS_CANVAS), await wheelZoomCase(source, 'EP001'),
+		await assetsFloorCase(source), await savedViewportCase(source, ASSETS_CANVAS), await savedViewportCase(source, 'EP001'),
 		await galleryCase(source, 'characters'), await galleryCase(source, 'scenes'), await galleryCase(source, 'props'), await gridClickCase(source),
 		await segCase(source, 'EP001'),
 	];

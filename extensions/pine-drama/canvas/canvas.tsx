@@ -8,14 +8,14 @@ import { createRoot } from 'react-dom/client';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
 	applyNodeChanges, Background, BackgroundVariant, Handle, MiniMap, NodeToolbar, Position, ReactFlow, ReactFlowProvider, useReactFlow, useViewport,
-	type Edge, type Node, type NodeChange, type NodeProps,
+	type Edge, type Node, type NodeChange, type NodeProps, type Viewport,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 // The workbench's own icons, at the version the pinned Code-OSS uses (its package.json: @vscode/codicons ^0.0.46-49).
 import '@vscode/codicons/dist/codicon.css';
 import './canvas.css';
 import { NAME_MAX, TEXT_MAX, type EntryAction } from '../src/core/galleryProtocol';
-import { ASSETS_CANVAS, CANVAS_PROTOCOL, opensFile, type CanvasCard, type CanvasPicture, type CanvasCommand, type FromCanvas, type Point, type Size, type ToCanvas } from '../src/core/canvasProtocol';
+import { ASSETS_CANVAS, CANVAS_PROTOCOL, opensFile, type CanvasCard, type CanvasPicture, type CanvasCommand, type CanvasViewport, type FromCanvas, type Point, type Size, type ToCanvas } from '../src/core/canvasProtocol';
 import { CANVAS_WAIT_LIMIT_S, waitingText } from '../src/core/canvasWait';
 import { PictureRef, RequestView } from './requestView';
 import { cardSize, layoutAssets, layoutEpisode, layoutOf, onBoard, openingViewport, positionsFor } from '../src/core/canvasLayout';
@@ -188,10 +188,17 @@ function nodesFor(message: Lineage, loaded: Record<string, Loaded>, place: Layou
  * The view a board opens at, and Lay out again takes (canvasLayout.ts openingViewport: fitted, 25 % to 55 %): from its
  * top-level nodes' boxes and the pane, which App draws before the board mounts (`.canvas`).
  */
-function opening(nodes: readonly AnyNode[]): { x: number; y: number; zoom: number } {
+function paneSize(): Size {
 	const pane = document.querySelector('.canvas')?.getBoundingClientRect();
-	return openingViewport(nodes.filter(n => !n.parentId).map(n => ({ x: n.position.x, y: n.position.y, w: n.width ?? 0, h: n.height ?? 0 })),
-		{ w: pane?.width || window.innerWidth, h: pane?.height || window.innerHeight });
+	return { w: pane?.width || window.innerWidth, h: pane?.height || window.innerHeight };
+}
+
+/** The view a canvas opens at: where the person left it (its middle kept in the middle, CanvasViewport), else openingViewport. */
+function opening(nodes: readonly AnyNode[], left: CanvasViewport | null): Viewport {
+	const pane = paneSize();
+	return left
+		? { x: pane.w / 2 - left.x * left.zoom, y: pane.h / 2 - left.y * left.zoom, zoom: left.zoom }
+		: openingViewport(nodes.filter(n => !n.parentId).map(n => ({ x: n.position.x, y: n.position.y, w: n.width ?? 0, h: n.height ?? 0 })), pane);
 }
 
 function sizesOf(message: Lineage, loaded: Record<string, Loaded>): Record<string, Size> {
@@ -421,8 +428,9 @@ function Composer({ card, cards, reply, onGo, onClose }: { card: CanvasCard; car
 
 function Canvas({ message, loaded }: { message: Lineage; loaded: Record<string, Loaded> }) {
 	const [nodes, setNodes] = useState<AnyNode[]>(() => nodesFor(message, loaded, positionsFor(defaults(message, loaded), message.layout, {}, message.cards, sizesOf(message, loaded), message.episode)));
-	// Fixed at mount from the first nodes, which stand somewhere: App mounts the board only when the measured lineage has a card.
-	const [openViewport] = useState(() => opening(nodes));
+	// Fixed at mount: where the person last left this canvas, else from the first nodes, which stand somewhere (App mounts
+	// the board only when the measured lineage has a card).
+	const [openViewport] = useState(() => opening(nodes, message.viewport));
 	const [picked, setPicked] = useState<string | null>(null);
 	// Layout-only history: each entry is every node's position; nothing else is undoable here.
 	const past = useRef<Layout[]>([]);
@@ -611,7 +619,7 @@ function Canvas({ message, loaded }: { message: Lineage; loaded: Record<string, 
 		const to = defaults(message, loaded);
 		save(to);
 		rerender(n => n + 1);
-		const view = opening(nodesFor(message, loaded, to));
+		const view = opening(nodesFor(message, loaded, to), null);
 		setTimeout(() => void flow.setViewport(view, { duration: 200 }), 0);
 		setNotice('Laid out again · ⌘Z brings your arrangement back');
 		setTimeout(() => setNotice(null), 5000);
@@ -715,10 +723,11 @@ function Canvas({ message, loaded }: { message: Lineage; loaded: Record<string, 
 			maxZoom={ZOOM.max}
 			// The opening view is a prop, not a call after mount: React Flow's `defaultViewport` is the initial pan and zoom (reactflow.dev/api-reference/react-flow#default-viewport).
 			defaultViewport={openViewport}
-			// The assets canvas opens fitted to the view: `fitView` fits the nodes first given
-			// (reactflow.dev/api-reference/react-flow#fitview); a clicked card is then centred (the focus effect above).
-			fitView={message.episode === ASSETS_CANVAS}
-			fitViewOptions={{ padding: 0.1 }}
+			// Wherever the board comes to rest is where it opens next time (reactflow.dev/api-reference/react-flow#onmoveend).
+			onMoveEnd={(_event, { x, y, zoom: z }) => {
+				const pane = paneSize();
+				post({ v: CANVAS_PROTOCOL, type: 'viewport', episode: message.episode, viewport: { x: (pane.w / 2 - x) / z, y: (pane.h / 2 - y) / z, zoom: z } });
+			}}
 			// The workbench marks its theme on the webview body (vscode-light, vscode-dark, vscode-high-contrast).
 			colorMode={document.body.classList.contains('vscode-light') ? 'light' : 'dark'}
 		>

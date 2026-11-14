@@ -80,6 +80,19 @@ export interface Size {
  */
 export type CanvasLayout = Readonly<Record<string, Point>>;
 
+/**
+ * Where the person last left a canvas: the board's point at the middle of the pane (x, y) and the zoom. Not React
+ * Flow's transform, which holds for one pane size only: restored in a narrower split, a transform can leave every card
+ * off screen, while what was in the middle stays in the middle. UI state per profile like CanvasLayout: a canvas opens
+ * where it was left, as tldraw restores each page's camera and Code-OSS an editor's view state
+ * (workbench.editor.restoreViewState).
+ */
+export interface CanvasViewport {
+	readonly x: number;
+	readonly y: number;
+	readonly zoom: number;
+}
+
 export type ToCanvas =
 	| {
 		readonly v: typeof CANVAS_PROTOCOL; readonly type: 'lineage'; readonly episode: string; readonly origin: CanvasOrigin;
@@ -92,6 +105,8 @@ export type ToCanvas =
 		readonly titles: Readonly<Record<string, string>> | null;
 		/** A card to centre and select once the cards are drawn: the asset card the person clicked (the assets canvas). */
 		readonly focus: string | null;
+		/** The view the person last left this canvas at, or null: it then opens by openingViewport. */
+		readonly viewport: CanvasViewport | null;
 	}
 	| { readonly v: typeof CANVAS_PROTOCOL; readonly type: 'error'; readonly episode: string; readonly message: string; readonly code: string | null; readonly action: string | null }
 	/**
@@ -188,6 +203,8 @@ export type FromCanvas =
 	| ({ readonly v: typeof CANVAS_PROTOCOL; readonly type: 'open' } & Shown)
 	/** The person moved cards or frames, laid the board out again, or undid or redid one of those: every node's position. */
 	| { readonly v: typeof CANVAS_PROTOCOL; readonly type: 'layout'; readonly episode: string; readonly positions: CanvasLayout }
+	/** The board stopped moving (React Flow's onMoveEnd): the view to open at next time. */
+	| { readonly v: typeof CANVAS_PROTOCOL; readonly type: 'viewport'; readonly episode: string; readonly viewport: CanvasViewport }
 	/** The episode's seg editor, at a seg when a seg's card asked for it (production-assets.md, section 12c: the episode's two views). */
 	| { readonly v: typeof CANVAS_PROTOCOL; readonly type: 'segEditor'; readonly seg: string | null }
 	/** Something failed inside the webview (a script error, a blocked load): logged, never hidden (coding rule 1). */
@@ -222,6 +239,9 @@ export function readFromCanvas(value: unknown): FromCanvas | undefined {
 	if (message.type === 'layout' && typeof message.episode === 'string' && isLayout(message.positions)) {
 		return { v: CANVAS_PROTOCOL, type: 'layout', episode: message.episode, positions: message.positions };
 	}
+	if (message.type === 'viewport' && typeof message.episode === 'string' && isViewport(message.viewport)) {
+		return { v: CANVAS_PROTOCOL, type: 'viewport', episode: message.episode, viewport: { x: message.viewport.x, y: message.viewport.y, zoom: message.viewport.zoom } };
+	}
 	if (message.type === 'segEditor' && nullableString(message.seg)) {
 		return { v: CANVAS_PROTOCOL, type: 'segEditor', seg: message.seg };
 	}
@@ -236,6 +256,11 @@ export function readFromCanvas(value: unknown): FromCanvas | undefined {
 		return action && { v: CANVAS_PROTOCOL, type: 'entry', stageId: message.stageId, ...action };
 	}
 	return undefined;
+}
+
+function isViewport(value: unknown): value is CanvasViewport {
+	const v = value as CanvasViewport | null;
+	return typeof v === 'object' && v !== null && Number.isFinite(v.x) && Number.isFinite(v.y) && Number.isFinite(v.zoom) && v.zoom > 0;
 }
 
 function isLayout(value: unknown): value is CanvasLayout {

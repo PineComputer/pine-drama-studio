@@ -4,7 +4,7 @@
 // canvasLayout.ts, canvasProtocol.ts); the webview is canvas/canvas.tsx, on React Flow (spike S11).
 import { isAbsolute, resolve } from 'node:path';
 import * as vscode from 'vscode';
-import { CANVAS_COMMANDS, CANVAS_PROTOCOL, readFromCanvas, type CanvasDetail, type CanvasLayout, type Shown, type ToCanvas } from './core/canvasProtocol';
+import { CANVAS_COMMANDS, CANVAS_PROTOCOL, readFromCanvas, type CanvasDetail, type CanvasLayout, type CanvasViewport, type Shown, type ToCanvas } from './core/canvasProtocol';
 import { unchangedLine, type EntryDone } from './core/entryActions';
 import { pictureOf, recordOf } from './core/assetStatus';
 import { plannedPrompt, shootRequest } from './core/segEditor';
@@ -34,6 +34,8 @@ export function registerEpisodeCanvas(context: vscode.ExtensionContext, views: P
 	// The person's arrangement, per project and episode, in workspace state: UI state, not a project file (canvasProtocol.ts,
 	// CanvasLayout). The assets canvas keeps none: the board lays it out from the object model each time (positionsFor).
 	const layoutKey = (episode: string) => `pineDrama.canvasLayout:${project.root}:${episode}`;
+	// Where the person last left each canvas, the assets canvas too, kept the same way.
+	const viewportKey = (episode: string) => `pineDrama.canvasViewport:${project.root}:${episode}`;
 	const media = vscode.Uri.joinPath(context.extensionUri, 'media', 'canvas');
 	const root = vscode.Uri.file(project.root);
 	// A version's file: project-relative, or absolute for a downloaded version in the drama's record (project.ts versionFile).
@@ -50,7 +52,7 @@ export function registerEpisodeCanvas(context: vscode.ExtensionContext, views: P
 		try {
 			const built = await lineageMessage({
 				root: project.root, episode, drama: await project.drama(), layout: context.workspaceState.get<CanvasLayout>(layoutKey(episode)) ?? {},
-				focus: focus.get(episode), src: rel => panel.webview.asWebviewUri(fileUri(rel)).toString(), chatTitle,
+				focus: focus.get(episode), viewport: context.workspaceState.get<CanvasViewport>(viewportKey(episode)), src: rel => panel.webview.asWebviewUri(fileUri(rel)).toString(), chatTitle,
 			});
 			message = built;
 			focus.delete(episode);
@@ -137,6 +139,8 @@ export function registerEpisodeCanvas(context: vscode.ExtensionContext, views: P
 				await vscode.commands.executeCommand('vscode.open', fileUri(file), { preview: true });
 			} else if (message?.type === 'layout' && message.episode === episode) {
 				await context.workspaceState.update(layoutKey(episode), message.positions);
+			} else if (message?.type === 'viewport' && message.episode === episode) {
+				await context.workspaceState.update(viewportKey(episode), message.viewport);
 			} else if (message?.type === 'segEditor') {
 				await vscode.commands.executeCommand('pineDrama.openSegEditor', { id: `episodes/${episode}` }, message.seg ?? undefined);
 			} else if (message?.type === 'entry') {

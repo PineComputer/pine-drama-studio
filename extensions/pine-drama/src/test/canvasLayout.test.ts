@@ -318,6 +318,8 @@ test('messages from the webview are checked; open and inspect carry the version 
 	assert.equal(readFromCanvas({ v: 1, type: 'segEditor' }), undefined);
 	const positions = { 'episodes/EP001/edit': { x: 1, y: 2 }, 'frame:EP001 cut': { x: -5, y: 0 } };
 	assert.deepEqual(readFromCanvas({ v: 1, type: 'layout', episode: 'EP001', positions }), { v: 1, type: 'layout', episode: 'EP001', positions });
+	assert.deepEqual(readFromCanvas({ v: 1, type: 'viewport', episode: 'EP001', viewport: { x: -10, y: 5.5, zoom: 0.25, extra: 1 } }), { v: 1, type: 'viewport', episode: 'EP001', viewport: { x: -10, y: 5.5, zoom: 0.25 } }, 'where the board came to rest');
+	assert.equal(readFromCanvas({ v: 1, type: 'viewport', episode: 'EP001', viewport: { x: 0, y: 0, zoom: 0 } }), undefined, 'a zoom of 0 is no view');
 	assert.equal(readFromCanvas({ v: 1, type: 'layout', episode: 'EP001', positions: { a: { x: '1', y: 2 } } }), undefined);
 	assert.equal(readFromCanvas({ v: 1, type: 'layout', episode: 'EP001', positions: { a: { x: Infinity, y: 2 } } }), undefined);
 });
