@@ -83,7 +83,7 @@ for (const name of readdirSync(join(appRoot, 'extensions'))) {
 run('npm', ['run', '--silent', 'compile'], { cwd: EXT });
 const stage = join(DIST, 'stage', 'pine-drama');
 mkdirSync(stage, { recursive: true });
-for (const item of ['package.json', 'package-lock.json', 'media', 'syntaxes', 'protocol']) {
+for (const item of ['package.json', 'package-lock.json', 'ThirdPartyNotices.txt', 'media', 'syntaxes', 'protocol']) {
 	cpSync(join(EXT, item), join(stage, item), { recursive: true });
 }
 // A release ships the extension as one minified bundle, without comments or source maps (package-macos.sh, stage_extension).

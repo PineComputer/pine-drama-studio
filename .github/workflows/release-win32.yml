@@ -189,6 +189,17 @@ jobs:
           name: win32-x64-signed
           path: release
 
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: studio
+          persist-credentials: false
+
+      # The source of the git the installer ships (scripts/git-source.sh), from the release the locked dugite names.
+      - name: Get the bundled git's source
+        run: |
+          npm ci --prefix studio/extensions/pine-drama --omit=dev --ignore-scripts --no-audit --no-fund
+          studio/scripts/git-source.sh release
+
       # A draft under its own name, so that the version's published release (macOS) is never touched.
       - name: Draft the Windows release
         env:
@@ -201,4 +212,4 @@ jobs:
           gh release create "$TAG-win32" --draft --target "$GITHUB_SHA" \
             --title "Pine Drama Studio ${TAG#v} for Windows (x64)" \
             --notes "Windows x64 installer, signed by 19PINE PRIVATE LIMITED (SSL.com) and timestamped. Per-user install: run the setup, then connect with your Pine project key through Accounts → Pine Computer. Check the download with SHA256SUMS." \
-            release/*.exe release/SHA256SUMS
+            release/*.exe release/SHA256SUMS release/dugite-native-*-source.tar.gz

@@ -576,6 +576,7 @@
     "@pinesandbox/computer": "^0.3.5",
     "ajv": "8.17.1",
     "ajv-formats": "3.0.1",
+    "dugite": "3.3.3",
     "mammoth": "1.13.0",
     "pdfjs-dist": "6.4.299",
     "tar": "7.5.22"
@@ -585,5 +586,8 @@
       "supported": true,
       "description": "The Studio reads drama projects and never runs code from them."
     }
+  },
+  "allowScripts": {
+    "dugite@3.3.3": true
   }
 }

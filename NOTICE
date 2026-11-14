@@ -9,5 +9,9 @@ under the MIT License. The changes made to Code-OSS are the patches in upstream/
 The Fountain grammar in extensions/pine-drama/syntaxes/ comes from Better Fountain, Copyright (c) 2018 Piers
 Deseilligny, licensed under the MIT License (extensions/pine-drama/syntaxes/LICENSE-betterfountain.md).
 
+The Studio ships Git, built by dugite-native (GNU General Public License, version 2), with Git LFS and Git Credential
+Manager (MIT License); extensions/pine-drama/ThirdPartyNotices.txt names them and holds their licenses, and each release
+attaches the source of dugite-native and its Git.
+
 The Studio's third-party npm dependencies are listed in extensions/pine-drama/package.json and come under their own
 licenses.

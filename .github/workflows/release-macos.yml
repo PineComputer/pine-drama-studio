@@ -139,9 +139,10 @@ jobs:
         run: |
           set -euo pipefail
           (cd dist/release && shasum -a 256 -c SHA256SUMS)
+          scripts/git-source.sh dist/release
           gh release create "$TAG" --verify-tag --draft --title "Pine Drama Studio ${TAG#v} · Signed and notarized for macOS" \
             --generate-notes --notes "Signed and notarized for Apple silicon Macs. Open the DMG, drag Pine Drama Studio to Applications, and connect with your Pine project key through Accounts → Pine Computer…. See doc/install.md and doc/releasing.md in the tagged source for installation and verification." \
-            dist/release/*.dmg dist/release/SHA256SUMS dist/release/build-info.json
+            dist/release/*.dmg dist/release/SHA256SUMS dist/release/build-info.json dist/release/dugite-native-*-source.tar.gz
           gh release edit "$TAG" --draft=false --latest
 
       - name: Remove temporary signing material

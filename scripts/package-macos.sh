@@ -59,7 +59,7 @@ stage_extension() {
 	(cd "$EXT" && npm run --silent compile)
 	stage="$(mktemp -d)/pine-drama"
 	mkdir -p "$stage"
-	cp -R "$EXT/package.json" "$EXT/package-lock.json" "$EXT/out" "$EXT/media" "$EXT/syntaxes" "$EXT/protocol" "$stage/"
+	cp -R "$EXT/package.json" "$EXT/package-lock.json" "$EXT/ThirdPartyNotices.txt" "$EXT/out" "$EXT/media" "$EXT/syntaxes" "$EXT/protocol" "$stage/"
 	rm -rf "$stage/out/test"
 	if [ "$(release)" = yes ]; then
 		# A release ships the extension as one minified bundle, without comments or source maps: tsc's output is the
@@ -69,8 +69,9 @@ stage_extension() {
 			--packages=external --external:vscode --minify --legal-comments=none --log-level=warning --outfile="$stage/out/extension.js")
 	fi
 	# Its production dependencies, installed from the lockfile for the app's architecture: an optional native package
-	# such as @napi-rs/canvas-darwin-<arch> is chosen by npm's --cpu and --os (npm install, "cpu" and "os").
-	(cd "$stage" && npm ci --omit=dev --cpu="$ARCH" --os=darwin --no-audit --no-fund >/dev/null)
+	# such as @napi-rs/canvas-darwin-<arch> is chosen by npm's --cpu and --os (npm install, "cpu" and "os"), and the git
+	# dugite downloads by npm_config_arch (its script/config.js), as upstream's build sets it for each architecture.
+	(cd "$stage" && npm_config_arch="$ARCH" npm ci --omit=dev --cpu="$ARCH" --os=darwin --no-audit --no-fund >/dev/null)
 	rm -f "$stage/package-lock.json"
 	rm -rf "$app/Contents/Resources/app/extensions/pine-drama"
 	mv "$stage" "$app/Contents/Resources/app/extensions/pine-drama"
