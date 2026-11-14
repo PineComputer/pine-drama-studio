@@ -139,6 +139,7 @@ change = { schema, turn_id, change_number, previous_change_sha256, files: { <pat
 | `sha256_after` | The hash of the file the change writes, or `null` for a file it deletes. |
 
 - **Bytes first.** The Computer side stores every `sha256_after` file at `files/<hash>` before it writes the change.
+- **Every changed file comes back.** A file the Computer side changes in its workspace by any means (its own commands, or its agent editing the file directly) comes back as a change. Before each of its commands and before its return, the Computer side writes a change for every workspace file that differs from `seed_files` and from what its earlier changes wrote.
 - **Rerolls.** The attempts of one turn on one file chain: each attempt's `sha256_before` is the previous attempt's `sha256_after`. So they apply in order, and the file's history holds every one.
 
 ### 4.4 Applying a change (client)
@@ -195,7 +196,7 @@ A paid-call state carries `{schema, paid_call_id, object_id, state, state_writte
 ### 4.7 Stop, and a run that does not return
 
 - **However a turn ends on Pine** (completed, failed, canceled), the client reads `return.json`. If it exists, it wins.
-- **Stop.** The client cancels the Pine turn. The Computer side sends no new paid call to a provider, and writes a `pine_computer_broke_off_the_turn_partway` return with what was stored if it can.
+- **Stop.** The client cancels the Pine turn. The Computer side sends no new paid call to a provider, and writes a `pine_computer_broke_off_the_turn_partway` return with what was stored if it can. Pine Computer loses at most the text its agent edited directly after its last command, since every command starts by writing such edits as changes (4.3).
 - **No return.** When the turn ends with no `return.json`, the client applies every change stored for it, in `change_number` order, up to the first missing one. It keeps the session's private state, and tells the person the run may have spent money. The return is then resolved, and the session may send its next turn. Paid calls in flight settle in that turn, on the same Computer (4.5).
 - **Replay.** Before any work, the Computer side writes `turns/<turn id>/turn-started.json` (`$defs/turnStarted`): `{schema, turn_id, request_sha256: <hash of request.json's bytes>, started_at}`. It reads a request in this order:
   1. If `turn-started.json` exists with another `request_sha256`, the turn id came back with a different request. It is refused with `pine_computer_found_request_not_matching_protocol`.
