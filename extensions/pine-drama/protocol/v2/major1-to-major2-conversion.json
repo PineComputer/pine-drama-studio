@@ -90,7 +90,12 @@
       "operation": "write_receipt_only",
       "writes": {
         "{owner}/description.md.receipt.json": "the receipt rule below, from this describe version's job.json, only when {owner}'s current entry version was written from this call: its artifact.json metadata has source.kind \"describe\" and source.call naming this describe version. A description the person wrote later (entry describe) has no receipt."
-      }
+      },
+      "receipt_when_owner_current_entry_metadata": {
+        "source.kind": "describe",
+        "source.call": "<this version>"
+      },
+      "receipt_when_note": "each key is a dot path into the metadata of the artifact.json of {owner}'s current entry version; <this version> is this describe version's folder, {object}/<version id>"
     }
   ],
   "objects_dropped": [
@@ -133,7 +138,20 @@
     "turns/": "dropped (in history); read first for the snapshots above",
     "understanding/": "dropped (in history)",
     "reviews/ in any version folder": "dropped (in history)",
-    "choices.json": "dropped (in history); read first for current, discarded and the person's pending text"
+    "choices.json": "dropped (in history); read first for current, discarded and the person's pending text",
+    "newest_version_to_root": {
+      "folder": "config",
+      "file": "drama-cli.cfg.yaml"
+    },
+    "kept": [
+      "inputs"
+    ],
+    "dropped": [
+      "imports",
+      "turns",
+      "understanding",
+      "choices.json"
+    ]
   },
   "current": {
     "rule": "after every version's commit, a last commit sets each kept object's files to the files of its major-1 current version (major 1's 3.2: the chosen version, else the newest not discarded) and writes every object.json (see object_json)",
