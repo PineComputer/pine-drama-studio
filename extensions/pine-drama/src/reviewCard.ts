@@ -83,8 +83,10 @@ export function registerReviewCards(context: vscode.ExtensionContext, service: C
 						case 'submit': {
 							const review = service.review(key, id);
 							if (service.savedReviewWords(id) === undefined) {
-								for (const [item, reason] of Object.entries(message.notes)) {
-									if (review?.verdicts[item]?.verdict === 'revise') { service.decideItem(key, id, item, 'revise', reason); }
+								// The standing items' notes: one withdrawn since the card was drawn takes no verdict (reviews.ts standing).
+								for (const item of review?.items ?? []) {
+									const reason = message.notes[item.key];
+									if (reason !== undefined && review?.verdicts[item.key]?.verdict === 'revise') { service.decideItem(key, id, item.key, 'revise', reason); }
 								}
 							}
 							await submit(key, id, message.words);

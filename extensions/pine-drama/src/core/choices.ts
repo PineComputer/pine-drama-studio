@@ -3,7 +3,7 @@
 // itself, never from an index of ours. No vscode import.
 
 import { randomUUID } from 'node:crypto';
-import { constants } from 'node:fs';
+import { constants, readFileSync } from 'node:fs';
 import { copyFile, mkdir, open, readdir, readFile, rename, unlink } from 'node:fs/promises';
 import { dirname, extname, join } from 'node:path';
 import { listOf, MAJOR, mapOf, matches, UnsupportedMajor, type Choices, type ObjectChoice, type Review, type VersionRecord } from './protocol';
@@ -22,13 +22,18 @@ const missing = (error: unknown) => (error as NodeJS.ErrnoException).code === 'E
  * gives as something else, is empty. Only another major cannot be read.
  */
 export async function readChoices(root: string): Promise<Choices | null> {
+	return choicesOf(root, await readFile(join(root, CHOICES_FILE), 'utf8').catch(error => { if (missing(error)) { return null; } throw error; }));
+}
+
+/** readChoices, read at once: for a reader that is synchronous itself (the review's standing, chats.ts arrival). */
+export function readChoicesSync(root: string): Choices | null {
 	let text: string;
-	try {
-		text = await readFile(join(root, CHOICES_FILE), 'utf8');
-	} catch (error) {
-		if (missing(error)) { return null; }
-		throw error;
-	}
+	try { text = readFileSync(join(root, CHOICES_FILE), 'utf8'); } catch (error) { if (missing(error)) { return null; } throw error; }
+	return choicesOf(root, text);
+}
+
+function choicesOf(root: string, text: string | null): Choices | null {
+	if (text === null) { return null; }
 	const given = Object(JSON.parse(text)) as Partial<Choices>;
 	if (given.schema !== MAJOR && given.schema !== undefined) { throw new UnsupportedMajor(join(root, CHOICES_FILE), given.schema); }
 	return { ...given, schema: MAJOR, objects: mapOf(given.objects), added: listOf(given.added), imports: listOf(given.imports) };

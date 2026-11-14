@@ -248,7 +248,7 @@ test('a question-only stop restores its review card and exact-message anchor', a
 		{ kind: 'question', text: 'Review this version?', turn_id: 'turn-question' },
 	] as ReturnType<ChatService['history']>;
 	f.service.reviews = () => [{ id: 'review-question', turnId: 'turn-question', createdAt: '2026-11-06T00:00:00.000Z', kind: 'screenplay', subject: 'screenplay', question: 'Review?', state: 'open',
-		items: [{ key: 'screenplay/v1', label: 'Screenplay v1', files: [] }], verdicts: {} }];
+		items: [{ key: 'screenplay/v1', label: 'Screenplay v1', files: [] }], withdrawn: [], verdicts: {} }];
 	const session = await content.provideChatSessionContent(Uri.parse('main') as unknown as vscode.Uri, {} as vscode.CancellationToken, {} as Parameters<vscode.ChatSessionContentProvider['provideChatSessionContent']>[2]);
 	const responses = session.history as vscode.ChatResponseTurn2[];
 	const response = responses.find(r => r.result?.metadata?.pineReviewId === 'review-question');
@@ -266,7 +266,7 @@ for (const hasNotice of [false, true]) {
 				...(hasNotice ? [{ kind: 'notice', text: 'Studio recovered a saved result. Review its files below.', turn_id: 'studio-task:saved-task' }] : []),
 			] as ReturnType<ChatService['history']>;
 			f.service.reviews = () => [{ id: 'recovered-review', turnId: 'studio-task:saved-task', createdAt: '2026-11-06T00:00:00.000Z', kind: 'screenplay', subject: 'screenplay', question: 'Recovered review', state: 'open',
-				items: [{ key: 'screenplay/v1', label: 'Screenplay v1', files: [] }], verdicts: {} }];
+				items: [{ key: 'screenplay/v1', label: 'Screenplay v1', files: [] }], withdrawn: [], verdicts: {} }];
 			const session = await content.provideChatSessionContent(Uri.parse('main') as unknown as vscode.Uri, {} as vscode.CancellationToken, {} as Parameters<vscode.ChatSessionContentProvider['provideChatSessionContent']>[2]);
 			const responses = (session.history as vscode.ChatResponseTurn2[]).filter(r => r.result?.metadata?.pineReviewId === 'recovered-review');
 			assert.equal(responses.length, 1, 'Review index has one exact native Chat destination');
@@ -330,21 +330,21 @@ test('a session whose Review waits shows NeedsInput in the Sessions list, as a q
 	const f = fixture(); f.add('main', f.root, 'main'); f.add('episode', f.root, 'episode');
 	const { NeedsInput, Completed, InProgress } = native.ChatSessionStatus;
 	// The waiting Reviews the service would return (ChatService.openReview), by Chat.
-	const reviews = new Map<string, { id: string; items: unknown[]; submitted?: boolean }>();
+	const reviews = new Map<string, { id: string; items: unknown[]; withdrawn: unknown[]; submitted?: boolean }>();
 	(f.service as unknown as { openReview: (key: string) => unknown }).openReview = key => {
 		const review = reviews.get(key);
 		return review && { review, folder: f.root };
 	};
 	const status = async (key: string) => { await refreshList(); return listed.get(key)!.status; };
 	assert.equal(await status('episode'), Completed);
-	reviews.set('episode', { id: 'r1', items: [{ key: 'bible' }] });
+	reviews.set('episode', { id: 'r1', items: [{ key: 'bible' }], withdrawn: [] });
 	assert.equal(await status('episode'), NeedsInput, 'a Review waits for the person');
 	assert.equal(await status('main'), Completed, 'only its own Chat');
-	reviews.set('episode', { id: 'r1', items: [{ key: 'bible' }], submitted: true });
+	reviews.set('episode', { id: 'r1', items: [{ key: 'bible' }], withdrawn: [], submitted: true });
 	assert.equal(await status('episode'), Completed, 'submitted: its continuation runs, nothing waits for the person');
 	f.store.updateChat('main', { state: 'needs_input' });
 	assert.equal(await status('main'), NeedsInput, 'a question, as before');
-	reviews.set('main', { id: 'r2', items: [{ key: 'cast' }] });
+	reviews.set('main', { id: 'r2', items: [{ key: 'cast' }], withdrawn: [] });
 	f.store.updateChat('main', { state: 'running' });
 	assert.equal(await status('main'), InProgress, 'running work shows as running');
 	f.store.close();

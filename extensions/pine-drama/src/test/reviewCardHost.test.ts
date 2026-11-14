@@ -39,7 +39,7 @@ async function fixture(started: boolean, belongs: (key: string) => boolean = () 
 	calls.length = 0; logged.length = 0;
 	const messages: { error?: string; thumbnails?: Record<string, (string | undefined)[]> }[] = [];
 	const review: ReviewView = { id: 'r', turnId: 't', createdAt: '2026-11-06T00:00:00.000Z', kind: 'files', subject: 'files', question: '', state: 'open', submitted: false,
-		items: [{ key: 'one', label: 'One', files }], verdicts: { one: { verdict: 'revise', reason: 'Saved reason' } } };
+		items: [{ key: 'one', label: 'One', files }], withdrawn: [], verdicts: { one: { verdict: 'revise', reason: 'Saved reason' } } };
 	const service = { review: () => review, projectRoot: () => '/fixture', savedReviewWords: () => started ? 'saved consent' : undefined,
 		decideItem: () => { if (started) { throw new Error('submission has started'); } calls.push('save-note'); },
 		approveAll: () => { calls.push('approve-all'); },

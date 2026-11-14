@@ -4,7 +4,7 @@ import * as vscode from 'vscode';
 import { activityRow } from './core/activityRow';
 import { withoutRepeatedQuestion } from './core/askedOnce';
 import { linkFiles } from './core/chatLinks';
-import { stopLine, type ReviewView } from './core/reviews';
+import { hasItems, stopLine, type ReviewView } from './core/reviews';
 import { BusyElsewhereError, type ChatFile, type ChatService, type Update } from './core/chats';
 import { NoPineError, OtherPineError } from './core/pinePort';
 import type { Chat, Message } from './core/store';
@@ -303,7 +303,7 @@ export function registerPineSessions(
 		// A session that waits for the person shows Code-OSS's NeedsInput: a question, or a Review waiting for its decision,
 		// unsubmitted with items to decide.
 		const waiting = service.openReview(conv.key)?.review;
-		const reviewWaits = !!waiting && waiting.items.length > 0 && !waiting.submitted;
+		const reviewWaits = !!waiting && hasItems(waiting) && !waiting.submitted;
 		item.status = conv.state === 'running' ? vscode.ChatSessionStatus.InProgress
 			: conv.state === 'needs_input' || reviewWaits ? vscode.ChatSessionStatus.NeedsInput
 				: conv.state === 'failed' ? vscode.ChatSessionStatus.Failed
@@ -377,7 +377,7 @@ export function registerPineSessions(
 
 /** Native output-renderer cards update from local state; pure questions retain ordinary Chat. */
 function reviewMarkdown(key: string, review: ReviewView): vscode.MarkdownString {
-	return review.items.length ? new vscode.MarkdownString(reviewCardMarkdown(key, review.id)) : reviewSubmissionMarkdown(key, review.id, stopLine(review, `command:${VIEW_ID}.focus`));
+	return hasItems(review) ? new vscode.MarkdownString(reviewCardMarkdown(key, review.id)) : reviewSubmissionMarkdown(key, review.id, stopLine(review, `command:${VIEW_ID}.focus`));
 }
 
 /** The same version-bound submission command from live refusals and reopened pending reviews, never a free-text approval. */
@@ -491,7 +491,7 @@ function toHistory(all: readonly Message[], showCost: boolean, files: (turnId: s
 	flush();
 	// A saved review is actionable even if collection completed before its Chat anchor was recorded.
 	// The persisted review row is the source; this does not invent a remote response or a new approval.
-	for (const review of reviews.filter(r => r.items.length > 0 && !rendered.has(r.id))) {
+	for (const review of reviews.filter(r => hasItems(r) && !rendered.has(r.id))) {
 		history.push(new vscode.ChatResponseTurn2([new vscode.ChatResponseMarkdownPart(
 			`_Saved review: ${review.subject}._\n\n${reviewCardMarkdown(key, review.id)}`,
 		)], { metadata: { pineReviewId: review.id } }, SESSION_TYPE));

@@ -5,7 +5,7 @@
 
 import { readFile, stat } from 'node:fs/promises';
 import { isAbsolute, join } from 'node:path';
-import { CHOICES_FILE, readChoices, readVersions, resolve, VERSION_FILE, versionRecordOf, type Resolved, type Version as ProtocolVersion } from './choices';
+import { CHOICES_FILE, readChoices, readChoicesSync, readVersions, resolve, VERSION_FILE, versionRecordOf, type Resolved, type Version as ProtocolVersion } from './choices';
 import { projectIdentity } from './projectPlace';
 import type { Add, Choices, Edge, ObjectType, ProtocolError, Request, Snapshot } from './protocol';
 
@@ -130,6 +130,31 @@ export function snapshotState(snapshots: readonly ScopedSnapshot[], tasks?: Task
 	return { listed, edges };
 }
 
+/** The objects the person removed (`removed`, doc/protocol.md 3.1), each with every variant derived from it, down its chain. */
+export function removedOf(choices: Choices | null, edges: readonly Edge[]): Set<string> {
+	const removed = new Set(Object.entries(choices?.objects ?? {}).filter(([, c]) => c.removed).map(([id]) => id));
+	for (let grew = true; grew;) {
+		grew = false;
+		for (const e of edges) {
+			if (e.kind === 'variant_of' && removed.has(e.to) && !removed.has(e.from)) {
+				removed.add(e.from);
+				grew = true;
+			}
+		}
+	}
+	return removed;
+}
+
+/**
+ * Why a version is no longer the person's to choose, read from the folder now: its object removed (removedOf, as every
+ * view hides it) or the version deleted (`discarded`); null while it stands. For a reader that is synchronous itself; a
+ * writer passes the `choices` it is about to change (chats.ts recordReviewDecisions).
+ */
+export function withdrawnIn(root: string, snapshots: readonly ScopedSnapshot[], choices = readChoicesSync(root)): (version: { readonly object: string; readonly version: string }) => 'removed' | 'deleted' | null {
+	const removed = removedOf(choices, snapshotState(snapshots).edges);
+	return ({ object, version }) => removed.has(object) ? 'removed' : choices?.objects[object]?.discarded?.includes(version) ? 'deleted' : null;
+}
+
 /**
  * Reads the drama. Each object, and each edge from it, comes from the latest installed snapshot that lists the object,
  * labelled with that snapshot's `observed_at`, whichever session returned it. A later snapshot that should list an object
@@ -141,17 +166,7 @@ export function snapshotState(snapshots: readonly ScopedSnapshot[], tasks?: Task
 export async function readDrama(root: string, snapshotOf: SnapshotOf, previewsOf: PreviewsOf = () => [], tasks?: TasksOf): Promise<Drama> {
 	const { listed, edges } = snapshotState(snapshotOf(), tasks);
 	const choices = await readChoices(root);
-	const removed = new Set(Object.entries(choices?.objects ?? {}).filter(([, c]) => c.removed).map(([id]) => id));
-	// A variant of a removed object is removed with it, down its chain.
-	for (let grew = true; grew;) {
-		grew = false;
-		for (const e of edges) {
-			if (e.kind === 'variant_of' && removed.has(e.to) && !removed.has(e.from)) {
-				removed.add(e.from);
-				grew = true;
-			}
-		}
-	}
+	const removed = removedOf(choices, edges);
 	const objects = new Map<string, DramaObject>();
 	const previewed = previewsOf();
 	// A scope's last request, and its last return: what the Computer has seen of the choices, and the problems it named.

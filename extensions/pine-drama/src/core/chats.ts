@@ -44,8 +44,8 @@ import { within, type ProjectPlace } from './placement';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, statSync } from 'node:fs';
 import { basename, extname, join } from 'node:path';
 import { withoutRepeatedQuestion } from './askedOnce';
-import { answerFor, asks, complete, decisionRun, itemComplete, reviewKindOf, itemHere, subjectOf, viewOf, type ReviewFile, type ReviewItem, type ReviewView, type Verdict } from './reviews';
-import { snapshotState, versionTitle } from './project';
+import { answerFor, asks, complete, decisionRun, hasItems, itemComplete, reviewKindOf, itemHere, standing, subjectOf, viewOf, type ReviewFile, type ReviewItem, type ReviewView, type Verdict } from './reviews';
+import { snapshotState, versionTitle, withdrawnIn } from './project';
 import { EXTRACTED, extractText, textName, type Extraction } from './extract';
 import { PineSessionGenerations, PineSessionReplacedError } from './pineSessionGeneration';
 import { type Chat, type Message, type SavedSend, type SavedSendKind, type Store } from './store';
@@ -564,7 +564,7 @@ export class ChatService {
 		const waiting = this.openReview(key);
 		// One already submitted waits only for its continuation, which its own card or the next message sends: it asks
 		// the person nothing.
-		if (waiting && waiting.review.items.length > 0 && !waiting.review.submitted && !seen.has(waiting.review.id)) {
+		if (waiting && hasItems(waiting.review) && !waiting.review.submitted && !seen.has(waiting.review.id)) {
 			yield reviewUpdate(waiting);
 		}
 	}
@@ -1091,7 +1091,7 @@ export class ChatService {
 
 	/** All recorded review batches for one durable Chat, newest first. */
 	reviews(key: string): ReviewView[] {
-		return this.store.reviews(key).map(row => this.review(key, row.id)!).filter(review => review.items.length > 0);
+		return this.store.reviews(key).map(row => this.review(key, row.id)!).filter(hasItems);
 	}
 
 	/** Version-bound history; a renderer cannot read a different Chat's review. */
@@ -1107,9 +1107,12 @@ export class ChatService {
 	 * alone is not proof that its bytes still exist. Older records without a hash retain their original availability.
 	 * `verify`: showing needs only that the file is recorded and present; a decision needs its exact bytes, so
 	 * the decision boundaries pass true and the read paths false, which hash nothing (fix plan, item 4). A file that cannot
-	 * be read is not here, and the reason goes to Output; the other files still show.
+	 * be read is not here, and the reason goes to Output; the other files still show. An item the person has since deleted
+	 * or removed is withdrawn, by the folder's choices now (reviews.ts standing), and no decision covers it.
 	 */
-	private arrival(key: string, view: ReviewView, verify: boolean): ReviewView {
+	private arrival(key: string, stored: ReviewView, verify: boolean): ReviewView {
+		const root = this.projectRoot(key);
+		const view = root ? standing(stored, withdrawnIn(root, installedSnapshots(root))) : stored;
 		const here = (file: ReviewFile) => {
 			const sha = this.reviewFileSha(file);
 			if (!sha) { return true; }
@@ -1286,11 +1289,17 @@ export class ChatService {
 			throw new Error(filesChanged(unavailable, 'Nothing was chosen.'));
 		}
 		if (!complete(view)) { throw new Error('Give every item a verdict after its files have arrived.'); }
-		const approved = view.items.filter(item => view.verdicts[item.key]?.verdict === 'approve').flatMap(item => item.targets ?? []);
-		const answer = source === 'ui' ? answerFor(view, own) + (approved.length ? `\nApproval selected in Studio: ${REVIEW_APPROVAL_STATEMENT}` : '') : answerFor(view, words);
+		// What stands is read again from the choices this write changes, and the snapshots installed by then, so a delete or a
+		// removal that lands meanwhile is never approved.
+		let answer = '';
 		await this.inProjectWriter(place.root, async () => {
 			this.generations.assert(key, epoch);
-			await updateChoices(place.root, choices => approved.reduce((next, target) => withObject(next, target.object, entry => ({ ...entry, chosen: { version: target.version, words } })), choices));
+			await updateChoices(place.root, choices => {
+				const now = standing(view, withdrawnIn(place.root, installedSnapshots(place.root), choices));
+				const approved = now.items.filter(item => now.verdicts[item.key]?.verdict === 'approve').flatMap(item => item.targets ?? []);
+				answer = source === 'ui' ? answerFor(now, own) + (approved.length ? `\nApproval selected in Studio: ${REVIEW_APPROVAL_STATEMENT}` : '') : answerFor(now, words);
+				return approved.reduce((next, target) => withObject(next, target.object, entry => ({ ...entry, chosen: { version: target.version, words } })), choices);
+			});
 		});
 		this.write(key, epoch, () => this.store.setReviewAnswer(reviewId, answer));
 		return answer;
@@ -1319,7 +1328,7 @@ export class ChatService {
 			return { kind: 'none' };
 		}
 		const view = asked;
-		if (view.items.length === 0) {
+		if (!hasItems(view)) {
 			return target ? { kind: 'question', review: row } : { kind: 'none' };
 		}
 		if (row.answer) {
@@ -1991,7 +2000,7 @@ export class ChatService {
 			yield* finalWords();
 			yield* said;
 			const open = this.openReview(key);
-			if (open && open.review.turnId === turn.turnId && open.review.items.length > 0 && !open.review.submitted) {
+			if (open && open.review.turnId === turn.turnId && hasItems(open.review) && !open.review.submitted) {
 				yield reviewUpdate(open);
 			}
 		}.bind(this);
