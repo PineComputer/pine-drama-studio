@@ -39,7 +39,7 @@ A client can be built from this page and one schema file, [`protocol/v2/protocol
   - `pine-computer`: a result applied from a turn (4.4), with the trailers `Pine-Turn-Id: <turn id>` and `Pine-Change-Number: <change number>`;
   - `person`: the person's own change through the client;
   - `client-found-changes-on-disk`: whatever the folder holds that no commit records (a hand edit, or the files of a write a crash cut off), found when the client opens the drama or seeds a turn.
-- **Byte-preserving.** The client MUST store files byte for byte: `* -text` in `.gitattributes`, and no filters. A repository the folder already has is used as it is.
+- **Byte-preserving.** The client MUST store files byte for byte. It writes `* -text -filter -ident -working-tree-encoding` to the repository's `info/attributes`, which takes precedence over any `.gitattributes` ([gitattributes](https://git-scm.com/docs/gitattributes)). It writes nothing of its own into the folder itself. A repository the folder already has is used as it is.
 - **History is the only undo.** Undoing a change is a revert of its commit; a turn's changes are the commits carrying its `Pine-Turn-Id` trailer.
 
 **`pine-drama-project.json`** (`$defs/projectMarker`) at the folder's root marks it as a drama of this major: `{"schema": 2}`. It is written when the drama is made, or last by a conversion from another major. A folder without it is not a drama of major 2.
