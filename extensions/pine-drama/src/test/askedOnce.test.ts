@@ -3,7 +3,7 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { within, withoutRepeatedQuestion } from '../core/askedOnce';
+import { isPartOf, withoutRepeatedQuestion } from '../core/askedOnce';
 import { ChatService, type Update } from '../core/chats';
 import type { PineConnection } from '../core/pinePort';
 import { Store } from '../core/store';
@@ -53,5 +53,5 @@ test('history: the same text shows once under the question; a longer result that
 	assert.deepEqual(withoutRepeatedQuestion([m('result', 'Part of it'), m('question', `Part of it, and more?`)]).map(x => x.kind), ['question']);
 	assert.deepEqual(withoutRepeatedQuestion([m('result', 'I checked.'), m('question', 'Which preset?')]).map(x => x.kind), ['result', 'question']);
 	assert.deepEqual(withoutRepeatedQuestion([m('result', QUESTION, 't1'), m('question', QUESTION, 't2')]).map(x => x.kind), ['result', 'question'], 'another turn is another turn');
-	assert.equal(within('', 'anything'), false);
+	assert.equal(isPartOf('', 'anything'), false);
 });

@@ -6,7 +6,7 @@
 const trimmed = (text: string) => text.trim();
 
 /** Whether `inner` is `outer`, or a part of it, ignoring surrounding whitespace. Empty text is part of nothing. */
-export function within(inner: string, outer: string): boolean {
+export function isPartOf(inner: string, outer: string): boolean {
 	const a = trimmed(inner);
 	return a.length > 0 && trimmed(outer).includes(a);
 }
@@ -26,7 +26,7 @@ export function withoutRepeatedQuestion<M extends { kind: string; turn_id: strin
 			return true;
 		}
 		return m.kind === 'result'
-			? !within(m.text, other.text)
-			: !(within(m.text, other.text) && !within(other.text, m.text));
+			? !isPartOf(m.text, other.text)
+			: !(isPartOf(m.text, other.text) && !isPartOf(other.text, m.text));
 	});
 }

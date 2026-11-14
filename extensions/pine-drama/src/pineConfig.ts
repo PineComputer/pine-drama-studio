@@ -82,10 +82,6 @@ export function pineConfig(file: string, read: { text: string } | { error: NodeJ
 	return 'pine' in parsed ? { kind: 'set', file, pine: parsed.pine } : { kind: 'invalid', file, problems: parsed.problems };
 }
 
-export function endpointHost(endpoint: string): string {
-	return endpoint.replace(/^[a-z]+:\/\//, '').replace(/\/.*$/, '');
-}
-
 /** A key as it may be shown: its public prefix, `pk_<key id>_…` (AGENTS coding rule 7). */
 export function keyPrefix(apiKey: string): string {
 	const match = /^(pk_[^_]+_)/.exec(apiKey);
@@ -118,12 +114,12 @@ export function configLine(config: PineConfig): string {
 export const PINE_MODEL = { id: 'pine', name: 'Pine', maxInputTokens: 0, maxOutputTokens: 0 } as const;
 
 /** What the window's folders allow: a session needs exactly one, on this computer. */
-export type FolderEntry =
+export type WindowFolders =
 	| { readonly kind: 'one'; readonly folder: string }
 	| { readonly kind: 'none' }
 	| { readonly kind: 'several'; readonly count: number };
 
-function folderEntry(fileFolders: readonly string[]): FolderEntry {
+function windowFolders(fileFolders: readonly string[]): WindowFolders {
 	if (fileFolders.length === 1) {
 		return { kind: 'one', folder: fileFolders[0] };
 	}
@@ -133,8 +129,8 @@ function folderEntry(fileFolders: readonly string[]): FolderEntry {
 /**
  * What a send meets first. No Pine environment set up is said before any folder problem: until one is set up nothing
  * can be sent from any folder, and a window with neither would otherwise be sent to open a folder first and refused
- * again after. Otherwise the window's folders decide (folderEntry; 4.1).
+ * again after. Otherwise the window's folders decide (windowFolders; 4.1).
  */
-export function sendGate(config: PineConfig, fileFolders: readonly string[]): { kind: 'pine'; text: string } | { kind: 'folder'; entry: FolderEntry } {
-	return config.kind !== 'set' ? { kind: 'pine', text: notSetUpText(config) } : { kind: 'folder', entry: folderEntry(fileFolders) };
+export function sendGate(config: PineConfig, fileFolders: readonly string[]): { kind: 'pine'; text: string } | { kind: 'folder'; entry: WindowFolders } {
+	return config.kind !== 'set' ? { kind: 'pine', text: notSetUpText(config) } : { kind: 'folder', entry: windowFolders(fileFolders) };
 }

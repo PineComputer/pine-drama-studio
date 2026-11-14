@@ -1,6 +1,7 @@
 import { strict as assert } from 'node:assert';
 import { test } from 'node:test';
-import { configLine, endpointHost, keyPrefix, notSetUpText, parseDotenv, pineConfig, pineFromDotenv, sendGate } from '../pineConfig';
+import { endpointHost } from '../core/pinePort';
+import { configLine, keyPrefix, notSetUpText, parseDotenv, pineConfig, pineFromDotenv, sendGate } from '../pineConfig';
 
 // One Pine from one file, under the SDK's names, and its problems in
 // fixed words. The values below stand for secrets: none may appear in any message.
