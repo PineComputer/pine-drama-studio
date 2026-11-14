@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert';
-import { mkdirSync, mkdtempSync, realpathSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -149,6 +149,8 @@ test('two quick sends to a session that ended waiting for an answer: one restart
 test('a message whose run finds the session ended is shown once, with its Review decision once, after the restart', async () => {
 	const dir = realpathSync(mkdtempSync(join(tmpdir(), 'pine-send-restarts-review-')));
 	const root = join(dir, 'project'); mkdirSync(root);
+	// A project of major 2 (pine-drama-project.json), so the choices.json its first turn installs makes it no major-1 one.
+	writeFileSync(join(root, 'pine-drama-project.json'), '{"schema":2}\n');
 	const store = new Store(join(dir, 'studio.sqlite'));
 	const pine = new FakePine();
 	const service = new ChatService({ holdsProject: () => true, store, port: pine, vault: new MemoryVault(), pine: { endpoint: 'https://offline.invalid', apiKey: 'offline' },

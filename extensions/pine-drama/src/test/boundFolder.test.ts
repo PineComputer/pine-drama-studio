@@ -53,7 +53,7 @@ test("a bound folder is the project root; resolving it never adds a child or wri
 	// A folder that is itself a drama-cli project is refused at binding; the root never is it.
 	const existing = join(root, 'double-life');
 	mkdirSync(existing);
-	writeFileSync(join(existing, 'choices.json'), 'project: x\n');
+	writeFileSync(join(existing, 'pine-drama-project.json'), '{"schema":2}\n');
 	assert.equal(projectRootOf('/unused', { key: 'k', folder: existing }), existing);
 	assert.deepEqual(readdirSync(scripts), ['screenplay.docx'], 'resolving a root writes nothing');
 });

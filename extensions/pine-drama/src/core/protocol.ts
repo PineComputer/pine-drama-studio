@@ -9,6 +9,9 @@ import addFormats from 'ajv-formats';
 /** The one major this client speaks (doc/protocol.md, section 6.1). */
 export const MAJOR = 1;
 
+/** The marker of a Pine Drama project of major 2, `{"schema": 2}` at its folder's root (doc/protocol.md 2.1, `$defs/projectMarker`). */
+export const PROJECT_MARKER_FILE = 'pine-drama-project.json';
+
 export type Hash = string;
 /** Path → hash: version folders (of their archives), review files, client files. */
 export type Folders = Readonly<Record<string, Hash>>;

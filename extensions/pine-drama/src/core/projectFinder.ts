@@ -1,10 +1,10 @@
 // One explicit project root; no child-layout discovery or migration. No vscode import.
 
-import { CHOICES_FILE } from './choices';
 import { DramaProject } from './project';
+import { PROJECT_MARKER_FILE } from './protocol';
 
 /** The files whose arrival or removal can change a folder's project, relative to the folder (DramaProject.rootIn). */
-export const PROJECT_FILES = CHOICES_FILE;
+export const PROJECT_FILES = PROJECT_MARKER_FILE;
 
 /** How long a burst of file events settles before the folders are looked at again: git's debounce. */
 const RESCAN_MS = 500;

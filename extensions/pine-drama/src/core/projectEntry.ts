@@ -1,10 +1,10 @@
 // New Project's and Open Project's folder checks. Read-only: nothing is written here.
 import { existsSync } from 'node:fs';
 import { basename, join } from 'node:path';
-import { CHOICES_FILE } from './choices';
-import { DramaProject } from './project';
+import { DramaProject, readProjectMajor } from './project';
 import { projectIdentity } from './projectPlace';
 import { projectsBelow } from './binding';
+import { PROJECT_MARKER_FILE } from './protocol';
 
 /**
  * New Project's and Open Project's choice: the chosen folder is the project. A folder that is a project
@@ -16,9 +16,12 @@ export async function projectAt(folder: string): Promise<{ readonly root: string
 	const root = await DramaProject.rootIn(folder);
 	if (root) { return { root, initialized: true }; }
 	const here = projectIdentity(folder);
+	// A drama of another major is never written (doc/protocol.md, section 7): it is not used as a new one.
+	const schema = readProjectMajor(here);
+	if (schema !== undefined) { throw new Error(`${folder} is a drama of format ${schema}, which this Studio does not open. Nothing was written.`); }
 	const inside = projectsBelow(here);
 	if (inside.length) { throw new ProjectsInsideError(folder, inside); }
-	if (existsSync(join(here, CHOICES_FILE))) { throw new Error(`${join(here, CHOICES_FILE)} is not a file, so ${folder} is neither a drama nor a folder for a new one. Nothing was written.`); }
+	if (existsSync(join(here, PROJECT_MARKER_FILE))) { throw new Error(`${join(here, PROJECT_MARKER_FILE)} is not a file, so ${folder} is neither a drama nor a folder for a new one. Nothing was written.`); }
 	return { root: here, initialized: false };
 }
 

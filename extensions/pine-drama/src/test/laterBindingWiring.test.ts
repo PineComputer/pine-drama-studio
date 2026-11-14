@@ -13,7 +13,7 @@ import { test } from 'node:test';
 const base = realpathSync(mkdtempSync(join(tmpdir(), 'pine-later-binding-')));
 const project = join(base, 'project');
 mkdirSync(project);
-writeFileSync(join(project, 'choices.json'), `project: ${project}\n`);
+writeFileSync(join(project, 'pine-drama-project.json'), '{"schema":2}\n');
 const extensionPath = join(base, 'Resources', 'app', 'extensions', 'pine-drama');
 mkdirSync(extensionPath, { recursive: true });
 

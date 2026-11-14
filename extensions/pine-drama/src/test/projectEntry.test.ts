@@ -3,6 +3,7 @@ import { mkdtempSync, mkdirSync, readdirSync, realpathSync, readFileSync, symlin
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { test } from 'node:test';
+import { readProjectMajor } from '../core/project';
 import { projectAt, ProjectsInsideError } from '../core/projectEntry';
 import { projectIdentity, projectPlaceOf, owningChat } from '../core/projectPlace';
 import { entryFor } from '../core/binding';
@@ -57,7 +58,7 @@ test('New Project and Open Project: a folder with a project anywhere below its r
 	const parent = temp();
 	for (const [label, rel] of [['one level down', 'Untitled Project'], ['two levels down', 'old/Untitled Project']]) {
 		const root = made(parent, label); const inner = join(root, rel); mkdirSync(inner, { recursive: true });
-		writeFileSync(join(inner, 'choices.json'), 'inner');
+		writeFileSync(join(inner, 'pine-drama-project.json'), '{"schema":2}\n');
 		const before = snapshot(root);
 		await assert.rejects(projectAt(root), (e: Error) => e instanceof ProjectsInsideError && e.projects.join() === inner, label);
 		assert.equal(snapshot(root), before, label);
@@ -66,14 +67,14 @@ test('New Project and Open Project: a folder with a project anywhere below its r
 
 test('discovery reads only the selected root, including when it contains an independently initialized child', async () => {
 	const parent = temp(); const child = join(parent, 'drama'); mkdirSync(child);
-	writeFileSync(join(child, 'choices.json'), 'child');
+	writeFileSync(join(child, 'pine-drama-project.json'), '{"schema":2}\n');
 	// The parent is not a project, and it names the one inside it; nothing is opened or written.
 	await assert.rejects(projectAt(parent), (e: Error) => e instanceof ProjectsInsideError && e.projects.join() === child);
 	assert.deepEqual(await projectAt(child), { root: child, initialized: true });
-	writeFileSync(join(parent, 'choices.json'), 'root');
+	writeFileSync(join(parent, 'pine-drama-project.json'), '{"schema":2}\n');
 	assert.deepEqual(await projectAt(parent), { root: parent, initialized: true }, 'a child is irrelevant to explicit root selection');
-	assert.equal(readFileSync(join(parent, 'choices.json'), 'utf8'), 'root');
-	assert.equal(readFileSync(join(child, 'choices.json'), 'utf8'), 'child');
+	assert.equal(readFileSync(join(parent, 'pine-drama-project.json'), 'utf8'), '{"schema":2}\n');
+	assert.equal(readFileSync(join(child, 'pine-drama-project.json'), 'utf8'), '{"schema":2}\n');
 });
 
 test('missing roots, files and config-shaped directories never become projects; a folder of the person\'s files does', async () => {
@@ -82,9 +83,25 @@ test('missing roots, files and config-shaped directories never become projects; 
 	writeFileSync(join(root, 'screenplay.fountain'), 'original');
 	await assert.rejects(projectAt(join(root, 'screenplay.fountain')));
 	assert.deepEqual(await projectAt(root), { root, initialized: false }, 'the person\'s screenplay is not a project');
-	mkdirSync(join(root, 'choices.json'));
-	await assert.rejects(projectAt(root), /choices\.json is not a file, so .+ is neither a drama nor a folder for a new one\. Nothing was written\./);
+	mkdirSync(join(root, 'pine-drama-project.json'));
+	await assert.rejects(projectAt(root), /pine-drama-project\.json is not a file, so .+ is neither a drama nor a folder for a new one\. Nothing was written\./);
 	assert.equal(readFileSync(join(root, 'screenplay.fountain'), 'utf8'), 'original');
+});
+
+test('a drama of another format is never taken for a new one: a format-1 folder and a newer marker are refused, and nothing is written', async () => {
+	const old = temp();
+	writeFileSync(join(old, 'choices.json'), '{"schema":1,"objects":{},"added":[],"imports":[]}\n');
+	assert.equal(readProjectMajor(old), 1);
+	await assert.rejects(projectAt(old), /is a drama of format 1, which this Studio does not open\. Nothing was written\./);
+	assert.deepEqual(readdirSync(old), ['choices.json']);
+	const newer = temp();
+	writeFileSync(join(newer, 'pine-drama-project.json'), '{"schema":3}\n');
+	assert.equal(readProjectMajor(newer), 3);
+	await assert.rejects(projectAt(newer), /format 3/);
+	assert.equal(readProjectMajor(temp()), undefined, 'a folder with neither is no drama');
+	const blank = temp();
+	writeFileSync(join(blank, 'pine-drama-project.json'), '{}\n');
+	assert.throws(() => readProjectMajor(blank), /names no protocol major/, 'a marker that names no major is never a folder with no project');
 });
 
 test('binding is atomic across windows, canonicalizes aliases, creates no wrapper and changes no schema', () => {
@@ -114,13 +131,13 @@ test('an owned input-only root can continue intake before init has enough inform
 
 test('a parent of several projects names them all; config-shaped directories and files one level down are not projects', async () => {
 	const parent = temp();
-	for (const name of ['EP B', 'EP A']) { mkdirSync(join(parent, name)); writeFileSync(join(parent, name, 'choices.json'), name); }
-	mkdirSync(join(parent, 'not a project')); mkdirSync(join(parent, 'not a project', 'choices.json'));
-	writeFileSync(join(parent, 'choices.json.bak'), 'a file, not a project');
+	for (const name of ['EP B', 'EP A']) { mkdirSync(join(parent, name)); writeFileSync(join(parent, name, 'pine-drama-project.json'), '{"schema":2}\n'); }
+	mkdirSync(join(parent, 'not a project')); mkdirSync(join(parent, 'not a project', 'pine-drama-project.json'));
+	writeFileSync(join(parent, 'pine-drama-project.json.bak'), 'a file, not a project');
 	await assert.rejects(projectAt(parent), (e: Error) => e instanceof ProjectsInsideError
 		&& e.projects.map(p => p.slice(parent.length + 1)).join('|') === 'EP A|EP B'
 		&& /holds 2 projects: EP A, EP B\. Open the one you want\./.test(e.message));
-	assert.deepEqual(readdirSync(parent).sort(), ['EP A', 'EP B', 'choices.json.bak', 'not a project']);
+	assert.deepEqual(readdirSync(parent).sort(), ['EP A', 'EP B', 'not a project', 'pine-drama-project.json.bak']);
 	const none = temp(); mkdirSync(join(none, 'empty child')); writeFileSync(join(none, 'notes.txt'), 'x');
 	assert.deepEqual(await projectAt(none), { root: none, initialized: false }, 'a folder of the person\'s files with no project below is a new project\'s root');
 });

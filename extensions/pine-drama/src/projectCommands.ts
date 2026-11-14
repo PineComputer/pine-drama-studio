@@ -1,7 +1,9 @@
 import * as vscode from 'vscode';
 import { homedir } from 'node:os';
 import { basename, dirname } from 'node:path';
-import { updateChoices } from './core/choices';
+import { commitPathsToHistory, runInProjectWriteQueue } from './core/projectHistory';
+import { writeProjectMarker } from './core/project';
+import { PROJECT_MARKER_FILE } from './core/protocol';
 import { projectAt, ProjectsInsideError } from './core/projectEntry';
 
 export const NEW_PROJECT_COMMAND = 'pineDrama.newProject';
@@ -31,12 +33,16 @@ export function registerProjectCommands(context: vscode.ExtensionContext, output
 		}
 	};
 	/**
-	 * A drama opens as it is, and no check stands in front of the folder; a new one gets its empty choices.json first.
+	 * A drama opens as it is, and no check stands in front of the folder; a new one gets its pine-drama-project.json first, the
+	 * person's first commit.
 	 */
 	const openRoot = async (project: { readonly root: string; readonly initialized: boolean }) => {
-		// The empty choices.json makes the folder a drama to the Studio (doc/protocol.md, 3.1).
+		// pine-drama-project.json makes the folder a drama to the Studio (doc/protocol.md 2.1).
 		if (!project.initialized) {
-			await updateChoices(project.root, choices => choices);
+			await runInProjectWriteQueue(project.root, async () => {
+				await writeProjectMarker(project.root);
+				await commitPathsToHistory(project.root, 'person', [PROJECT_MARKER_FILE], 'New project');
+			});
 		}
 		await open(project.root);
 	};

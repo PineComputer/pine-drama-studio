@@ -23,7 +23,7 @@ test('a project window starts on Production: the Project view opens without taki
 test('a project with no stages yet still starts on Production', async () => {
 	const dir = mkdtempSync(join(tmpdir(), 'pine-empty-project-'));
 	try {
-		writeFileSync(join(dir, 'choices.json'), JSON.stringify({ schema: 1, objects: {}, added: [], imports: [] }));
+		writeFileSync(join(dir, 'pine-drama-project.json'), '{"schema":2}\n');
 		const root = await DramaProject.rootIn(dir);
 		assert.ok(root, 'the folder is a drama project');
 		// The three steps show from the start, each empty; showing Production still does

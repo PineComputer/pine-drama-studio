@@ -523,17 +523,18 @@ export async function registerProjectViews(context: vscode.ExtensionContext, out
 		},
 		error => output.appendLine(`project: looking for this folder's drama-cli project: ${error.message}`),
 	);
-	// Each folder's watcher sees only the files that can make or end a project, as git's sees only .git paths.
+	// Each folder's watcher sees only the files that can make or end a project, as git's sees only .git paths; a change
+	// of one can end it too (its format).
 	for (const folder of vscode.workspace.workspaceFolders ?? []) {
 		if (folder.uri.scheme === 'file') {
 			const watcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(folder, PROJECT_FILES));
-			context.subscriptions.push(watcher, watcher.onDidCreate(() => finder.possibleChange()), watcher.onDidDelete(() => finder.possibleChange()));
+			context.subscriptions.push(watcher, ...[watcher.onDidCreate, watcher.onDidChange, watcher.onDidDelete].map(on => on(() => finder.possibleChange())));
 		}
 	}
 	context.subscriptions.push(finder);
 	await vscode.commands.executeCommand('setContext', 'pineDrama.projectOpen', false);
 	if (!await finder.scan()) {
-		output.appendLine('project: no workspace folder is a drama yet (no choices.json); watching for one');
+		output.appendLine('project: no workspace folder is a drama yet (no pine-drama-project.json); watching for one');
 	}
 	return finder;
 }

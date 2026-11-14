@@ -3,11 +3,12 @@
 // the files do not: names, readiness, edges, planned objects. The Outline and Versions read
 // it here; nothing writes. No vscode import.
 
-import { readFile, stat } from 'node:fs/promises';
+import { readFileSync, statSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { isAbsolute, join } from 'node:path';
-import { CHOICES_FILE, readChoices, readVersions, resolve, VERSION_FILE, versionRecordOf, type Resolved, type Version as ProtocolVersion } from './choices';
+import { CHOICES_FILE, readChoices, readVersions, resolve, VERSION_FILE, versionRecordOf, writeWhole, type Resolved, type Version as ProtocolVersion } from './choices';
 import { projectIdentity } from './projectPlace';
-import type { Add, Choices, Edge, ObjectType, ProtocolError, Request, Snapshot } from './protocol';
+import { PROJECT_MARKER_FILE, type Add, type Choices, type Edge, type ObjectType, type ProtocolError, type Request, type Snapshot } from './protocol';
 
 /**
  * An installed return's snapshot, with the scope of the task it came from (doc/protocol.md, section 1), its task id, when
@@ -483,6 +484,30 @@ const ASSET_GROUPS: readonly [string, string, Role, ObjectType][] = [
 	['assets/characters', 'characters', 'characters', 'character'], ['assets/scenes', 'scenes', 'scenes', 'scene'], ['assets/props', 'props', 'props', 'prop'],
 ];
 
+/**
+ * The major of the drama at `dir`: its pine-drama-project.json's `schema` (doc/protocol.md 2.1); 1 for a major-1 drama, which has
+ * choices.json and no marker; undefined for a folder that is neither. A marker or choices.json that is not a file is
+ * neither.
+ */
+export function readProjectMajor(dir: string): number | undefined {
+	const marker = fileAt(join(dir, PROJECT_MARKER_FILE));
+	if (marker) {
+		// A marker always names its major: one that names none is unreadable, never a folder with no project.
+		const { schema } = Object(JSON.parse(readFileSync(marker, 'utf8')));
+		if (!Number.isInteger(schema)) { throw new Error(`${marker} names no protocol major ("schema")`); }
+		return schema;
+	}
+	return fileAt(join(dir, CHOICES_FILE)) ? 1 : undefined;
+}
+
+/** `path` when it is a file (a linked one too), else undefined. */
+const fileAt = (path: string) => statSync(path, { throwIfNoEntry: false })?.isFile() ? path : undefined;
+
+/** Makes `root` a drama of major 2: its pine-drama-project.json, written whole (doc/protocol.md 2.1). New Project writes it, a conversion last. */
+export function writeProjectMarker(root: string): Promise<void> {
+	return writeWhole(join(root, PROJECT_MARKER_FILE), `${JSON.stringify({ schema: 2 })}\n`);
+}
+
 export class DramaProject {
 	private read: Promise<Drama> | undefined;
 
@@ -495,16 +520,15 @@ export class DramaProject {
 		private readonly tasks?: TasksOf) { }
 
 	/**
-	 * The selected production root only. A folder is a drama to the Studio when it has
-	 * choices.json at its root (doc/protocol.md, section 3.1); New Project writes an empty one.
+	 * The selected production root only. A folder is a drama to the Studio when its pine-drama-project.json says major 2
+	 * (doc/protocol.md 2.1); New Project writes it.
 	 */
 	static async rootIn(folder: string): Promise<string | undefined> {
 		return await DramaProject.isProject(folder) ? projectIdentity(folder) : undefined;
 	}
 
 	static async isProject(dir: string): Promise<boolean> {
-		try { return (await stat(join(dir, CHOICES_FILE))).isFile(); }
-		catch (error) { if (['ENOENT', 'ENOTDIR'].includes((error as NodeJS.ErrnoException).code ?? '')) { return false; } throw error; }
+		return readProjectMajor(dir) === 2;
 	}
 
 	/** The drama as its files and snapshots say now; read once until `forget`, which a change of the folder calls. */

@@ -16,7 +16,7 @@ async function drain(updates: AsyncGenerator<Update>): Promise<string> {
 function fixture(validateProject?: (root: string) => Promise<void>) {
 	const dir = realpathSync(mkdtempSync(join(tmpdir(), 'pine-existing-admission-')));
 	const root = join(dir, 'existing'); mkdirSync(root);
-	writeFileSync(join(root, 'choices.json'), `project: ${root}\n`);
+	writeFileSync(join(root, 'pine-drama-project.json'), '{"schema":2}\n');
 	writeFileSync(join(root, 'accepted.json'), '{"fixture":"immutable"}\n');
 	const store = new Store(join(dir, 'studio.sqlite'));
 	const pine = new FakePine(); pine.plans = [{ state: 'completed', files: {} }, { state: 'completed', files: {} }];

@@ -1,9 +1,8 @@
 // One explicit project root; no child-layout discovery or migration. No vscode import.
 
-import { CHOICES_FILE } from './choices';
 import { existsSync, statSync } from 'node:fs';
-import { join } from 'node:path';
 import { projectIdentity, projectRootOf } from './projectPlace';
+import { readProjectMajor } from './project';
 import { CLIENT_FOLDERS, clientFileList, transportedTree } from './taskRun';
 
 export type Entry =
@@ -18,7 +17,9 @@ export type Entry =
 	/** This session's bound folder is missing, or its real path changed. */
 	| { readonly kind: 'moved'; readonly folder: string }
 	/** The folder holds a drama-cli project below its root (`project`): it is that project's, and nothing is written into it. */
-	| { readonly kind: 'inside'; readonly folder: string; readonly project: string };
+	| { readonly kind: 'inside'; readonly folder: string; readonly project: string }
+	/** The folder is a drama of another format (doc/protocol.md, section 7): nothing is written into it. */
+	| { readonly kind: 'otherFormat'; readonly folder: string; readonly schema: number };
 
 interface Conv {
 	readonly key: string;
@@ -27,24 +28,21 @@ interface Conv {
 	readonly project_role?: 'main' | null;
 }
 
-/** What makes a folder a drama: choices.json at its root (core/project.ts, DramaProject.isProject). */
-const CONFIG = CHOICES_FILE;
-
 /**
  * The dramas below `folder`, by their roots: every folder a task would carry (transportedTree) that is a drama as Open
- * Project tells one (DramaProject.isProject: a choices.json that is a file, a linked one too), so its files would be
+ * Project tells one, of any format (project.ts readProjectMajor: a marker that is a file, a linked one too), so its files would be
  * swept into this one's upload and get a second writer.
  */
 export function projectsBelow(folder: string): string[] {
-	return transportedTree(folder).folders.filter(dir => statSync(join(dir, CONFIG), { throwIfNoEntry: false })?.isFile()).map(projectIdentity).sort();
+	return transportedTree(folder).folders.filter(dir => readProjectMajor(dir) !== undefined).map(projectIdentity).sort();
 }
 
 /**
  * New Project, Open Project and the first send share this one rule: a folder that holds no drama, at its root or
  * below, is used as a new project, whatever else it holds. An entry named like
- * choices.json at the root that is not a file (a folder, say) is not one either.
+ * marker at the root that is not a file (a folder, say) is not one either.
  */
-export function holdsNoProject(folder: string): boolean { return !existsSync(join(folder, CONFIG)) && !projectsBelow(folder).length; }
+export function holdsNoProject(folder: string): boolean { return readProjectMajor(folder) === undefined && !projectsBelow(folder).length; }
 
 /** The first send's one note: where results arrive, and what of the folder goes with each task: its client files alone
  * (taskRun.ts, CLIENT_FOLDERS; doc/protocol.md, 3.3 and 4.2). */
@@ -60,6 +58,11 @@ function bindingNote(root: string): string {
 /** What the window's one folder means for a message in session `key`. */
 export function entryFor(chats: readonly Conv[], projectsRoot: string, key: string, folder: string): Entry {
 	const here = projectIdentity(folder);
+	// A drama of another major is never written (doc/protocol.md, section 7), whichever Chat worked in it before.
+	const schema = readProjectMajor(here);
+	if (schema !== undefined && schema !== 2) {
+		return { kind: 'otherFormat', folder: here, schema };
+	}
 	const own = chats.find(c => c.key === key);
 	if (own?.folder) {
 		const root = projectRootOf(projectsRoot, own);
@@ -75,7 +78,7 @@ export function entryFor(chats: readonly Conv[], projectsRoot: string, key: stri
 	if (associated.length) {
 		return { kind: 'unassigned' };
 	}
-	if (existsSync(join(here, CONFIG))) {
+	if (schema === 2) {
 		return { kind: 'adopt', folder: here };
 	}
 	const [project] = projectsBelow(here);

@@ -6,7 +6,7 @@ import { mkdirSync, mkdtempSync, readdirSync, realpathSync, writeFileSync } from
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { entryFor } from '../core/binding';
+import { entryFor, holdsNoProject } from '../core/binding';
 import { ChatService, type Update } from '../core/chats';
 import type { PineConnection } from '../core/pinePort';
 import { Store } from '../core/store';
@@ -58,12 +58,21 @@ test('a new binding takes any folder that holds no drama-cli project; a project 
 	writeFileSync(join(notes, 'inputs', 'notes.md'), 'the person\'s');
 	assert.deepEqual(entryFor([], '/p', KEY, notes), { kind: 'go', bind: true, note: `${SAID(notes)} Its 1 file under imports/, inputs/ (under 0.1 MB) goes to the Pine Computer with each task, and no result replaces it.` });
 	const project = folder('double-life');
-	writeFileSync(join(project, 'choices.json'), 'project: x\n');
+	writeFileSync(join(project, 'pine-drama-project.json'), '{"schema":2}\n');
 	assert.deepEqual(entryFor([], '/p', KEY, project), { kind: 'adopt', folder: project });
 	const parent = folder('parent');
 	const child = folder('parent/Untitled Project');
-	writeFileSync(join(child, 'choices.json'), 'project: x\n');
+	writeFileSync(join(child, 'pine-drama-project.json'), '{"schema":2}\n');
 	assert.deepEqual(entryFor([], '/p', KEY, parent), { kind: 'inside', folder: parent, project: child });
+	// A drama of another format is never written, whatever opened it: neither a new folder nor one to adopt (section 7).
+	const old = folder('format-1');
+	writeFileSync(join(old, 'choices.json'), '{"schema":1,"objects":{},"added":[],"imports":[]}\n');
+	assert.deepEqual(entryFor([], '/p', KEY, old), { kind: 'otherFormat', folder: old, schema: 1 });
+	assert.equal(holdsNoProject(old), false);
+	const holder = folder('holder');
+	const below = folder('holder/old');
+	writeFileSync(join(below, 'choices.json'), '{"schema":1}\n');
+	assert.deepEqual(entryFor([], '/p', KEY, holder), { kind: 'inside', folder: holder, project: below }, 'nor is one swept into a folder above it');
 });
 
 // Only the client files travel (doc/protocol.md, 3.3), and of them no hidden name (transportedPath).

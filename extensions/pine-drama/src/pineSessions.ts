@@ -197,6 +197,8 @@ export function registerPineSessions(
 				return refuse({ kind: 'rootChanged' }, `the session's project folder is missing or moved: ${binding.folder}`);
 			case 'inside':
 				return refuse(binding, `the folder holds the drama-cli project ${binding.project}`);
+			case 'otherFormat':
+				return refuse(binding, `the folder is a drama of format ${binding.schema}`);
 			case 'go':
 			case 'adopt':
 				break;

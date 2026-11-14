@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { PROJECT_FILES, ProjectFinder } from '../core/projectFinder';
 
-// A window opened on an empty folder: its session's first stop writes <folder>/drama/choices.json after the
+// A window opened on an empty folder: New Project writes <folder>/pine-drama-project.json after the
 // window activated, and the Production views must pick the project up without a reload. The person once saw drama/ in the Explorer while Production still said "No drama
 // project is open", because the project was looked for once, at activation.
 
@@ -19,12 +19,12 @@ function setup(delayMs = 20) {
 	return { folder, finder, seen, errors, next };
 }
 const arrive = (folder: string) => {
-	writeFileSync(join(folder, 'choices.json'), 'project: x\n');
+	writeFileSync(join(folder, 'pine-drama-project.json'), '{"schema":2}\n');
 };
 const pause = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 test('the watched files are the two a folder\'s project can have, relative to the folder', () => {
-	assert.equal(PROJECT_FILES, 'choices.json');
+	assert.equal(PROJECT_FILES, 'pine-drama-project.json');
 });
 
 test('an empty folder has no project; one that arrives later is found, after the burst of events settles', async () => {
@@ -46,7 +46,7 @@ test('a project whose config file goes is no longer shown, and one that comes ba
 	const { folder, finder, seen, next } = setup();
 	arrive(folder);
 	assert.equal(await finder.scan(), folder);
-	rmSync(join(folder, 'choices.json'));
+	rmSync(join(folder, 'pine-drama-project.json'));
 	let changed = next();
 	finder.possibleChange();
 	await changed;
@@ -62,7 +62,7 @@ test('an event that changes nothing reports nothing', async () => {
 	const { folder, finder, seen } = setup();
 	arrive(folder);
 	await finder.scan();
-	writeFileSync(join(folder, 'choices.json'), 'project: y\n');
+	writeFileSync(join(folder, 'pine-drama-project.json'), '{"schema":2}\n');
 	finder.possibleChange();
 	await pause(80);
 	assert.deepEqual(seen, [folder]);

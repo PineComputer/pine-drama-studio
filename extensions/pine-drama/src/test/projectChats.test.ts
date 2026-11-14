@@ -26,7 +26,7 @@ function fixture() {
 test('one canonical project has its Project Chat and peer sessions; each session works in it, a Chat outside it does not (D48)', () => {
 	const { dir, root, store } = fixture();
 	assert.equal(store.bindFolder('main', root), true);
-	writeFileSync(join(root, 'choices.json'), 'existing accepted project\n');
+	writeFileSync(join(root, 'pine-drama-project.json'), '{"schema":2}\n');
 	const alias = join(dir, 'alias'); symlinkSync(root, alias);
 	associateProject(store, 'ep1', alias, null);
 	associateProject(store, 'ep2', root, null);
@@ -34,7 +34,7 @@ test('one canonical project has its Project Chat and peer sessions; each session
 	assert.deepEqual(store.projectChats(alias).map(c => c.key).sort(), ['ep1', 'ep2', 'main']);
 	assert.deepEqual(store.projectChats(root).filter(c => c.project_role === 'main').map(c => c.key), ['main']);
 	assert.equal(store.chat('ep1')?.computer_id, null, 'association starts no runtime');
-	assert.equal(readFileSync(join(root, 'choices.json'), 'utf8'), 'existing accepted project\n');
+	assert.equal(readFileSync(join(root, 'pine-drama-project.json'), 'utf8'), '{"schema":2}\n');
 	assert.deepEqual(entryFor(store.chats(), dir, 'ep1', alias), { kind: 'go', bind: false }, 'a session works in its project');
 	assert.deepEqual(entryFor(store.chats().reverse(), dir, 'main', root), { kind: 'go', bind: false });
 	assert.deepEqual(entryFor(store.chats(), dir, 'history', root), { kind: 'go', bind: true }, 'a Chat of no project joins it on its first send');

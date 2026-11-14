@@ -18,7 +18,8 @@ export type Situation =
 	| { readonly kind: 'several'; readonly count: number }
 	| { readonly kind: 'unassigned' }
 	| { readonly kind: 'elsewhere'; readonly folder: string }
-	| { readonly kind: 'inside'; readonly folder: string; readonly project: string };
+	| { readonly kind: 'inside'; readonly folder: string; readonly project: string }
+	| { readonly kind: 'otherFormat'; readonly folder: string; readonly schema: number };
 
 export interface Action {
 	readonly label: string;
@@ -85,6 +86,8 @@ export function refusalOf(situation: Situation, commands: RefusalCommands, messa
 				line: `Not sent: this folder holds a drama-cli project, ${code(situation.project)}; open it to continue it, or choose another folder for this drama. Nothing is touched.${kept(BELOW)}`,
 				actions: [{ label: 'Open That Project', command: commands.openGivenFolder, args: [situation.project] }, ...folderActions], ...given,
 			};
+		case 'otherFormat':
+			return { line: `Not sent: this folder is a drama of format ${situation.schema}, which this Studio does not open. Nothing is touched.${kept(BELOW)}`, actions: folderActions, ...given };
 	}
 }
 

@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import type * as vscode from 'vscode';
+import { git } from '../core/git';
 
 const commands = new Map<string, (...args: (string | undefined)[]) => Promise<void>>();
 const calls: unknown[][] = [];
@@ -50,7 +51,7 @@ for (const window of ['empty', 'empty-array', 'folder', 'workspace'] as const) {
 		picked = root; calls.length = 0; commands.clear(); errors.length = 0; cancelled = false;
 		folders = window === 'empty' ? undefined : window === 'folder' ? [{ uri: { fsPath: root } }] : [];
 		workspaceFile = window === 'workspace' ? {} : undefined;
-		writeFileSync(join(root, 'choices.json'), 'fixture');
+		writeFileSync(join(root, 'pine-drama-project.json'), '{"schema":2}\n');
 		register({ subscriptions: [] } as unknown as vscode.ExtensionContext, { appendLine() {} } as unknown as vscode.OutputChannel);
 		await commands.get('pineDrama.openProject')!();
 		const preserve = window === 'folder' || window === 'workspace';
@@ -72,13 +73,13 @@ test('native New then Open reopens the new drama as it is, with no CLI', async (
 	const root = setup();
 	register(context(), output);
 	await commands.get('pineDrama.newProject')!();
-	assert.deepEqual(readdirSync(root), ['choices.json']);
-	const written = readFileSync(join(root, 'choices.json'), 'utf8');
+	assert.deepEqual(readdirSync(root).sort(), ['.git', '.gitattributes', '.gitignore', 'pine-drama-project.json']);
+	const written = readFileSync(join(root, 'pine-drama-project.json'), 'utf8');
 	calls.length = 0;
 	await commands.get('pineDrama.openProject')!();
 	assert.deepEqual(errors, []);
 	assert.deepEqual(calls, [['vscode.openFolder', { fsPath: root }, { forceNewWindow: false, forceReuseWindow: true }]]);
-	assert.equal(readFileSync(join(root, 'choices.json'), 'utf8'), written, 'reopening writes nothing');
+	assert.equal(readFileSync(join(root, 'pine-drama-project.json'), 'utf8'), written, 'reopening writes nothing');
 });
 
 for (const kind of ['new', 'open']) {
@@ -91,7 +92,7 @@ for (const kind of ['new', 'open']) {
 }
 
 // The folder the person chooses is the project.
-test('New Project asks for a folder in the native picker, and the empty folder chosen is the drama, with only its choices.json made', async () => {
+test('New Project asks for a folder in the native picker, and the empty folder chosen is the drama, with only its pine-drama-project.json made, and committed', async () => {
 	const parent = setup(); const root = join(parent, 'long-bai-gu-jing-001'); mkdirSync(root); picked = root;
 	register(context(), output);
 	await commands.get('pineDrama.newProject')!();
@@ -99,24 +100,26 @@ test('New Project asks for a folder in the native picker, and the empty folder c
 		[{ title: 'New Project', openLabel: 'Create Project', canSelectFolders: true, canSelectFiles: false, canSelectMany: false }]);
 	assert.deepEqual(errors, []);
 	assert.deepEqual(calls, [['vscode.openFolder', { fsPath: root }, { forceNewWindow: false, forceReuseWindow: true }]]);
-	assert.deepEqual(readdirSync(root), ['choices.json'], 'no "Untitled Project" or any other folder inside it');
+	assert.deepEqual(readdirSync(root).sort(), ['.git', '.gitattributes', '.gitignore', 'pine-drama-project.json'], 'no "Untitled Project" or any other folder inside it');
+	const log = await git(['log', '--format=%an|%s', '--name-only'], root);
+	assert.deepEqual(log.stdout.trim().split('\n').filter(Boolean), ['person|New project', 'pine-drama-project.json'], 'the person\'s first commit');
 	assert.deepEqual(readdirSync(parent), ['long-bai-gu-jing-001'], 'nothing made beside it');
 });
 
 test('an initialized project opens as it is, whatever its config says: opening writes nothing, the first send validates it', async () => {
-	const root = setup(); writeFileSync(join(root, 'choices.json'), 'project: /somewhere/else\n');
+	const root = setup(); writeFileSync(join(root, 'pine-drama-project.json'), '{"schema":2}\n');
 	register(context(), output);
 	await commands.get('pineDrama.openProject')!();
 	assert.deepEqual(errors, []);
 	assert.deepEqual(calls, [['vscode.openFolder', { fsPath: root }, { forceNewWindow: false, forceReuseWindow: true }]]);
-	assert.equal(readFileSync(join(root, 'choices.json'), 'utf8'), 'project: /somewhere/else\n');
+	assert.equal(readFileSync(join(root, 'pine-drama-project.json'), 'utf8'), '{"schema":2}\n');
 });
 
 // New Project made the project in a child, and the person later chose its parent in Open Project.
 test('Open Project on the parent of one project offers it; choosing it opens that project the same way', async () => {
 	const parent = setup(); infos.length = 0;
 	const inner = join(parent, 'Untitled Project'); mkdirSync(inner);
-	writeFileSync(join(inner, 'choices.json'), 'fixture');
+	writeFileSync(join(inner, 'pine-drama-project.json'), '{"schema":2}\n');
 	writeFileSync(join(parent, 'notes.txt'), 'the person\'s own file');
 	register(context(), output);
 	answer = 'Open Untitled Project';
