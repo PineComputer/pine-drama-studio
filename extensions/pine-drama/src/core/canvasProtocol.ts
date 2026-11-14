@@ -199,8 +199,6 @@ export type FromCanvas =
 	| ({ readonly v: typeof CANVAS_PROTOCOL; readonly type: 'inspect' } & Shown)
 	/** No card is picked any more: going back to this canvas leaves Versions empty (auto-reveal.md, section 7). */
 	| { readonly v: typeof CANVAS_PROTOCOL; readonly type: 'unpick' }
-	/** A card was double-clicked: open exactly the file it shows. */
-	| ({ readonly v: typeof CANVAS_PROTOCOL; readonly type: 'open' } & Shown)
 	/** The person moved cards or frames, laid the board out again, or undid or redid one of those: every node's position. */
 	| { readonly v: typeof CANVAS_PROTOCOL; readonly type: 'layout'; readonly episode: string; readonly positions: CanvasLayout }
 	/** The board stopped moving (React Flow's onMoveEnd): the view to open at next time. */
@@ -213,11 +211,6 @@ export type FromCanvas =
 	| ({ readonly v: typeof CANVAS_PROTOCOL; readonly type: 'entry'; readonly stageId: string } & EntryAction)
 	/** A box's Generate: a request for its picture or take, put in the Chat's input for the person to send. */
 	| { readonly v: typeof CANVAS_PROTOCOL; readonly type: 'generate'; readonly stageId: string };
-
-/** Whether a double-click on a card opens its file: a planned card is not made yet. */
-export function opensFile(card: Pick<CanvasCard, 'planned'>): boolean {
-	return !card.planned;
-}
 
 const nullableString = (value: unknown): value is string | null => value === null || typeof value === 'string';
 
@@ -233,8 +226,8 @@ export function readFromCanvas(value: unknown): FromCanvas | undefined {
 	if (message.type === 'ready' || message.type === 'unpick') {
 		return { v: CANVAS_PROTOCOL, type: message.type };
 	}
-	if ((message.type === 'open' || message.type === 'inspect') && typeof message.stageId === 'string' && nullableString(message.version) && nullableString(message.file)) {
-		return { v: CANVAS_PROTOCOL, type: message.type, stageId: message.stageId, version: message.version, file: message.file };
+	if (message.type === 'inspect' && typeof message.stageId === 'string' && nullableString(message.version) && nullableString(message.file)) {
+		return { v: CANVAS_PROTOCOL, type: 'inspect', stageId: message.stageId, version: message.version, file: message.file };
 	}
 	if (message.type === 'layout' && typeof message.episode === 'string' && isLayout(message.positions)) {
 		return { v: CANVAS_PROTOCOL, type: 'layout', episode: message.episode, positions: message.positions };

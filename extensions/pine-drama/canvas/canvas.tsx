@@ -15,7 +15,7 @@ import '@xyflow/react/dist/style.css';
 import '@vscode/codicons/dist/codicon.css';
 import './canvas.css';
 import { NAME_MAX, TEXT_MAX, type EntryAction } from '../src/core/galleryProtocol';
-import { ASSETS_CANVAS, CANVAS_PROTOCOL, opensFile, type CanvasCard, type CanvasPicture, type CanvasCommand, type CanvasViewport, type FromCanvas, type Point, type Size, type ToCanvas } from '../src/core/canvasProtocol';
+import { ASSETS_CANVAS, CANVAS_PROTOCOL, type CanvasCard, type CanvasPicture, type CanvasCommand, type CanvasViewport, type FromCanvas, type Point, type Size, type ToCanvas } from '../src/core/canvasProtocol';
 import { CANVAS_WAIT_LIMIT_S, waitingText } from '../src/core/canvasWait';
 import { PictureRef, RequestView } from './requestView';
 import { cardSize, layoutAssets, layoutEpisode, layoutOf, onBoard, openingViewport, positionsFor } from '../src/core/canvasLayout';
@@ -134,7 +134,7 @@ const CardView = memo(({ data, selected, width, height }: NodeProps<CardNode>) =
 	const status = statusOf(card);
 	return (
 		<div className={`card${card.notUsable ? ' stale' : ''}${selected ? ' selected' : ''}`} style={{ width, height }}
-			title={`${fullName(card)}\n${status}${card.notUsable ? `\n${card.notUsable}` : ''}\nClick: its composer${opensFile(card) ? ` · Double-click: open ${card.file ?? 'nothing'}` : ''}`}>
+			title={`${fullName(card)}\n${status}${card.notUsable ? `\n${card.notUsable}` : ''}\nWith Select: click for its composer, double-click to fill the view with it`}>
 			<Handle type="target" position={Position.Left} isConnectable={false} style={hiddenHandle} />
 			<div className="media"
 				onMouseEnter={() => void video.current?.play().catch(() => undefined)}
@@ -286,10 +286,10 @@ function useTextEdit(key: string, current: string | null, busy: boolean, act: (a
 }
 type TextEdit = ReturnType<typeof useTextEdit>;
 
-/** The text itself, flat on the composer's surface (no box around it), growing with its lines; Esc drops the edit, ⌘Enter saves it. */
+/** The text itself, flat on the composer's surface (no box around it), as tall as its lines (canvas.css); Esc drops the edit, ⌘Enter saves it. */
 function FlatText({ edit, busy, label }: { edit: TextEdit; busy: boolean; label: string }) {
 	return (
-		<textarea className="flat-text" value={edit.shown} disabled={busy} aria-label={label} rows={Math.min(12, Math.max(2, edit.shown.split('\n').length + Math.floor(edit.shown.length / 90)))}
+		<textarea className="flat-text" value={edit.shown} disabled={busy} aria-label={label}
 			onChange={event => edit.edit(event.target.value)}
 			onKeyDown={event => {
 				if (event.key === 'Escape') { event.stopPropagation(); edit.cancel(); }
@@ -351,9 +351,10 @@ function Composer({ card, cards, reply, onGo, onClose }: { card: CanvasCard; car
 	const addVariant = () => record && draft && draft.name.trim() && draft.text.trim() && !busy
 		&& act({ key: `variant:${card.id}`, request: { action: 'add', type: 'variant', from: card.id, name: draft.name.trim(), text: draft.text.trim() } });
 	return (
-		// React Flow's opt-outs for an interactive element inside the flow (noDragClassName, noWheelClassName, noPanClassName):
-		// without nopan a press here starts a pan and its text cannot be selected (@xyflow/system createFilter).
-		<div className="composer nowheel nodrag nopan" onDoubleClick={event => event.stopPropagation()}>
+		// A part of the board, as LibTV's: nothing in it scrolls (canvas.css), so a wheel or a pinch over it moves the board
+		// as over a card, and a long text is read by panning the board. React Flow's opt-outs (@xyflow/system createFilter):
+		// without nopan a press here starts a pan and its text cannot be selected.
+		<div className="composer nodrag nopan" onDoubleClick={event => event.stopPropagation()}>
 			<div className="composer-row">
 				{record && <button className="chip-button" disabled={busy} onClick={() => act({ key: `import:${card.id}`, request: { action: 'import', object: card.id, file: null } })}
 					title="Upload your own picture for it"><span className="codicon codicon-add" />Upload</button>}
@@ -396,7 +397,7 @@ function Composer({ card, cards, reply, onGo, onClose }: { card: CanvasCard; car
 				<div className="variant-draft" onKeyDown={event => { if (event.key === 'Escape') { event.stopPropagation(); setDraft(null); } }}>
 					<input className="flat-text" autoFocus value={draft.name} maxLength={NAME_MAX} placeholder="Variant name" aria-label="Variant name" disabled={busy}
 						onChange={event => setDraft({ ...draft, name: event.target.value })} />
-					<textarea className="flat-text" value={draft.text} rows={3} maxLength={TEXT_MAX} placeholder="What differs from this one" aria-label="Variant description" disabled={busy}
+					<textarea className="flat-text" value={draft.text} maxLength={TEXT_MAX} placeholder="What differs from this one" aria-label="Variant description" disabled={busy}
 						onChange={event => setDraft({ ...draft, text: event.target.value })}
 						onKeyDown={event => { if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) { event.preventDefault(); addVariant(); } }} />
 					<div className="composer-row">
@@ -456,58 +457,13 @@ function Canvas({ message, loaded }: { message: Lineage; loaded: Record<string, 
 		window.addEventListener(DETAIL, got);
 		return () => window.removeEventListener(DETAIL, got);
 	}, []);
-	// The composer opens under the picked card, centred (the person's design); the board pans the least that shows both.
-	const PANEL = { w: 560, h: 420, gap: 14 };
-	const reveal = (id: string) => {
-		const node = flow.getInternalNode(id);
-		const pane = document.querySelector('.react-flow')?.getBoundingClientRect();
-		if (!node || !pane) {
-			return;
-		}
-		const { x: vx, y: vy, zoom: z } = flow.getViewport();
-		const at = node.internals.positionAbsolute;
-		const box = { x1: at.x * z + vx, y1: at.y * z + vy, x2: (at.x + (node.measured.width ?? 0)) * z + vx, y2: (at.y + (node.measured.height ?? 0)) * z + vy };
-		const middle = (box.x1 + box.x2) / 2;
-		const area = { x1: Math.min(box.x1, middle - PANEL.w / 2), x2: Math.max(box.x2, middle + PANEL.w / 2), y1: box.y1, y2: box.y2 + PANEL.gap + PANEL.h };
-		const margin = 24;
-		const dx = area.x2 > pane.width - margin ? pane.width - margin - area.x2 : area.x1 < margin ? margin - area.x1 : 0;
-		const dy = area.y2 > pane.height - 72 ? pane.height - 72 - area.y2 : area.y1 < 48 ? 48 - area.y1 : 0;
-		if (dx || dy) {
-			void flow.setViewport({ x: vx + dx, y: vy + dy, zoom: z }, { duration: 250 });
-		}
-	};
+	// A pick never moves the board, as a selection in tldraw never moves its camera: the composer opens under the card,
+	// centred (the person's design), and moves with the board; only the person, a double-click or Fit moves the view.
 	const pick = (card: CanvasCard | undefined) => {
 		setPicked(card?.id ?? null);
-		if (card) {
-			reveal(card.id);
-		}
 		setDetail(undefined);
 		post(card ? { v: CANVAS_PROTOCOL, type: 'inspect', stageId: card.id, version: card.version, file: card.file } : { v: CANVAS_PROTOCOL, type: 'unpick' });
 	};
-	// Once the panel is drawn, its real size is known: if it reaches the bar or an edge of the pane, the board moves
-	// the least to clear it (the first placement assumed PANEL's size).
-	useEffect(() => {
-		if (!pickedCard) {
-			return;
-		}
-		const frame = requestAnimationFrame(() => {
-			const panel = document.querySelector('.composer')?.getBoundingClientRect();
-			const pane = document.querySelector('.react-flow')?.getBoundingClientRect();
-			const bar = document.querySelector('.bar')?.getBoundingClientRect();
-			if (!panel || !pane) {
-				return;
-			}
-			const floor = (bar ? bar.top - pane.top : pane.height) - 12;
-			const dy = panel.bottom - pane.top > floor ? floor - (panel.bottom - pane.top) : panel.top - pane.top < 48 ? 48 - (panel.top - pane.top) : 0;
-			const dx = panel.right - pane.left > pane.width - 16 ? pane.width - 16 - (panel.right - pane.left) : panel.left - pane.left < 16 ? 16 - (panel.left - pane.left) : 0;
-			if (dx || dy) {
-				const { x, y, zoom: z } = flow.getViewport();
-				void flow.setViewport({ x: x + dx, y: y + dy, zoom: z }, { duration: 200 });
-			}
-		});
-		return () => cancelAnimationFrame(frame);
-	}, [pickedCard?.id, detail]);
-
 	// The picked card's version changed on a refresh: its detail is read again, for the version now on the card.
 	useEffect(() => {
 		if (pickedCard && detail && detail.stageId === pickedCard.id && detail.version !== pickedCard.version) {
@@ -670,8 +626,6 @@ function Canvas({ message, loaded }: { message: Lineage; loaded: Record<string, 
 		zIndex: picked && (l.from === picked || l.to === picked) ? 2 : 0,
 	})), [message.links, nodes, picked]);
 
-	const shown = (card: CanvasCard) => ({ stageId: card.id, version: card.version, file: card.file });
-
 	return (
 		<ReactFlow
 			ref={wrapper}
@@ -694,22 +648,18 @@ function Canvas({ message, loaded }: { message: Lineage; loaded: Record<string, 
 					return current;
 				});
 			}}
-			onNodeClick={(_event, node) => {
-				if (node.type === 'card') {
-					pick((node as CardNode).data.card);
-				}
-			}}
-			onNodeDoubleClick={(_event, node) => {
-				if (node.type === 'card' && opensFile((node as CardNode).data.card)) {
-					post({ v: CANVAS_PROTOCOL, type: 'open', ...shown((node as CardNode).data.card) });
-				}
-			}}
-			onPaneClick={() => { pick(undefined); setMore(false); }}
+			// Hand only moves the view, as tldraw's hand tool (HandTool.ts): a click picks and selects nothing
+			// (elementsSelectable) and a double-click zooms in at the pointer, React Flow's own zoomOnDoubleClick. Select: a click picks a card, a click on the board drops it,
+			// and a double-click fills the view with the card (fitView's `nodes`, reactflow.dev/api-reference/types/fit-view-options).
+			onNodeClick={tool === 'select' ? (_event, node) => node.type === 'card' && pick((node as CardNode).data.card) : undefined}
+			onNodeDoubleClick={tool === 'select' ? (_event, node) => node.type === 'card' && void flow.fitView({ nodes: [{ id: node.id }], padding: 0.1, duration: 200 }) : undefined}
+			onPaneClick={tool === 'select' ? () => { pick(undefined); setMore(false); } : undefined}
+			elementsSelectable={tool === 'select'}
+			zoomOnDoubleClick={tool === 'hand'}
 			nodesConnectable={false}
 			edgesFocusable={false}
 			deleteKeyCode={null}
-			// Two tools, after tldraw's select and hand; they differ in what a drag does, and in
-			// both a click picks a card. Select: a drag on a card moves it, a drag on empty space draws a selection box, the
+			// Two tools, after tldraw's select and hand. Select: a drag on a card moves it, a drag on empty space draws a selection box, the
 			// middle button drags to pan (React Flow's design-tool controls). Hand: any drag pans. In both, scroll pans and
 			// Space held pans (React Flow's panActivationKeyCode, 'Space' by default), tldraw's spacebar panning.
 			panOnDrag={tool === 'hand' ? true : [1]}
@@ -743,8 +693,8 @@ function Canvas({ message, loaded }: { message: Lineage; loaded: Record<string, 
 			)}
 			{/* The board's own bar (canvas-scope.md): the two tools (canvas-tools.md), zoom and fit; the minimap and Lay out again under More. Undo is ⌘Z. */}
 			<div className="bar" role="toolbar" aria-label="Canvas">
-				<button className="icon" aria-pressed={tool === 'select'} onClick={() => setTool('select')} title="Select (V): click picks a card, drag moves it or draws a selection box" aria-label="Select"><span className="codicon codicon-cursor" /></button>
-				<button className="icon" aria-pressed={tool === 'hand'} onClick={() => setTool('hand')} title="Hand (H): drag pans, click picks a card; hold Space to pan with Select" aria-label="Hand"><span className="codicon codicon-move" /></button>
+				<button className="icon" aria-pressed={tool === 'select'} onClick={() => setTool('select')} title="Select (V): click picks a card, double-click fills the view with it, drag moves it or draws a selection box" aria-label="Select"><span className="codicon codicon-cursor" /></button>
+				<button className="icon" aria-pressed={tool === 'hand'} onClick={() => setTool('hand')} title="Hand (H): drag pans, double-click zooms in; hold Space to pan with Select" aria-label="Hand"><span className="codicon codicon-move" /></button>
 				<span className="sep" />
 				<button className="icon" onClick={() => void flow.zoomOut({ duration: 200 })} title="Zoom out (⌘−)" aria-label="Zoom out"><span className="codicon codicon-remove" /></button>
 				<button className="zoom" onClick={() => void flow.zoomTo(1, { duration: 200 })} title="Zoom to 100 %" aria-label={`Zoom ${Math.round(zoom * 100)} %, set to 100 %`}>{Math.round(zoom * 100)}%</button>

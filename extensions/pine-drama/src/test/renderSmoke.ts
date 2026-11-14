@@ -153,6 +153,7 @@ async function boxCase(source: Source): Promise<Case> {
 	const check = async (page: Page, posted: readonly unknown[]): Promise<string[]> => {
 		const problems: string[] = [];
 		const card = page.locator('.react-flow__node-card').first();
+		await page.keyboard.press('v');
 		await card.click({ position: { x: 12, y: 12 } });
 		const box = page.locator('.composer');
 		if (await box.waitFor({ timeout: WAIT_MS }).then(() => false, () => true)) { return ['no composer opened under the clicked card']; }
@@ -173,14 +174,6 @@ async function boxCase(source: Source): Promise<Case> {
 		// No version numbers and no record labels on the card (the person's design).
 		const foot = await textOf(card.locator('.card-status'));
 		if (!foot || /\bv\d+\b/.test(foot)) { problems.push(`the card's status reads ${JSON.stringify(foot)}`); }
-		// The board pans to show the box (canvas.tsx reveal, an animated setViewport): measure once it has stopped moving,
-		// so the card and the box are read at one moment.
-		for (let last = '', until = Date.now() + 3000; Date.now() < until;) {
-			const now = JSON.stringify(await box.boundingBox());
-			if (now === last) { break; }
-			last = now;
-			await new Promise(resolve => setTimeout(resolve, 150));
-		}
 		const [c, b] = [await card.boundingBox(), await box.boundingBox()];
 		if (!c || !b) {
 			problems.push('the card or the box has no box on screen');
@@ -272,6 +265,7 @@ async function episodeBoxCase(source: Source): Promise<Case> {
 	const check = async (page: Page, posted: readonly unknown[]): Promise<string[]> => {
 		if (!target) { return ['no card of EP001 has a prompt, so no episode box is checked']; }
 		const problems: string[] = [];
+		await page.keyboard.press('v');
 		await page.locator(`.react-flow__node[data-id="${target.id}"]`).click({ position: { x: 12, y: 12 } });
 		const text = page.locator('.composer textarea[aria-label="Prompt"]');
 		if (await text.waitFor({ timeout: WAIT_MS }).then(() => false, () => true)) { return [`${target.id}'s box shows no prompt`]; }
@@ -444,6 +438,7 @@ async function variantBoxCase(source: Source): Promise<Case> {
 	const answer = recordAnswer(source);
 	const rain = 'assets/characters/lin/variants/rain';
 	const check = async (page: Page, posted: readonly unknown[]): Promise<string[]> => {
+		await page.keyboard.press('v');
 		await page.locator(`.react-flow__node-card[data-id="${rain}"]`).click({ position: { x: 12, y: 12 } });
 		const base = page.locator('.composer .composer-refs .ref');
 		if (await base.first().waitFor({ timeout: WAIT_MS }).then(() => false, () => true)) { return [`${rain}: its composer shows no base`]; }
@@ -489,28 +484,97 @@ async function longNameCase(source: Source): Promise<Case> {
 }
 
 /**
- * The canvas tools: the canvas opens with Hand pressed (the person's choice), and a click
- * on a card picks it there too (an `inspect` for it); V presses Select, H presses Hand again.
+ * The canvas tools: the canvas opens with Hand pressed (the person's choice); V presses Select, H presses Hand again.
+ * What a click and a double-click do with each is clickModelCase's.
  */
 async function toolsCase(source: Source): Promise<Case> {
 	const c = await canvasCase(source, ASSETS_CANVAS);
-	const answer = recordAnswer(source);
-	const check = async (page: Page, posted: readonly unknown[]): Promise<string[]> => {
+	const check = async (page: Page): Promise<string[]> => {
 		const problems: string[] = [];
 		const pressed = async () => [await page.locator('.bar button[aria-label="Select"]').getAttribute('aria-pressed'), await page.locator('.bar button[aria-label="Hand"]').getAttribute('aria-pressed')].join(' ');
 		if (await pressed() !== 'false true') { problems.push(`on opening, Select and Hand are pressed ${await pressed()}, not "false true"`); }
-		const inspects = () => posted.filter(m => (m as { type?: string }).type === 'inspect').length;
-		await page.locator('.react-flow__node-card').first().click({ position: { x: 12, y: 12 } });
-		for (const until = Date.now() + 2000; inspects() === 0 && Date.now() < until;) { await new Promise(resolve => setTimeout(resolve, 50)); }
-		if (inspects() !== 1) { problems.push(`a click with the hand posted ${inspects()} inspects, not 1`); }
-		await page.keyboard.press('Escape');
 		await page.keyboard.press('v');
 		if (await pressed() !== 'true false') { problems.push(`after V, Select and Hand are pressed ${await pressed()}, not "true false"`); }
 		await page.keyboard.press('h');
 		if (await pressed() !== 'false true') { problems.push(`after H, Select and Hand are pressed ${await pressed()}, not "false true"`); }
 		return problems;
 	};
-	return { ...c, name: `${source.name}: the canvas tools, Select and Hand`, interact: { answer, check } };
+	return { ...c, name: `${source.name}: the canvas tools, Select and Hand`, interact: { answer: () => null, check } };
+}
+
+/**
+ * A click and a double-click on a card, by tool, after tldraw's (HandTool.ts, SelectTool): with Hand a click picks
+ * nothing and a double-click zooms in at the pointer; with Select a click picks the card and opens its composer without
+ * moving the board, and a double-click fits the card in the view. Nothing opens a file in a tab. The composer is a part
+ * of the board, flat (as LibTV's): a wheel over it pans the board, and its height is its text's, so a long prompt, as
+ * long as a real take's (about 7000 characters in 27 lines), is read by panning the board down, with nothing clipped.
+ */
+async function clickModelCase(source: Source, episode: string): Promise<Case> {
+	const c = await canvasCase(source, episode);
+	const id = episode === ASSETS_CANVAS ? ((c.message as { cards?: readonly CanvasCard[] }).cards ?? []).find(onBoard)?.id : 'episodes/EP001/segments/seg01';
+	const prompt = Array.from({ length: 27 }, (_, i) => `Line ${i + 1}: ${'the camera holds on the subject while the light shifts slowly across the room. '.repeat(3)}`).join('\n');
+	const answer = (m: { type?: string; stageId?: string }) => m.type !== 'inspect' || !m.stageId ? null
+		: { v: CANVAS_PROTOCOL, type: 'detail', stageId: m.stageId, version: null, detail: null, error: null, prompt: { object: m.stageId, text: prompt } };
+	const check = async (page: Page, posted: readonly unknown[]): Promise<string[]> => {
+		if (!id) { return [`the ${episode} canvas has no card`]; }
+		const problems: string[] = [];
+		const settle = () => new Promise(resolve => setTimeout(resolve, 700));
+		const node = page.locator(`.react-flow__node-card[data-id="${id}"]`);
+		const composer = page.locator('.composer');
+		const inspects = () => posted.filter(m => (m as { type?: string }).type === 'inspect').length;
+		const at = { position: { x: 12, y: 12 } };
+		// Hand: a click picks nothing; a double-click zooms in.
+		await node.click(at);
+		await settle();
+		const selected = page.locator('.react-flow__node.selected');
+		if (inspects() || await composer.count() || await selected.count()) { problems.push(`a click with Hand posted ${inspects()} inspects, shows ${await composer.count()} composers and selects ${await selected.count()} cards`); }
+		const zoom = (await drawnViewport(page)).zoom;
+		await node.dblclick(at);
+		await settle();
+		if (!((await drawnViewport(page)).zoom > zoom)) { problems.push(`a double-click with Hand left the zoom at ${(await drawnViewport(page)).zoom} (was ${zoom})`); }
+		if (inspects()) { problems.push('a double-click with Hand picked the card'); }
+		// Select: a click picks, and the board stays where it is, also once the reply has come.
+		await page.keyboard.press('v');
+		await page.locator('.bar button[aria-label="Fit"]').click();
+		await settle();
+		const before = await drawnViewport(page);
+		await node.click(at);
+		if (await composer.locator('textarea').waitFor({ timeout: WAIT_MS }).then(() => false, () => true)) { return [...problems, 'a click with Select opened no composer with its text']; }
+		await settle();
+		if (inspects() !== 1) { problems.push(`a click with Select posted ${inspects()} inspects, not 1`); }
+		const picked = await drawnViewport(page);
+		if (Math.abs(picked.x - before.x) > 0.5 || Math.abs(picked.y - before.y) > 0.5 || picked.zoom !== before.zoom) { problems.push(`the click moved the board from ${JSON.stringify(before)} to ${JSON.stringify(picked)}`); }
+		// The composer is the board's: its height is its text's, nothing in it scrolls, and a wheel over it pans the board
+		// down to its end.
+		type Scroller = { scrollHeight: number; clientHeight: number; querySelector(selector: string): Scroller | null };
+		const clipped = await composer.evaluate(element => [element as Scroller, (element as Scroller).querySelector('textarea')!]
+			.filter(e => e.scrollHeight > e.clientHeight + 1).map(e => `${e.scrollHeight} px in ${e.clientHeight} px`));
+		if (clipped.length) { problems.push(`the composer clips its text: ${clipped.join(', ')}`); }
+		const pane = (await page.locator('.react-flow').first().boundingBox())!;
+		const wheel = async () => {
+			const box = (await composer.boundingBox())!;
+			await composer.dispatchEvent('wheel', { deltaY: 200, deltaMode: 0, bubbles: true, cancelable: true, clientX: box.x + box.width / 2, clientY: Math.max(box.y, pane.y) + 20 });
+			await new Promise(resolve => setTimeout(resolve, 50));
+		};
+		await wheel();
+		const wheeled = await drawnViewport(page);
+		if (!(wheeled.y < picked.y - 1)) { problems.push(`a wheel over the composer left the board at y ${wheeled.y} (was ${picked.y})`); }
+		for (let i = 0; i < 60 && (await composer.boundingBox())!.y + (await composer.boundingBox())!.height > pane.y + pane.height; i++) { await wheel(); }
+		const end = (await composer.boundingBox())!;
+		if (end.y + end.height > pane.y + pane.height) { problems.push(`panning down over the composer never reached its end (${end.y + end.height} px, the pane ends at ${pane.y + pane.height})`); }
+		// Select: a double-click fits the card in the view (Fit first: the panning above took the card off the pane).
+		await page.locator('.bar button[aria-label="Fit"]').click();
+		await settle();
+		await node.dblclick(at);
+		await settle();
+		const card = (await node.boundingBox())!;
+		const off = Math.max(Math.abs(card.x + card.width / 2 - (pane.x + pane.width / 2)), Math.abs(card.y + card.height / 2 - (pane.y + pane.height / 2)));
+		const fill = Math.max(card.width / pane.width, card.height / pane.height);
+		if (off > 2 || fill < 0.7 || fill > 1) { problems.push(`a double-click with Select left the card ${off.toFixed(0)} px off the middle, filling ${(fill * 100).toFixed(0)} % of the view`); }
+		if (posted.some(m => (m as { type?: string }).type === 'open')) { problems.push('a double-click asked to open a file in a tab'); }
+		return problems;
+	};
+	return { ...c, name: `${source.name}: ${episode}, a click and a double-click with each tool`, interact: { answer, check } };
 }
 
 /**
@@ -526,6 +590,7 @@ async function faceCase(source: Source): Promise<Case> {
 		const card = page.locator(`.react-flow__node-card[data-id="${street}"]`);
 		if (await card.locator('.card-foot .card-name').count() !== 1) { problems.push('the footer has no name'); }
 		if (await textOf(card.locator('.card-status.warn')) !== 'Not drawn yet') { problems.push('the footer does not say Not drawn yet'); }
+		await page.keyboard.press('v');
 		await card.click({ position: { x: 12, y: 12 } });
 		const upload = page.locator('.composer button:has-text("Upload")');
 		if (await upload.waitFor({ timeout: WAIT_MS }).then(() => false, () => true)) { return [...problems, 'its composer has no Upload']; }
@@ -621,6 +686,7 @@ interface Locator {
 	nth(index: number): Locator;
 	locator(selector: string): Locator;
 	click(options?: { position: { x: number; y: number } }): Promise<void>;
+	dblclick(options?: { position: { x: number; y: number } }): Promise<void>;
 	fill(value: string): Promise<void>;
 	inputValue(): Promise<string>;
 	getAttribute(name: string): Promise<string | null>;
@@ -705,8 +771,8 @@ async function main(): Promise<number> {
 	]);
 	const source: Source = { name: 'protocol fixture', root, drama: await readFixture() };
 	const cases: Case[] = [
-		await canvasCase(source, ASSETS_CANVAS), await boxCase(source), await faceCase(source), await toolsCase(source), await variantBoxCase(source), await longNameCase(source),
-		await canvasCase(source, 'EP001'), await takeLinesCase({ ...source, drama: await readFixture() }), await openingCase(source, 'EP001'), await episodeBoxCase(source),
+		await canvasCase(source, ASSETS_CANVAS), await boxCase(source), await faceCase(source), await toolsCase(source), await clickModelCase(source, ASSETS_CANVAS), await variantBoxCase(source), await longNameCase(source),
+		await canvasCase(source, 'EP001'), await takeLinesCase({ ...source, drama: await readFixture() }), await openingCase(source, 'EP001'), await episodeBoxCase(source), await clickModelCase(source, 'EP001'),
 		await wheelZoomCase(source, ASSETS_CANVAS), await wheelZoomCase(source, 'EP001'),
 		await assetsFloorCase(source), await savedViewportCase(source, ASSETS_CANVAS), await savedViewportCase(source, 'EP001'),
 		await galleryCase(source, 'characters'), await galleryCase(source, 'scenes'), await galleryCase(source, 'props'), await gridClickCase(source),

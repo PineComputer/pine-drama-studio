@@ -12,7 +12,7 @@ import { madeWith, plannedWith, requestDetail } from './core/versionDetail';
 import { canvasTreePath } from './core/assetsCanvas';
 import { lineageMessage } from './core/canvasMessage';
 import { ASSETS_CANVAS } from './core/lineage';
-import { episodeIn, episodeOfNode, roleOf, versionFile, versionFolder, type ChatTitle, type OutlineNode, type Role } from './core/project';
+import { episodeIn, episodeOfNode, roleOf, versionFolder, type ChatTitle, type OutlineNode, type Role } from './core/project';
 import type { CardAction } from './cardActions';
 import type { ProjectViews, StageRef } from './projectViews';
 import { CanvasPicks } from './core/canvasPicks';
@@ -91,13 +91,6 @@ export function registerEpisodeCanvas(context: vscode.ExtensionContext, views: P
 		}
 	};
 
-	/** The shown file, the very one the drama says that version shows, so a message can open nothing else. */
-	const shownFile = async (shown: Shown): Promise<string | undefined> => {
-		const object = (await project.drama()).objects.get(shown.stageId);
-		const file = object && shown.version ? versionFile(object, shown.version) : null;
-		return file && file === shown.file ? file : undefined;
-	};
-
 	const setUp = (panel: vscode.WebviewPanel, episode: string) => {
 		panels.set(episode, panel);
 		panel.title = `${episode} · Canvas`;
@@ -129,14 +122,6 @@ export function registerEpisodeCanvas(context: vscode.ExtensionContext, views: P
 					return; // An unpick or a newer pick arrived while the lineage loaded.
 				}
 				await panel.webview.postMessage(await detailReply(panel.webview, episode, message));
-			} else if (message?.type === 'open') {
-				const file = await shownFile(message);
-				if (!file) {
-					void vscode.window.showInformationMessage(`${message.stageId} has no file to open: ${message.version ? `${message.version} names none` : 'no version is generated yet'}.`);
-					return;
-				}
-				output.appendLine(`canvas ${episode}: open ${file}`);
-				await vscode.commands.executeCommand('vscode.open', fileUri(file), { preview: true });
 			} else if (message?.type === 'layout' && message.episode === episode) {
 				await context.workspaceState.update(layoutKey(episode), message.positions);
 			} else if (message?.type === 'viewport' && message.episode === episode) {

@@ -304,11 +304,11 @@ test('places keep full precision: frames that touch at fractional places are not
 	assert.deepEqual(positionsFor(onScreen, {}, onScreen, all, size), onScreen);
 });
 
-test('messages from the webview are checked; open and inspect carry the version and file on screen', () => {
+test('messages from the webview are checked; inspect carries the version and file on screen; the canvas opens no file', () => {
 	const shown = { stageId: 'assets/characters/cassie', version: 'v4', file: 'assets/characters/cassie/v4/image-1.jpg' };
-	assert.deepEqual(readFromCanvas({ v: CANVAS_PROTOCOL, type: 'open', ...shown }), { v: 1, type: 'open', ...shown });
+	assert.equal(readFromCanvas({ v: CANVAS_PROTOCOL, type: 'open', ...shown }), undefined, 'a file opens only from the tree');
 	assert.deepEqual(readFromCanvas({ v: CANVAS_PROTOCOL, type: 'inspect', ...shown, version: null, file: null }), { v: 1, type: 'inspect', ...shown, version: null, file: null });
-	assert.equal(readFromCanvas({ v: 1, type: 'open', stageId: 'x' }), undefined, 'no version or file named');
+	assert.equal(readFromCanvas({ v: 1, type: 'inspect', stageId: 'x' }), undefined, 'no version or file named');
 	assert.equal(readFromCanvas({ v: 2, type: 'ready' }), undefined);
 	assert.deepEqual(readFromCanvas({ v: 1, type: 'unpick', stageId: 'ignored' }), { v: 1, type: 'unpick' }, 'no card picked any more');
 	assert.equal(readFromCanvas('ready'), undefined);
