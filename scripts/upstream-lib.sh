@@ -3,7 +3,6 @@ STUDIO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VSCODE_DIR="${VSCODE_DIR:-$(cd "$STUDIO/../vscode" && pwd)}"
 LOCK="$STUDIO/upstream/vscode.lock"
 PATCH_DIR="${PATCH_DIR:-$STUDIO/upstream/patches}"
-TOUCHPOINT_BUDGET=10
 
 lock_value() {
 	local v

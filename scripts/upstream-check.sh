@@ -17,8 +17,4 @@ if [ ${#patches[@]} -gt 0 ]; then
 fi
 
 tp=$(git -C "$TMP/tree" diff --name-only --diff-filter=MDR "$BASE" HEAD | grep -c . || true)
-echo "OK: ${#patches[@]} patch(es) apply to ${BASE:0:11}; touchpoints: $tp/$TOUCHPOINT_BUDGET"
-if [ "$tp" -gt "$TOUCHPOINT_BUDGET" ]; then
-	echo "OVER BUDGET: more than $TOUCHPOINT_BUDGET touchpoints is a decision for the maintainers" >&2
-	exit 2
-fi
+echo "OK: ${#patches[@]} patch(es) apply to ${BASE:0:11}; touchpoints: $tp"

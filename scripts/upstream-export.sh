@@ -17,5 +17,5 @@ git -C "$VSCODE_DIR" format-patch --quiet --zero-commit --no-signature --no-stat
 
 count=$(find "$PATCH_DIR" -name '*.patch' | wc -l | tr -d ' ')
 tp=$(touchpoints "$BRANCH" | grep -c . || true)
-echo "exported $count patch(es) from $BRANCH to ${PATCH_DIR#$STUDIO/}; touchpoints: $tp/$TOUCHPOINT_BUDGET"
+echo "exported $count patch(es) from $BRANCH to ${PATCH_DIR#$STUDIO/}; touchpoints: $tp"
 touchpoints "$BRANCH" | sed 's/^/  touchpoint: /'
