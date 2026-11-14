@@ -311,7 +311,7 @@
             "$ref": "#/$defs/note"
           }
         },
-        "changes_studio_kept_aside_as_conflicts": {
+        "changes_client_kept_aside_as_conflicts": {
           "type": "array",
           "items": {
             "type": "object",
@@ -423,7 +423,7 @@
             "pine_computer_found_file_missing_from_store",
             "pine_computer_broke_off_the_work",
             "pine_computer_refused_request_of_unsupported_protocol_major",
-            "studio_refused_document_of_unsupported_protocol_major"
+            "client_refused_document_of_unsupported_protocol_major"
           ]
         },
         "message": {
@@ -435,11 +435,11 @@
         "upgrade_needed": {
           "type": "object",
           "required": [
-            "minimum_studio_version",
+            "minimum_client_version",
             "download_url"
           ],
           "properties": {
-            "minimum_studio_version": {
+            "minimum_client_version": {
               "type": "string",
               "pattern": "^\\d+\\.\\d+\\.\\d+(?![\\s\\S])"
             },

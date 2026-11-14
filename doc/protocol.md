@@ -38,7 +38,7 @@ A client can be built from this page and one schema file, [`protocol/v2/protocol
 - **Commits.** The client commits every change made in the folder, each with the author that made it:
   - `pine-computer`: a result applied from a turn (4.4), with the trailers `Pine-Turn-Id: <turn id>` and `Pine-Change-Number: <change number>`;
   - `person`: the person's own change through the client;
-  - `studio-found-changes-on-disk`: whatever the folder holds that no commit records (a hand edit, or the files of a write a crash cut off), found when the client opens the drama or seeds a turn.
+  - `client-found-changes-on-disk`: whatever the folder holds that no commit records (a hand edit, or the files of a write a crash cut off), found when the client opens the drama or seeds a turn.
 - **Byte-preserving.** The client MUST store files byte for byte: `* -text` in `.gitattributes`, and no filters. A repository the folder already has is used as it is.
 - **History is the only undo.** Undoing a change is a revert of its commit; a turn's changes are the commits carrying its `Pine-Turn-Id` trailer.
 
@@ -82,7 +82,7 @@ The rest of the receipt (the request and response as sent) belongs to the Comput
 ## 3. The person's changes (client)
 
 - **The person changes any file in the folder**, through the client or by hand. A change through the client is a plain write (a temporary sibling, then a rename) and a `person` commit of the paths it wrote.
-- **Hand changes** are committed as `studio-found-changes-on-disk` at the next opening or seed.
+- **Hand changes** are committed as `client-found-changes-on-disk` at the next opening or seed.
 - **A running turn** sees a change only at its next seed (4.2). A result that lands over a file the person changed meanwhile conflicts (4.4).
 
 ## 4. The turn
@@ -119,9 +119,9 @@ The rest of the receipt (the request and response as sent) belongs to the Comput
 | `seed_files` | The seed: every file of the drama at the commit the client made for it, `{<path>: <hash>}`. Paths starting with `.` are left out (section 1). |
 | `session_private_state` | The hash of the session's private state from its last return, or `null`. |
 | `notes_for_pine_computer` | The person's feedback for Pine Computer, each `{object_id, text, attached_file?, position_in_shown_file?: {x, y}, seconds_into_video?}`. `attached_file` is a file of `seed_files` (a picture the person attached), `position_in_shown_file` gives fractions 0–1 of the shown file's width and height, and `seconds_into_video` gives seconds into a video. A note decides nothing. |
-| `changes_studio_kept_aside_as_conflicts` | The changes of this session's earlier turns that the client kept aside as conflicts since its last request (4.4), each `{turn_id, change_number, paths}`, so Pine Computer learns of them. |
+| `changes_client_kept_aside_as_conflicts` | The changes of this session's earlier turns that the client kept aside as conflicts since its last request (4.4), each `{turn_id, change_number, paths}`, so Pine Computer learns of them. |
 
-- **The seed commit.** Before writing the request, the client commits whatever is uncommitted as `studio-found-changes-on-disk`, so the seed is a commit and every input the turn may read is in history.
+- **The seed commit.** Before writing the request, the client commits whatever is uncommitted as `client-found-changes-on-disk`, so the seed is a commit and every input the turn may read is in history.
 - **Restore.** The Computer side writes exactly `seed_files` into its workspace, then restores the private state outside it: private state never holds a file of the drama, so it cannot overwrite the seed. A file of the tree the Computer side rewrites only for its own machine, such as a path in its configuration, is kept outside the workspace too, so it never comes back as a change.
 
 ### 4.3 Changes (Computer side → client)
@@ -145,12 +145,12 @@ change = { schema, turn_id, change_number, previous_change_sha256, files: { <pat
 
 The client applies a turn's changes in `change_number` order, through the one queue that also writes the person's changes, so two never write at once. For each change:
 
-1. **Resolved already?** A change is resolved when a commit carries its trailers `Pine-Turn-Id: <turn id>` and `Pine-Change-Number: <change number>`, or when its conflicting-change ref exists. Then it is skipped. The repository is the record, so it travels with the folder. If every path's current hash equals its `sha256_after` (a crash's files that a `studio-found-changes-on-disk` commit took), the client records it with an empty commit carrying those trailers, and goes on.
+1. **Resolved already?** A change is resolved when a commit carries its trailers `Pine-Turn-Id: <turn id>` and `Pine-Change-Number: <change number>`, or when its conflicting-change ref exists. Then it is skipped. The repository is the record, so it travels with the folder. If every path's current hash equals its `sha256_after` (a crash's files that a `client-found-changes-on-disk` commit took), the client records it with an empty commit carrying those trailers, and goes on.
 2. **Conflict.** If any path's current hash differs from its `sha256_before`, nothing is written. The whole change is kept aside: committed, unapplied, under the ref `refs/pine/conflicting-changes/<turn id>/<change number>`, and the client tells the person which paths conflicted. Nothing the turn paid for is lost: the ref keeps it, and the person or a later turn can apply it.
 3. **Write.** Each file is written by a temporary sibling and a rename, receipts before the outputs they describe. A `sha256_after` of `null` deletes the file.
 4. **Commit.** The client commits exactly those paths (`git commit --only -- <paths>`) as `pine-computer`, with the trailers `Pine-Turn-Id` and `Pine-Change-Number`.
 
-**A crash** between steps 3 and 4 leaves the files on disk. The next opening commits them as `studio-found-changes-on-disk`, and step 1 then finds the change applied.
+**A crash** between steps 3 and 4 leaves the files on disk. The next opening commits them as `client-found-changes-on-disk`, and step 1 then finds the change applied.
 
 A client that moves or exports the repository keeps `refs/pine/conflicting-changes/*` with it (for example `git clone --mirror`).
 
@@ -219,12 +219,12 @@ An error is `{code, message, action?, upgrade_needed?}`. `message` is for the pe
 | `pine_computer_found_file_missing_from_store` | A file the request names is not in the store. |
 | `pine_computer_broke_off_the_work` | The work stopped early. |
 | `pine_computer_refused_request_of_unsupported_protocol_major` | Pine Computer met a request of a major it does not read. |
-| `studio_refused_document_of_unsupported_protocol_major` | The Studio met a document of a major it does not read: a return, a change, or a project's `pine-drama-project.json`. |
+| `client_refused_document_of_unsupported_protocol_major` | The client met a document of a major it does not read: a return, a change, or a project's `pine-drama-project.json`. |
 
 ## 7. Majors and upgrades
 
-- **One major per reader.** A reader reads only its own major, and a document of any other major is refused whole, with `pine_computer_refused_request_of_unsupported_protocol_major` or `studio_refused_document_of_unsupported_protocol_major` by whichever side refused. A major is the format itself: read by rules it does not follow, a document could write wrong data into the person's folder. Git likewise refuses a repository whose format version it does not understand ([gitrepository-layout](https://git-scm.com/docs/gitrepository-layout)).
-- **A refusal names the upgrade.** Either refusal MUST carry `upgrade_needed: {minimum_studio_version, download_url}` when the refusing side knows it: the lowest client version that reads the newer major, and where to download it. The client MUST show it to the person.
+- **One major per reader.** A reader reads only its own major, and a document of any other major is refused whole, with `pine_computer_refused_request_of_unsupported_protocol_major` or `client_refused_document_of_unsupported_protocol_major` by whichever side refused. A major is the format itself: read by rules it does not follow, a document could write wrong data into the person's folder. Git likewise refuses a repository whose format version it does not understand ([gitrepository-layout](https://git-scm.com/docs/gitrepository-layout)).
+- **A refusal names the upgrade.** Either refusal MUST carry `upgrade_needed: {minimum_client_version, download_url}` when the refusing side knows it: the lowest client version that reads the newer major, and where to download it. The client MUST show it to the person.
   - When the client meets a newer major, it names its own newer version and where to download it.
   - When it meets an older Computer side (a major-1 refusal, or no answer in major 2), it says that this Computer runs an older drama-cli and that a new Chat starts on a current one.
 - **A drama of another major** is never written. The client offers to convert it (section 8).
@@ -237,6 +237,6 @@ The conversion is the client's alone. Its working records are its own, and only 
 1. **Freeze.** No turn is sent and no person change is written. While a major-1 turn has no return yet, the conversion refuses. It says that nothing was changed, and asks the person to finish or stop that turn in the previous client, with a link to its download. No major-1 installer is kept for this case.
 2. **Back up.** The folder is copied beside itself as `<name>.backup-<YYYY-MM-DD>`, by clonefile where the file system has it, otherwise as a plain copy. Going back to the older client stays possible.
 3. **Inventory.** Every major-1 version folder on disk goes in: those of installed turns, adopted ones, takes and discarded versions. The client records them with their hashes before it changes anything, so a cut-off conversion resumes from it.
-4. **History.** The client applies [`protocol/v2/major1-to-major2-conversion.json`](../extensions/pine-drama/protocol/v2/major1-to-major2-conversion.json), normative data. Per object, oldest first, one commit per old version writes that version's files to their major-2 paths, with receipts, as `studio-found-changes-on-disk`. So `git log` of a file lists every old version, discarded ones included. The table is the only place that knows major 1's record formats: the client reads it, never a format of its own.
+4. **History.** The client applies [`protocol/v2/major1-to-major2-conversion.json`](../extensions/pine-drama/protocol/v2/major1-to-major2-conversion.json), normative data. Per object, oldest first, one commit per old version writes that version's files to their major-2 paths, with receipts, as `client-found-changes-on-disk`. So `git log` of a file lists every old version, discarded ones included. The table is the only place that knows major 1's record formats: the client reads it, never a format of its own.
 5. **Current.** A last commit sets each object's files to its major-1 *current* (major 1's 3.2), deletes removed objects, and writes the person's pending text, as the table's `current` says. Unresolved paid calls keep their records until a turn settles them.
 6. **Verify, then mark.** Every inventoried version is checked to be reachable in history. Then `pine-drama-project.json` is written, and the old version folders and `choices.json` are removed.

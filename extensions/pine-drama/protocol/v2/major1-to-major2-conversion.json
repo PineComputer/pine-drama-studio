@@ -1,10 +1,10 @@
 {
   "schema": 2,
-  "description": "How the Studio converts a major-1 drama into major 2 (doc/protocol.md, section 8). Normative data: the client applies it as written and knows no major-1 record format beyond it. Every path is project-relative; {object} is a v1 object id with its version segment removed, {owner} the object a record stage belongs to, {file} a path inside a version folder.",
+  "description": "How a client converts a major-1 drama into major 2 (doc/protocol.md, section 8). Normative data: the client applies it as written and knows no major-1 record format beyond it. Every path is project-relative; {object} is a v1 object id with its version segment removed, {owner} the object a record stage belongs to, {file} a path inside a version folder.",
   "version_folders": {
     "a_version_folder_is": "a folder holding version.json whose name matches one of version_folder_name_patterns",
     "its_object_is": "the folder that holds it ({object})",
-    "applied_in_order": "one global order across all objects: by version.json made_at, then object id, then version id; one commit per version, authored studio-found-changes-on-disk. So history reads as it happened, and every input a receipt names is already at its major-2 path.",
+    "applied_in_order": "one global order across all objects: by version.json made_at, then object id, then version id; one commit per version, authored client-found-changes-on-disk. So history reads as it happened, and every input a receipt names is already at its major-2 path.",
     "version_folder_name_patterns": [
       "^v\\d+$",
       "^t\\d{2,}$"
@@ -143,9 +143,9 @@
   "snapshots": {
     "read_from": [
       "turns/<task>.json in the folder (its snapshot)",
-      "when the folder has no turns/: the Studio's own records of that drama (returns/<task>.json in its storage), the same installed snapshots"
+      "when the folder has no turns/: the major-1 client's own records of that drama (for Pine Drama Studio, returns/<task>.json in its storage), the same installed snapshots"
     ],
-    "when_neither_exists": "the conversion refuses, changes nothing, and asks the person to open the project once in the previous Studio (major 1), which writes turns/, with a link to its download",
+    "when_neither_exists": "the conversion refuses, changes nothing, and asks the person to open the project once in the previous client (major 1), which writes turns/, with a link to its download",
     "an_object_is_kept_when": "the latest installed snapshot of its scope lists it (the Project Chat's for shared objects and episode objects, a snapshot listing its episode for an episode's objects), as major 1's 5.3 has it; an object it no longer lists is deleted in the last commit"
   },
   "object_json": {
