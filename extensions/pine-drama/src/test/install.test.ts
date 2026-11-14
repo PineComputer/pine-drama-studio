@@ -1,5 +1,6 @@
 // Installing a return (doc/protocol.md, 4.4) and putting a task on a Computer: one test per rule that can lose or
 // corrupt the person's drama. System tar makes the archives, as the Computer side does.
+import { sha256 } from '../core/sha256';
 import { runInProjectWriteQueue } from '../core/projectHistory';
 import { strict as assert } from 'node:assert';
 import { execFileSync } from 'node:child_process';
@@ -12,7 +13,7 @@ import { UnsupportedMajor, type Request, type Return } from '../core/protocol';
 import { readDrama, roleOf } from '../core/project';
 import { list as listTar } from 'tar';
 import { installReturn, previewProgress, readReturn } from '../core/resultImporter';
-import { fileKey, Holders, putAll, sha256, stateKey, versionKey, type ArtifactStore } from '../core/taskArtifacts';
+import { fileKey, Holders, putAll, stateKey, versionKey, type ArtifactStore } from '../core/taskArtifacts';
 import { dramaRecordOf, installedSnapshots, previewVersions, publishKeptTurns, requestKeys, requestOf, taskMessage, tasksOf } from '../core/taskRun';
 
 /** The names an archive holds, as node-tar lists them, without a leading `./` or a folder's trailing `/`. */

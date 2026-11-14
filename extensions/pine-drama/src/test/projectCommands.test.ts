@@ -73,7 +73,7 @@ test('native New then Open reopens the new drama as it is, with no CLI', async (
 	const root = setup();
 	register(context(), output);
 	await commands.get('pineDrama.newProject')!();
-	assert.deepEqual(readdirSync(root).sort(), ['.git', '.gitattributes', '.gitignore', 'pine-drama-project.json']);
+	assert.deepEqual(readdirSync(root).sort(), ['.git', 'pine-drama-project.json']);
 	const written = readFileSync(join(root, 'pine-drama-project.json'), 'utf8');
 	calls.length = 0;
 	await commands.get('pineDrama.openProject')!();
@@ -100,7 +100,7 @@ test('New Project asks for a folder in the native picker, and the empty folder c
 		[{ title: 'New Project', openLabel: 'Create Project', canSelectFolders: true, canSelectFiles: false, canSelectMany: false }]);
 	assert.deepEqual(errors, []);
 	assert.deepEqual(calls, [['vscode.openFolder', { fsPath: root }, { forceNewWindow: false, forceReuseWindow: true }]]);
-	assert.deepEqual(readdirSync(root).sort(), ['.git', '.gitattributes', '.gitignore', 'pine-drama-project.json'], 'no "Untitled Project" or any other folder inside it');
+	assert.deepEqual(readdirSync(root).sort(), ['.git', 'pine-drama-project.json'], 'no "Untitled Project" or any other folder inside it');
 	const log = await git(['log', '--format=%an|%s', '--name-only'], root);
 	assert.deepEqual(log.stdout.trim().split('\n').filter(Boolean), ['person|New project', 'pine-drama-project.json'], 'the person\'s first commit');
 	assert.deepEqual(readdirSync(parent), ['long-bai-gu-jing-001'], 'nothing made beside it');

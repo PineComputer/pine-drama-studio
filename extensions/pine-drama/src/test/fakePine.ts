@@ -2,13 +2,13 @@
 // idempotent by key as the SDK documents, and failure injection. `lose(op)` makes the next call
 // of that operation take effect remotely and then fail as if its response were lost.
 
+import { sha256 } from '../core/sha256';
 import { execFileSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { STANDING_PARAGRAPH } from '../core/instructions';
-import { fileKey, returnKey, sha256, stateKey, versionKey, type ArtifactStore } from '../core/taskArtifacts';
+import { fileKey, returnKey, stateKey, versionKey, type ArtifactStore } from '../core/taskArtifacts';
 import type { ReviewTarget } from '../core/resultImporter';
 import { ConnectionLostError, MissingError, NoSuchFileError, StartNotConfirmedError, UnconfirmedError, type FolderEntry, type IdlePolicy, type PineConnection, type PineEvent, type PinePort, type PineSession, type SecretVault, type TurnFile, type TurnView } from '../core/pinePort';
 
@@ -404,7 +404,7 @@ export class FakePine implements PinePort {
 			throw new MissingError('no such turn');
 		}
 		return [...turn.returned].map(([path, bytes]) => {
-			return { path, root: this.roots.get(path) ?? 'workdir', sha256: createHash('sha256').update(bytes).digest('hex'), size: bytes.length, type: TYPES[path.split('.').pop()!] ?? 'application/octet-stream' };
+			return { path, root: this.roots.get(path) ?? 'workdir', sha256: sha256(bytes), size: bytes.length, type: TYPES[path.split('.').pop()!] ?? 'application/octet-stream' };
 		});
 	}
 

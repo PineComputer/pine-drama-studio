@@ -1,7 +1,7 @@
 // One explicit project root; no child-layout discovery or migration. No vscode import.
 
-import { closeSync, existsSync, openSync, readSync, realpathSync, statSync } from 'node:fs';
-import { createHash } from 'node:crypto';
+import { sha256 } from './sha256';
+import { existsSync, realpathSync, statSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, posix, resolve } from 'node:path';
 import type { ProjectPlace } from './placement';
 
@@ -21,7 +21,7 @@ export function assertProjectRoot(root: string, expected: string): void {
 /** The session's project folder: one per Chat, under the folder the caller gives. */
 export function projectFolder(projectsRoot: string, key: string): string {
 	const name = key.replace(/[^A-Za-z0-9._-]+/g, '_').slice(0, 60);
-	return join(projectsRoot, `${name}-${createHash('sha256').update(key).digest('hex').slice(0, 8)}`);
+	return join(projectsRoot, `${name}-${sha256(key).slice(0, 8)}`);
 }
 
 /**
@@ -46,21 +46,6 @@ export function owningChat<T extends { readonly key: string; readonly folder: st
 	const open = new Set(windowFolders.map(projectIdentity));
 	const matches = chats.filter(c => open.has(projectIdentity(projectRootOf(projectsRoot, c))));
 	return matches.length === 1 ? matches[0] : matches.find(c => c.project_role === 'main');
-}
-
-/** A file's SHA-256, streamed. */
-export function hashFile(path: string): string {
-	const hash = createHash('sha256');
-	const fd = openSync(path, 'r');
-	try {
-		const chunk = Buffer.alloc(1 << 20);
-		for (let n = readSync(fd, chunk); n > 0; n = readSync(fd, chunk)) {
-			hash.update(chunk.subarray(0, n));
-		}
-	} finally {
-		closeSync(fd);
-	}
-	return hash.digest('hex');
 }
 
 /** Why a returned path cannot be installed, or undefined: it must stay inside the drama's folder (containment, drama-folder section 3). */

@@ -4,13 +4,13 @@
 // keeps what it replaces. It runs in the project's one write queue (projectHistory.ts), with the person's other writes.
 // No vscode import.
 
-import { createHash } from 'node:crypto';
-import { mkdir, readFile, rm } from 'node:fs/promises';
+import { mkdir, rm } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { writeWhole } from './choices';
-import { realTarget } from './placement';
+import { throughNoLink } from './placement';
 import { commitPathsToHistory, historyHasTurnChange, runInProjectWriteQueue, turnChangeTrailers } from './projectHistory';
 import { matches } from './protocol';
+import { sha256, sha256OfFileOnDisk } from './sha256';
 
 /** Files to land: each path with the sha256 of its new bytes, or null to delete it. */
 export interface ProjectFolderChange {
@@ -34,16 +34,6 @@ export class NotAProjectPathError extends Error {
 	constructor(readonly paths: readonly string[]) { super(`not a path of the project: ${paths.join(', ')}`); }
 }
 
-const sha256 = (bytes: Buffer) => createHash('sha256').update(bytes).digest('hex');
-
-/** The sha256 of the file at `file` now, or null when there is none. */
-async function sha256OfFileOnDisk(file: string): Promise<string | null> {
-	return readFile(file).then(sha256, (error: NodeJS.ErrnoException) => {
-		if (error.code === 'ENOENT' || error.code === 'ENOTDIR') { return null; }
-		throw error;
-	});
-}
-
 /**
  * Applies `change` to the project folder at `projectRoot` (4.4), in its write queue: resolved already, else every file
  * written (a temporary sibling, then a rename; receipts before their outputs; null deletes) and one commit of exactly
@@ -60,11 +50,11 @@ export function applyChangeToProjectFolder(projectRoot: string, change: ProjectF
 		const paths = Object.keys(change.filesAfterChange);
 		const keys = paths.map(path => path.toLowerCase());
 		// Two names that differ only by case are one path (section 1), so a change naming one twice is not the project's.
-		// A path through a link is not the project's (resolvesInside).
-		const notPaths = paths.filter((path, i) => !validPath(path) || !resolvesInside(projectRoot, path) || keys.indexOf(keys[i]) !== i);
+		// A path through a link is not the project's (placement.ts throughNoLink).
+		const notPaths = paths.filter((path, i) => !validPath(path) || !throughNoLink(projectRoot, path) || keys.indexOf(keys[i]) !== i);
 		if (notPaths.length) { throw new NotAProjectPathError(notPaths); }
 		const trailers = change.turnChange ? turnChangeTrailers(change.turnChange.turnId, change.turnChange.changeNumber) : {};
-		const onDisk = await Promise.all(paths.map(path => sha256OfFileOnDisk(join(projectRoot, path))));
+		const onDisk = paths.map(path => sha256OfFileOnDisk(join(projectRoot, path)));
 		if (change.turnChange && paths.every((path, i) => onDisk[i] === change.filesAfterChange[path])) {
 			await commitPathsToHistory(projectRoot, change.author, paths, change.commitMessage, trailers);
 			return 'already on disk, recorded';
@@ -90,15 +80,6 @@ export function applyChangeToProjectFolder(projectRoot: string, change: ProjectF
 		await commitPathsToHistory(projectRoot, change.author, paths, change.commitMessage, trailers);
 		return 'written and committed';
 	});
-}
-
-/**
- * Whether `path` is the project's own: it passes through no link, so it is where its name says (git refuses a path
- * beyond a symbolic link, and a folder linked to .git must never be written through).
- */
-function resolvesInside(projectRoot: string, path: string): boolean {
-	const root = realTarget(projectRoot);
-	return !!root && realTarget(join(projectRoot, path)) === join(root, ...path.split('/'));
 }
 
 /** A receipt's name ends so (doc/protocol.md 2.3). */

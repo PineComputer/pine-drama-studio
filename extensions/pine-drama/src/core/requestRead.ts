@@ -2,7 +2,7 @@
 // project file it is, read from drama-cli's own records in the version's folder: the old seg editor's reader
 // (pine-drama-studio-archieve #425 requestRead.ts and versionDetail.ts, #539 the first-frame slot), ported. Display
 // only: what it cannot read or resolve is left unnumbered, never guessed and never an error. No vscode import.
-import { createHash } from 'node:crypto';
+import { sha256OfFileOnDisk } from './sha256';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { mediaOf } from './versionDetail';
@@ -63,7 +63,9 @@ export async function sentRequest(at: (path: string) => string, dir: string, spe
 	const hashed = new Map<string, string>();
 	if (assets.size) {
 		for (const path of pinned.filter(p => mediaOf(p) === 'image')) {
-			const sha = await readFile(at(path)).then(bytes => createHash('sha256').update(bytes).digest('hex')).catch(() => null);
+			// A display reader: a picture it cannot read shows nothing, never an error for the whole panel.
+			let sha: string | null = null;
+			try { sha = sha256OfFileOnDisk(at(path)); } catch { /* shown as nothing */ }
 			if (sha && !hashed.has(sha)) { hashed.set(sha, path); }
 		}
 	}

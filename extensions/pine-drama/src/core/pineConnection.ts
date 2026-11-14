@@ -1,5 +1,5 @@
 // Product connection policy. A project key grants access; it is not a human identity.
-import { createHash } from 'node:crypto';
+import { sha256 } from './sha256';
 import type { PineConnection, SecretVault } from './pinePort';
 
 export const PRODUCTION_ENDPOINT = 'https://pinesandbox.io';
@@ -27,7 +27,7 @@ export function savedConnection(key: string | undefined): PineConnection | undef
 
 /** Keep remote handles and history separate if another key is connected later. No existing records are migrated. */
 export function connectionScope(pine: PineConnection): string {
-	return createHash('sha256').update(JSON.stringify([pine.endpoint, pine.apiKey])).digest('hex');
+	return sha256(JSON.stringify([pine.endpoint, pine.apiKey]));
 }
 
 /** The caller supplies the SDK's read-only projectPolicy check, never a Computer creation. */

@@ -12,10 +12,11 @@
 // file freely and checks its etag only when writing (files.ts, IWriteFileOptions; fileService.ts, validateWriteFile).
 // Fix plan, item 4. No vscode import.
 
+import { sha256OfFileOnDisk } from './sha256';
 import { statSync } from 'node:fs';
 import { join } from 'node:path';
-import { hashFile, refusedPath } from './projectPlace';
-import { within } from './placement';
+import { refusedPath } from './projectPlace';
+import { throughNoLink, within } from './placement';
 import type { Store } from './store';
 
 export type Resolved =
@@ -45,14 +46,14 @@ export function resolveReturned(src: ResolveSources, remotePath: string, sha?: s
 		return { state: 'refused', reason: `the drama's folder ${src.root} leads outside ${src.boundary} through a link` };
 	}
 	const rel = remotePath.slice('drama/'.length);
-	const refused = refusedPath(rel) ?? (within(src.root, join(src.root, rel)) ? undefined : `${rel} leads outside the drama's folder through a link`);
+	const refused = refusedPath(rel) ?? (throughNoLink(src.root, rel) ? undefined : `${rel} leads through a link`);
 	if (refused) {
 		return { state: 'refused', reason: refused };
 	}
 	const place = { path: join(src.root, rel) };
 	// A file, not merely a name: a directory in its place is not the file (it would also make hashing throw).
 	const present = statSync(place.path, { throwIfNoEntry: false })?.isFile() ?? false;
-	if (present && (sha === undefined || !verify || hashFile(place.path) === sha)) {
+	if (present && (sha === undefined || !verify || sha256OfFileOnDisk(place.path) === sha)) {
 		return { state: 'arrived', where: 'folder', path: place.path };
 	}
 	if (sha !== undefined && src.has(sha)) {

@@ -1,7 +1,7 @@
 // One resolver from a returned path to the mirror, with five states, each from
 // its source. Fixture folders only.
+import { sha256 } from '../core/sha256';
 import { strict as assert } from 'node:assert';
-import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -10,7 +10,7 @@ import { resolveReturned } from '../core/resolve';
 import { Store } from '../core/store';
 
 const KEY = 'pine-computer:/local-1';
-const sha = (text: string) => createHash('sha256').update(text).digest('hex');
+const sha = sha256;
 
 function setup(library: string[] = []) {
 	const dir = mkdtempSync(join(tmpdir(), 'pine-resolve-'));
@@ -56,7 +56,7 @@ test('refused: a path that leaves drama/, by name or through a link', () => {
 	mkdirSync(join(dir, 'elsewhere'));
 	writeFileSync(join(dir, 'elsewhere', 'x.md'), 'X');
 	symlinkSync(join(dir, 'elsewhere'), join(root, 'out'));
-	assert.deepEqual(resolveReturned(src, 'drama/out/x.md'), { state: 'refused', reason: 'out/x.md leads outside the drama\'s folder through a link' });
+	assert.deepEqual(resolveReturned(src, 'drama/out/x.md'), { state: 'refused', reason: 'out/x.md leads through a link' });
 });
 
 test('refused: a drama/ that is itself a link out of the bound folder, though both ends resolve through it', () => {

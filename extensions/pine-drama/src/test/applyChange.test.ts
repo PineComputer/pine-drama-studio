@@ -1,5 +1,6 @@
-import { strict as assert } from 'node:assert';
 import { createHash } from 'node:crypto';
+import { sha256 } from '../core/sha256';
+import { strict as assert } from 'node:assert';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -11,7 +12,9 @@ import { commitFilesFoundOnDisk, listHistoryOfFile } from '../core/projectHistor
 // Applying a turn's change, a Use or an Undo (doc/protocol.md 4.4): the rules that, broken, would lose a paid result,
 // apply one twice, take one change for another, or write outside the project.
 const project = () => mkdtempSync(join(tmpdir(), 'pine-apply-'));
-const sha = (text: string) => createHash('sha256').update(text).digest('hex');
+const sha = sha256;
+/** git's id of a blob of `text` (git hash-object): what the file's history names its bytes by. */
+const blob = (text: string) => createHash('sha1').update(`blob ${Buffer.byteLength(text)}\0${text}`).digest('hex');
 /** A store of file bytes by hash, as the Computer's `files/<hash>`. */
 const store = (...texts: string[]) => {
 	const files = new Map(texts.map(text => [sha(text), Buffer.from(text)]));
@@ -70,11 +73,11 @@ test("the newest result lands over the person's edit, and the file's history kee
 	await applyChangeToProjectFolder(dir, turnChange(3, { [LOOK]: null }), bytes);
 	assert.equal(existsSync(join(dir, LOOK)), false, 'null deletes the file');
 	const history = await listHistoryOfFile(dir, LOOK);
-	assert.deepEqual(history.map(h => [h.author, h.sha256, h.turnChange?.changeNumber ?? null]), [
+	assert.deepEqual(history.map(h => [h.author, h.blob, h.turnChange?.changeNumber ?? null]), [
 		['pine-computer', null, 3],
-		['pine-computer', sha('picture two'), 2],
-		['client-found-changes-on-disk', sha('the person\'s own picture'), null],
-		['pine-computer', sha('picture one'), 1],
+		['pine-computer', blob('picture two'), 2],
+		['client-found-changes-on-disk', blob('the person\'s own picture'), null],
+		['pine-computer', blob('picture one'), 1],
 	]);
 });
 
@@ -118,8 +121,8 @@ test('a folder linked into .git is never written through, and a file named like 
 	const dir = project();
 	await applyChangeToProjectFolder(dir, turnChange(1, { 'a blob 1000': 'x', [LOOK]: 'one' }), store('x', 'one'));
 	await applyChangeToProjectFolder(dir, turnChange(2, { 'a blob 1000': null, [LOOK]: 'two' }), store('two'));
-	assert.deepEqual((await listHistoryOfFile(dir, 'a blob 1000')).map(h => h.sha256), [null, sha('x')]);
-	assert.deepEqual((await listHistoryOfFile(dir, LOOK)).map(h => h.sha256), [sha('two'), sha('one')]);
+	assert.deepEqual((await listHistoryOfFile(dir, 'a blob 1000')).map(h => h.blob), [null, blob('x')]);
+	assert.deepEqual((await listHistoryOfFile(dir, LOOK)).map(h => h.blob), [blob('two'), blob('one')]);
 	symlinkSync(join(dir, '.git'), join(dir, 'linked'));
 	const config = readFileSync(join(dir, '.git', 'config'), 'utf8');
 	await assert.rejects(applyChangeToProjectFolder(dir, turnChange(3, { 'linked/config': 'x' }), store('x')), (error: Error) => error instanceof NotAProjectPathError);

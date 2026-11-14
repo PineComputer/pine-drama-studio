@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -33,7 +33,8 @@ test("the person's change is committed as theirs with the paths it wrote, and no
 	assert.deepEqual(only.files, [`${LIN}/description.md`]);
 	// The hand edit is still uncommitted: it is recorded by whoever commits it, here the next opening (client-found-changes-on-disk).
 	assert.equal(await out(dir, 'status', '--porcelain', '--', 'notes.txt'), '?? notes.txt');
-	assert.match(readFileSync(join(dir, '.gitattributes'), 'utf8'), /^\* -text -filter -ident -working-tree-encoding$/m);
+	assert.match(readFileSync(join(dir, '.git', 'info', 'attributes'), 'utf8'), /^\* -text -filter -ident -working-tree-encoding$/m);
+	assert.deepEqual(readdirSync(dir).sort(), ['.git', 'assets', 'notes.txt'], 'nothing of the Studio\'s in the person\'s folder');
 });
 
 test('a turn\'s result is committed as the agent\'s, with only its paths and its trailers', async () => {
@@ -60,7 +61,7 @@ test('opening commits what no commit recorded as found on disk, and commits noth
 	const all = await commits(dir);
 	assert.equal(all.length, 2);
 	assert.equal(all[0].head, 'client-found-changes-on-disk|Changes found on disk when the project opened');
-	assert.deepEqual(all[0].files, ['.gitattributes', '.gitignore', 'notes.txt']);
+	assert.deepEqual(all[0].files, ['notes.txt']);
 	assert.equal(await out(dir, 'status', '--porcelain'), '');
 });
 

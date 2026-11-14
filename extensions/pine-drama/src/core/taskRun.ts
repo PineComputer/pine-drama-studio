@@ -1,6 +1,7 @@
 // A task's start on the Studio's side (doc/protocol.md, 4.1 and 4.2): the request, built from the drama's folder and the
 // returns installed in it, and the message that starts it. No vscode import.
 
+import { sha256, sha256OfFileOnDisk } from './sha256';
 import { existsSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
@@ -9,7 +10,7 @@ import { writeWhole } from './choices';
 import type { TasksOf } from './project';
 import { projectIdentity } from './projectPlace';
 import type { Choices, Folders, Note, ProtocolError, Request, Snapshot } from './protocol';
-import { fileKey, sha256, stateKey, versionKey } from './taskArtifacts';
+import { fileKey, stateKey, versionKey } from './taskArtifacts';
 
 /**
  * Whether a file travels with a task, by its POSIX path below the client folder walked (CLIENT_FOLDERS): only if no part
@@ -285,7 +286,7 @@ export function clientFileList(root: string): { readonly rel: string; readonly p
 
 /** The client files, by path to their hash (4.2, `files`). */
 export function clientFiles(root: string): Record<string, string> {
-	return Object.fromEntries(clientFileList(root).map(f => [f.rel, sha256(readFileSync(f.path))]));
+	return Object.fromEntries(clientFileList(root).map(f => [f.rel, sha256OfFileOnDisk(f.path)!]));
 }
 
 /**

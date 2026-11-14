@@ -4,16 +4,17 @@
 // archive into a temporary sibling, writing only plain files and folders, and rename() moves it into place whole. No
 // vscode import.
 
+import { sha256 } from './sha256';
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, posix, win32 } from 'node:path';
 import { extract as extractTar } from 'tar';
 import { readChoices, updateChoices, versionRecordOf, withObject, writeWhole } from './choices';
 import { validPath } from './applyChange';
-import { within } from './placement';
+import { throughNoLink } from './placement';
 import { snapshotState, variantRoot } from './project';
 import { listOf, MAJOR, mapOf, UnsupportedMajor, type Progress, type Request, type Return, type VersionRef } from './protocol';
-import { fetchKept, fileKey, MismatchedArtifact, MissingArtifact, returnKey, sha256, stateKey, versionKey, type ArtifactStore } from './taskArtifacts';
+import { fetchKept, fileKey, MismatchedArtifact, MissingArtifact, returnKey, stateKey, versionKey, type ArtifactStore } from './taskArtifacts';
 import { scopedSnapshots, tasksOf, type DramaRecord, type Installed } from './taskRun';
 
 /** A path's identity: two paths that differ only by case are the same path (doc/protocol.md section 1 and 4.4). */
@@ -193,7 +194,7 @@ async function installNow(o: {
 	const insideMade = (object: string) => marked.some(m => under(object, m) && held.some(f => under(f, variantRoot(edges, m)) && !under(f, m)));
 	for (const path of paths) {
 		// A review file goes only in a version's reviews/ folder (2.2), so it never lands on what a version brings.
-		if (!validPath(path) || !within(root, join(root, path)) || !(Object.hasOwn(returned, path) || /\/reviews\/[^/]+$/.test(path))) { leave(path, 'its name is not a path in the project', kindOf(path)); }
+		if (!validPath(path) || !throughNoLink(root, path) || !(Object.hasOwn(returned, path) || /\/reviews\/[^/]+$/.test(path))) { leave(path, 'its name is not a path in the project', kindOf(path)); }
 		else if (!inScope(path, request.scope, object => isNew(object) || insideMade(object))) { leave(path, `this session may not add there (${request.scope === 'project' ? 'only an episode\'s sessions add under episodes/' : 'an episode\'s session adds to a shared object only when it is new'})`, kindOf(path)); }
 	}
 

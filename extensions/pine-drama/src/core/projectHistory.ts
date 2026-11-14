@@ -4,7 +4,6 @@
 // since the people who make dramas don't use git, and every version stays recoverable, as Claude Code's checkpoints
 // keep each edit for a rewind. No vscode import.
 
-import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { devNull } from 'node:os';
@@ -18,9 +17,9 @@ import { projectIdentity } from './projectPlace';
  */
 export type CommitAuthor = 'pine-computer' | 'person' | 'client-found-changes-on-disk';
 
-// Written when the Studio makes the repository, to .gitattributes when the folder has none and always to the repository's
-// own info/attributes, which a folder's .gitattributes cannot override (gitattributes, "the highest precedence"); a
-// folder that has its own repository keeps it as it is (doc/protocol.md 2.1).
+// Written when the Studio makes the repository, to its own info/attributes, which a folder's .gitattributes cannot
+// override (gitattributes, "the highest precedence"); a folder that has its own repository keeps it as it is
+// (doc/protocol.md 2.1). Nothing is written into the person's folder.
 // `-text`: no line-ending conversion of any file, so a file's bytes are the bytes its hash names (gitattributes, "text").
 // `-filter`, `-ident`, `-working-tree-encoding`: no clean or smudge filter, no $Id$ expansion and no re-encoding
 // (gitattributes, "filter", "ident", "working-tree-encoding").
@@ -28,14 +27,16 @@ export type CommitAuthor = 'pine-computer' | 'person' | 'client-found-changes-on
 const ATTRIBUTES = ['* -text -filter -ident -working-tree-encoding', ...['png', 'jpg', 'jpeg', 'webp', 'gif', 'mp4', 'mov', 'webm', 'wav', 'mp3', 'm4a']
 	.map(ext => `*.${ext} -delta`)].join('\n') + '\n';
 // The Studio's own temporary files, a whole write's sibling (choices.ts, writeWhole), gone once its rename is done; and
-// the Finder's. A name starting with '.' is never a path of the protocol (doc/protocol.md, section 1).
-const IGNORED = '.*.tmp\n.DS_Store\n';
+// the Finder's: in the repository's own info/exclude (gitignore, "$GIT_DIR/info/exclude"), not the person's folder.
+const EXCLUDED = '.*.tmp\n.DS_Store\n';
 
-// Every variable git reads to choose a repository other than the folder's (git rev-parse --local-env-vars), unset: a
-// child process is given no variable whose value is undefined (Node child_process, options.env).
-const REPOSITORY_UNSET = Object.fromEntries(['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES',
-	'GIT_COMMON_DIR', 'GIT_NAMESPACE', 'GIT_PREFIX', 'GIT_CONFIG', 'GIT_CONFIG_PARAMETERS', 'GIT_CONFIG_COUNT', 'GIT_GRAFT_FILE', 'GIT_REPLACE_REF_BASE',
-	'GIT_SHALLOW_FILE', 'GIT_IMPLICIT_WORK_TREE', 'GIT_INTERNAL_SUPER_PREFIX', 'GIT_NO_REPLACE_OBJECTS'].map(name => [name, undefined]));
+// The variables git reads to choose a repository other than the folder's, as `git rev-parse --local-env-vars` lists them
+// (git's environment.c, local_repo_env), unset. A list, because dugite's exec runs git with process.env under the call's
+// own variables (dugite git-environment.ts, setupEnvironment), and a child process is given no variable whose value is
+// undefined (Node child_process, options.env).
+const REPOSITORY_UNSET = Object.fromEntries(['GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_CONFIG', 'GIT_CONFIG_PARAMETERS', 'GIT_CONFIG_COUNT',
+	'GIT_OBJECT_DIRECTORY', 'GIT_DIR', 'GIT_WORK_TREE', 'GIT_IMPLICIT_WORK_TREE', 'GIT_GRAFT_FILE', 'GIT_INDEX_FILE', 'GIT_NO_REPLACE_OBJECTS',
+	'GIT_REPLACE_REF_BASE', 'GIT_PREFIX', 'GIT_SHALLOW_FILE', 'GIT_COMMON_DIR'].map(name => [name, undefined]));
 
 const writeQueues = new Map<string, Promise<unknown>>();
 
@@ -64,17 +65,16 @@ export async function commitPathsToHistory(projectRoot: string, author: CommitAu
 	await ensureRepository(projectRoot);
 	const trailing = Object.entries(trailers).flatMap(([key, value]) => ['--trailer', `${key}: ${value}`]);
 	const record = trailing.length > 0;
-	// git refuses a whole command for one path it does not know. A path on disk or in the index is staged; one only HEAD
-	// has is a deletion already staged (a commit cut off after its `git add`), which the commit still takes (git commit
-	// --only reads its paths against HEAD too); one in none of them was never there.
-	const named = (listed: string) => (p: string) => listed.split('\0').some(t => t === p || t.startsWith(`${p}/`));
-	const inIndex = paths === 'all' ? () => true : named(await run(projectRoot, author, ['ls-files', '-z', '--', ...paths]));
-	const inHead = paths === 'all' || !await hasHead(projectRoot) ? () => false : named(await run(projectRoot, author, ['ls-tree', '-r', '-z', '--name-only', 'HEAD', '--', ...paths]));
-	const staging = paths === 'all' ? ['.'] : paths.filter(p => existsSync(join(projectRoot, p)) || inIndex(p));
-	const spec = paths === 'all' ? ['.'] : paths.filter(p => staging.includes(p) || inHead(p));
+	// A path on disk is staged by `git add` (--force: even where the folder's .gitignore names it); one the write removed by
+	// `git rm --cached --ignore-unmatch`, which also takes a deletion a cut-off commit left staged. The commit then reads
+	// them with --only, against HEAD too; a removed path HEAD never held is left out, as git refuses a whole commit for one.
+	const onDisk = paths === 'all' ? ['.'] : paths.filter(p => existsSync(join(projectRoot, p)));
+	const removed = paths === 'all' ? [] : paths.filter(p => !existsSync(join(projectRoot, p)));
+	if (onDisk.length) { await run(projectRoot, author, ['add', '-A', ...(paths === 'all' ? [] : ['--force']), '--', ...onDisk]); }
+	if (removed.length) { await run(projectRoot, author, ['rm', '-r', '-q', '--cached', '--ignore-unmatch', '--', ...removed]); }
+	const inHead = removed.length && await hasHead(projectRoot) ? (await run(projectRoot, author, ['ls-tree', '-r', '-z', '--name-only', 'HEAD', '--', ...removed])).split('\0') : [];
+	const spec = [...onDisk, ...removed.filter(p => inHead.some(t => t === p || t.startsWith(`${p}/`)))];
 	if (!spec.length && !record) { return; }
-	// --force: a path the Studio wrote is committed even where a .gitignore of the folder's names it.
-	if (staging.length) { await run(projectRoot, author, ['add', '-A', ...(paths === 'all' ? [] : ['--force']), '--', ...staging]); }
 	if (spec.length) {
 		// --quiet exits 1 when something is staged there, 0 when there is nothing to commit (git diff, "--exit-code").
 		const staged = await exec(projectRoot, author, ['diff', '--cached', '--quiet', '--', ...spec]);
@@ -111,21 +111,20 @@ export async function historyHasTurnChange(projectRoot: string, turnId: string, 
 	return found.split('\0').some(entry => entry.trim() === `${turnId}\x1f${changeNumber}`);
 }
 
-/** One commit of a file's history: who made it, the turn's change it applied if any, and the file's bytes there by hash. */
+/** One commit of a file's history: who made it, the turn's change it applied if any, and the file's blob there. */
 export interface FileHistoryEntry {
 	readonly commit: string;
 	readonly author: string;
 	readonly committedAt: string;
 	readonly turnChange: { readonly turnId: string; readonly changeNumber: number } | null;
-	/** The sha256 of the file's bytes at this commit, or null where the commit deletes it. */
-	readonly sha256: string | null;
+	/** git's id of the file's bytes at this commit (a local id, doc/protocol.md section 1), or null where the commit deletes it. */
+	readonly blob: string | null;
 }
 
 /**
- * `path`'s history, newest first: every commit of HEAD's history that changed it (git log -- <path>), with the sha256 of
- * its bytes there. `git cat-file --batch-check` names each commit's blob; each blob is then read and hashed on its own,
- * so memory holds one revision at a time, never a take's whole history. The version strip, "Use" and a conversion's
- * check read it.
+ * `path`'s history, newest first: every commit of HEAD's history that changed it (git log -- <path>), with its blob
+ * there, named by one `git cat-file --batch-check`, which reads no file's bytes. The version strip, "Use" and a
+ * conversion's check read it.
  */
 export async function listHistoryOfFile(projectRoot: string, path: string): Promise<FileHistoryEntry[]> {
 	if (!existsSync(join(projectRoot, '.git')) || !await hasHead(projectRoot)) { return []; }
@@ -133,17 +132,13 @@ export async function listHistoryOfFile(projectRoot: string, path: string): Prom
 	const commits = log.split('\0').filter(Boolean).map(entry => entry.split('\x1f').map(field => field.trim()));
 	if (!commits.length) { return []; }
 	const asked = commits.map(([commit]) => `${commit}:${path}`);
-	// One line per name asked: "<oid> blob <size>", or "<name asked> missing" where the commit holds no such file. A
+	// One line per name asked: "<blob> blob <size>", or "<name asked> missing" where the commit holds no such file. A
 	// missing reply is known by the name asked, so a file named like a reply is never read as one.
 	const lines = (await run(projectRoot, 'person', ['cat-file', '--batch-check'], { stdin: asked.map(name => `${name}\n`).join('') })).split('\n');
-	const entries: FileHistoryEntry[] = [];
-	for (const [i, [commit, author, committedAt, turnId, changeNumber]] of commits.entries()) {
-		const blob = lines[i] === `${asked[i]} missing` ? null : lines[i].split(' ')[0];
-		// latin1 maps each byte to one character and back, so the blob's bytes come through the string unchanged.
-		const sha256 = blob === null ? null : createHash('sha256').update(Buffer.from(await run(projectRoot, 'person', ['cat-file', 'blob', blob], { encoding: 'latin1' }), 'latin1')).digest('hex');
-		entries.push({ commit, author, committedAt, sha256, turnChange: turnId && changeNumber ? { turnId, changeNumber: Number(changeNumber) } : null });
-	}
-	return entries;
+	return commits.map(([commit, author, committedAt, turnId, changeNumber], i) => ({
+		commit, author, committedAt, blob: lines[i] === `${asked[i]} missing` ? null : lines[i].split(' ')[0],
+		turnChange: turnId && changeNumber ? { turnId, changeNumber: Number(changeNumber) } : null,
+	}));
 }
 
 const escapeRegex = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -159,7 +154,7 @@ async function hasHead(projectRoot: string): Promise<boolean> {
  * post-commit either), and the folder's own repository whatever the environment names (REPOSITORY_UNSET). Paths are
  * literal, never patterns (git, --literal-pathspecs).
  */
-function exec(projectRoot: string, author: CommitAuthor, args: readonly string[], call: { readonly stdin?: string; readonly encoding?: BufferEncoding } = {}) {
+function exec(projectRoot: string, author: CommitAuthor, args: readonly string[], call: { readonly stdin?: string } = {}) {
 	const env = { ...REPOSITORY_UNSET, GIT_CONFIG_GLOBAL: devNull, GIT_LITERAL_PATHSPECS: '1', GIT_AUTHOR_NAME: author,
 		GIT_AUTHOR_EMAIL: `${author}@pine-drama.invalid`, GIT_COMMITTER_NAME: author, GIT_COMMITTER_EMAIL: `${author}@pine-drama.invalid` };
 	return git(['-c', 'commit.gpgsign=false', '-c', `core.hooksPath=${devNull}`, ...args], projectRoot, { env, ...call });
@@ -173,16 +168,13 @@ async function run(projectRoot: string, author: CommitAuthor, args: readonly str
 }
 
 /**
- * Makes the folder's repository on first use. Its own info/attributes gets the byte rules, which a folder's
- * .gitattributes cannot override; .gitattributes and .gitignore are written when the folder has none. A folder's own
- * repository is kept as it is.
+ * Makes the folder's repository on first use, with the byte rules in its own info/attributes and the Studio's temporary
+ * files in its info/exclude. A folder's own repository is kept as it is.
  */
 async function ensureRepository(projectRoot: string): Promise<void> {
 	if (existsSync(join(projectRoot, '.git'))) { return; }
 	await run(projectRoot, 'person', ['init', '-q', '-b', 'main']);
 	await mkdir(join(projectRoot, '.git', 'info'), { recursive: true });
 	await writeFile(join(projectRoot, '.git', 'info', 'attributes'), ATTRIBUTES);
-	for (const [name, text] of [['.gitattributes', ATTRIBUTES], ['.gitignore', IGNORED]]) {
-		if (!existsSync(join(projectRoot, name))) { await writeFile(join(projectRoot, name), text); }
-	}
+	await writeFile(join(projectRoot, '.git', 'info', 'exclude'), EXCLUDED);
 }

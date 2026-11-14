@@ -7,13 +7,13 @@
 // store; the columns that describe a drama's pictures (subject, look, segment, style, version) are not kept, since
 // classify(rel_path) gives them again. No vscode import.
 
+import { sha256OfFileOnDisk } from './sha256';
 import { createHash, randomUUID } from 'node:crypto';
 import { createReadStream, createWriteStream, existsSync, mkdirSync, renameSync, rmSync, type ReadStream } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import type { LibraryFile, Store } from './store';
-import { hashFile } from './projectPlace';
 
 interface Origin {
 	chatKey: string;
@@ -74,7 +74,7 @@ export class Library {
 			await pipeline(source, createWriteStream(temp));
 			const sha = hash.digest('hex');
 			const target = this.blobPath(sha);
-			if (existsSync(target) && hashFile(target) === sha) {
+			if (existsSync(target) && sha256OfFileOnDisk(target) === sha) {
 				rmSync(temp);
 			} else {
 				mkdirSync(dirname(target), { recursive: true });

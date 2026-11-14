@@ -1,3 +1,4 @@
+import { sha256, sha256OfFileOnDisk } from './sha256';
 import { REVIEW_APPROVAL_STATEMENT } from './reviewCardProtocol';
 // Chats with Pine Computer agents that survive restarts and several windows.
 // The rules this file keeps:
@@ -27,13 +28,13 @@ import { REVIEW_APPROVAL_STATEMENT } from './reviewCardProtocol';
 // No vscode import.
 
 import { CHANGED_TARGET_NOTE, standingParagraph, withStandingInstructions } from './instructions';
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { AccountError, ConnectionLostError, IDLE_WAITING_SECONDS, IDLE_WORKING_SECONDS, MissingError, NoPineError, OtherPineError, START_WAIT_SECONDS, StartNotConfirmedError, StartTimeoutError, UnconfirmedError, endpointHost, type ComputerSecrets, type IdlePolicy, type PineConnection, type PineEvent, type PinePort, type SecretVault, type PineSession, type TurnView } from './pinePort';
 import { Library } from './library';
-import { hashFile, projectIdentity, projectPlaceOf, projectRootOf } from './projectPlace';
+import { projectIdentity, projectPlaceOf, projectRootOf } from './projectPlace';
 import { entryFor, type Entry } from './binding';
 import { givenBack, refusalLine } from './refusal';
-import { Holders, keptBytes, putAll, requestKey, returnKey, sha256 } from './taskArtifacts';
+import { Holders, keptBytes, putAll, requestKey, returnKey } from './taskArtifacts';
 import { dramaRecordOf, installedSnapshots, requestKeys, requestOf, taskMessage, type DramaRecord } from './taskRun';
 import { runInProjectWriteQueue } from './projectHistory';
 import { installReturn, previewProgress, readReturn, type ReviewTarget } from './resultImporter';
@@ -1181,13 +1182,13 @@ export class ChatService {
 		if (!this.library?.has(sha)) {
 			return undefined;
 		}
-		if (hashFile(this.library.blobPath(sha)) !== sha) {
+		if (sha256OfFileOnDisk(this.library.blobPath(sha)) !== sha) {
 			throw new Error(`Live Preview: cached bytes do not match ${sha}; this preview cannot be opened.`);
 		}
 		const target = join(folder, `${sha}${extname(relPath).toLowerCase()}`);
 		// Named by its SHA-256, but the name proves nothing: its bytes are checked on every read, as git checks an object
 		// against its name (git-fsck, "hash mismatch"), and made again from the library when they differ.
-		if (!existsSync(target) || hashFile(target) !== sha) {
+		if (!existsSync(target) || sha256OfFileOnDisk(target) !== sha) {
 			mkdirSync(folder, { recursive: true });
 			const temp = `${target}.pine-incoming-${randomUUID()}`;
 			copyFileSync(this.library.blobPath(sha), temp);
@@ -1347,7 +1348,10 @@ export class ChatService {
 		const items: ReviewItem[] = root ? targets.map(target => {
 			const folder = `${target.object}/${target.version}`;
 			const shown = (JSON.parse(readFileSync(join(root, folder, 'version.json'), 'utf8')) as { file: string | null }).file;
-			const files: ReviewFile[] = shown ? [{ id: 0, relPath: `drama/${folder}/${shown}`, sha: hashFile(join(root, folder, shown)), type: '', here: true }] : [];
+			// A version whose named file is missing has nothing to review: its review is not made (as reading the file failed before).
+			const sha = shown ? sha256OfFileOnDisk(join(root, folder, shown)) : null;
+			if (shown && sha === null) { throw new Error(`${folder} names ${shown}, which is not in the project`); }
+			const files: ReviewFile[] = shown ? [{ id: 0, relPath: `drama/${folder}/${shown}`, sha: sha!, type: '', here: true }] : [];
 			return { key: folder, label: versionTitle(named, target.object, target.version), files, targets: [target] };
 		}) : [];
 		const kind = reviewKindOf(targets.flatMap(t => { const type = named.objects.get(t.object)?.type; return type ? [type] : []; }));
@@ -2293,7 +2297,7 @@ function intent(conv: Chat): { kind: SavedSendKind; target: string | null } | { 
 }
 
 function secretRef(key: string): string {
-	return `pine.conversation.${createHash('sha256').update(key).digest('hex').slice(0, 24)}`;
+	return `pine.conversation.${sha256(key).slice(0, 24)}`;
 }
 
 /** `steps` as they are, noting in `shown` when one of them gave the message back (an `unsent` line, or a Review's refusal). */

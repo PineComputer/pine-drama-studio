@@ -12,7 +12,7 @@ export interface ProjectPlace {
 }
 
 /** The real path `path` has or would have once created; undefined when it passes through a link that leads nowhere. */
-export function realTarget(path: string): string | undefined {
+function realTarget(path: string): string | undefined {
 	const rest: string[] = [];
 	let existing = resolve(path);
 	for (;;) {
@@ -38,9 +38,22 @@ export function realTarget(path: string): string | undefined {
 	}
 }
 
-/** Whether `path`, by its real path, is the boundary or inside it. */
+/**
+ * Whether `path`, by its real path, is the boundary or inside it: a project root in its bound folder, which may be
+ * reached through a link (an alias of the folder).
+ */
 export function within(boundary: string, path: string): boolean {
 	const real = realTarget(path);
 	const base = realTarget(boundary);
 	return real !== undefined && base !== undefined && (real === base || real.startsWith(base + sep));
+}
+
+/**
+ * Whether the project-relative `path` passes through no link below `root`, so it is where its name says: the one rule
+ * for a path written or read inside the project (git refuses a path beyond a symbolic link, and a folder linked to .git
+ * must never be written through). The root itself may be reached through one (within).
+ */
+export function throughNoLink(root: string, path: string): boolean {
+	const real = realTarget(root);
+	return !!real && realTarget(join(root, ...path.split('/'))) === join(real, ...path.split('/'));
 }

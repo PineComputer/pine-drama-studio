@@ -1,5 +1,5 @@
+import { sha256 } from '../core/sha256';
 import { strict as assert } from 'node:assert';
-import { createHash } from 'node:crypto';
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -87,7 +87,7 @@ test("a take's pictures are numbered as its request sent them, then any other it
 	const root = mkdtempSync(join(tmpdir(), 'pds-sent-'));
 	cpSync(join(FIXTURE, 'drama'), root, { recursive: true });
 	const take = 'episodes/EP001/segments/seg01/v1';
-	const pin = (path: string) => ({ path, sha256: createHash('sha256').update(readFileSync(join(root, path))).digest('hex') });
+	const pin = (path: string) => ({ path, sha256: sha256(readFileSync(join(root, path))) });
 	const lin = pin('assets/characters/lin/v1/image-1.png');
 	writeFileSync(join(root, take, 'spec.json'), JSON.stringify({
 		content: [{ type: 'text', text: 'Image 1 is the first frame. Image 2 is the office. Image 3 is Lin.' },

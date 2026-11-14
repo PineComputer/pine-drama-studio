@@ -1,11 +1,11 @@
 // The protocol client's fixtures (doc/protocol.md): the ChatService `protocol` option over a temporary storage, and a
 // turn that returns versions for the person to choose.
-import { createHash } from 'node:crypto';
+import { sha256 } from '../core/sha256';
 import { join } from 'node:path';
 import type { ChatServiceOptions } from '../core/chats';
 import type { TurnPlan } from './fakePine';
 
-export const hash = (bytes: string | Buffer) => createHash('sha256').update(bytes).digest('hex');
+export const hash = sha256;
 
 /** The `protocol` option over `dir`. */
 export function testProtocol(dir: string): NonNullable<ChatServiceOptions['protocol']> {

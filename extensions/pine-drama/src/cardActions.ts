@@ -1,6 +1,6 @@
 // The card actions on the asset grid's cards and the canvas's record panel: what
 // each asks the person, then the one choices.json write (core/entryActions.ts). One runner, so the two places never differ.
-import { createHash } from 'node:crypto';
+import { sha256 } from './core/sha256';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import * as vscode from 'vscode';
@@ -18,7 +18,7 @@ export function cardActions(context: vscode.ExtensionContext, root: string): (ac
 	};
 	// A dropped picture comes as bytes: written once, by its hash, to the extension's storage, then cloned into imports/.
 	const keepDropped = async (name: string, bytes: Uint8Array) => {
-		const folder = join(context.globalStorageUri.fsPath, 'uploads', createHash('sha256').update(bytes).digest('hex'));
+		const folder = join(context.globalStorageUri.fsPath, 'uploads', sha256(bytes));
 		await mkdir(folder, { recursive: true });
 		await writeFile(join(folder, name), bytes);
 		return join(folder, name);

@@ -13,7 +13,7 @@
 // a file deleted while held lets the next window create a new one and hold that too (spike (a), test 5). For the same
 // reason the directory is not one the OS cleans, such as $TMPDIR.
 
-import { createHash } from 'node:crypto';
+import { sha256 } from './sha256';
 import { mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -30,7 +30,7 @@ export function projectWindowLockDirectory(home = homedir()): string {
 
 /** A project's lock file: the SHA-256 of its real path, so every path to one folder names one file. */
 export function projectWindowLockFile(directory: string, root: string): string {
-	return join(directory, `${createHash('sha256').update(projectIdentity(root)).digest('hex')}.lock`);
+	return join(directory, `${sha256(projectIdentity(root))}.lock`);
 }
 
 export type ProjectWindowLock =

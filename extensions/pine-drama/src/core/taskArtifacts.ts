@@ -9,11 +9,11 @@
 // The Studio keeps each archive it received byte for byte (`kept`), so it can put it on another Computer unchanged; which
 // Computer is assumed to hold anything: each task lists its store, and copies or uploads what it lacks. No vscode import.
 
-import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { writeWhole } from './choices';
+import { sha256 } from './sha256';
 
 /** A Computer's artifacts, as the SDK's `client.artifacts(computerId)` offers them. */
 export interface ArtifactStore {
@@ -26,7 +26,6 @@ export interface ArtifactStore {
 	copy(fromComputer: string, path: string): Promise<void>;
 }
 
-export const sha256 = (bytes: Buffer | string): string => createHash('sha256').update(bytes).digest('hex');
 
 export const versionKey = (hash: string): string => `versions/${hash}.tar`;
 export const fileKey = (hash: string): string => `files/${hash}`;
