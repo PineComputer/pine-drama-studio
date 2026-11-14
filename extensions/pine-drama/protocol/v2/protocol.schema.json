@@ -1,0 +1,659 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:pine-drama:protocol:v2",
+  "title": "Pine Drama protocol, major version 2 (doc/protocol.md)",
+  "description": "Pine Drama protocol, major 2 (doc/protocol.md, which is normative). Each document is one entry of $defs: drama, object, receipt, request, running, change, job, return. Patterns are ECMA-262; validators must turn on format assertion.",
+  "$defs": {
+    "path": {
+      "description": "Project-relative, '/'-separated, NFC; no empty segment, none starting with '.', no backslash, no C0, DEL or C1 control. NFC, Windows reserved names, trailing dots or spaces and case collisions are checked by implementations (doc/protocol.md, section 1).",
+      "type": "string",
+      "pattern": "^[^/\\\\.\\u0000-\\u001f\\u007f-\\u009f][^/\\\\\\u0000-\\u001f\\u007f-\\u009f]*(/[^/\\\\.\\u0000-\\u001f\\u007f-\\u009f][^/\\\\\\u0000-\\u001f\\u007f-\\u009f]*)*(?![\\s\\S])",
+      "maxLength": 240
+    },
+    "time": {
+      "description": "RFC 3339 date-time in UTC, whole seconds, with Z.",
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z(?![\\s\\S])"
+    },
+    "hash": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}(?![\\s\\S])"
+    },
+    "clientId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{8,64}(?![\\s\\S])"
+    },
+    "segment": {
+      "type": "string",
+      "pattern": "^[^/\\\\.\\u0000-\\u001f\\u007f-\\u009f][^/\\\\\\u0000-\\u001f\\u007f-\\u009f]*(?![\\s\\S])"
+    },
+    "schema": {
+      "const": 2
+    },
+    "drama": {
+      "description": "drama.json at the folder's root (2.1): the folder is a drama of major 2.",
+      "type": "object",
+      "required": [
+        "schema"
+      ],
+      "properties": {
+        "schema": {
+          "$ref": "#/$defs/schema"
+        }
+      }
+    },
+    "object": {
+      "description": "object.json in an object's folder (2.2).",
+      "type": "object",
+      "required": [
+        "schema",
+        "type",
+        "name",
+        "file"
+      ],
+      "properties": {
+        "schema": {
+          "$ref": "#/$defs/schema"
+        },
+        "type": {
+          "enum": [
+            "episode",
+            "screenplay",
+            "bible",
+            "character",
+            "scene",
+            "prop",
+            "variant",
+            "breakdown",
+            "storyboard",
+            "keyframe",
+            "video_prompts",
+            "take",
+            "cut",
+            "subtitles"
+          ]
+        },
+        "name": {
+          "type": "string",
+          "pattern": "\\S"
+        },
+        "file": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/path"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The shown file, relative to the object's folder, or null for a planned object."
+        },
+        "from": {
+          "$ref": "#/$defs/path"
+        },
+        "segment": {
+          "$ref": "#/$defs/segment"
+        },
+        "setting": {
+          "enum": [
+            "interior",
+            "exterior"
+          ]
+        },
+        "links": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "kind",
+              "to"
+            ],
+            "properties": {
+              "kind": {
+                "enum": [
+                  "inside_of",
+                  "appears_in",
+                  "needs"
+                ]
+              },
+              "to": {
+                "$ref": "#/$defs/path"
+              }
+            }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "variant"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "from"
+            ]
+          },
+          "else": {
+            "not": {
+              "required": [
+                "from"
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "setting"
+            ]
+          },
+          "then": {
+            "properties": {
+              "type": {
+                "const": "scene"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "receipt": {
+      "description": "<file>.receipt.json beside each paid output (2.3). Fields beyond these belong to the Computer side.",
+      "type": "object",
+      "required": [
+        "schema",
+        "job",
+        "made_at",
+        "inputs",
+        "prompt",
+        "cost"
+      ],
+      "properties": {
+        "schema": {
+          "$ref": "#/$defs/schema"
+        },
+        "job": {
+          "$ref": "#/$defs/clientId"
+        },
+        "made_at": {
+          "$ref": "#/$defs/time"
+        },
+        "inputs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "path",
+              "sha256"
+            ],
+            "properties": {
+              "path": {
+                "$ref": "#/$defs/path"
+              },
+              "sha256": {
+                "$ref": "#/$defs/hash"
+              }
+            }
+          }
+        },
+        "prompt": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "cost": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "required": [
+                "usd",
+                "source"
+              ],
+              "properties": {
+                "usd": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "source": {
+                  "type": "string",
+                  "pattern": "\\S"
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "note": {
+      "type": "object",
+      "required": [
+        "object",
+        "text"
+      ],
+      "properties": {
+        "object": {
+          "$ref": "#/$defs/path"
+        },
+        "text": {
+          "type": "string"
+        },
+        "at": {
+          "type": "object",
+          "required": [
+            "x",
+            "y"
+          ],
+          "properties": {
+            "x": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "y": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            }
+          },
+          "description": "Fractions 0-1 of the shown file's width and height."
+        },
+        "time": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Seconds into a video."
+        },
+        "file": {
+          "$ref": "#/$defs/path"
+        }
+      }
+    },
+    "request": {
+      "description": "turns/<turn>/request.json (4.2).",
+      "type": "object",
+      "required": [
+        "schema",
+        "turn",
+        "tree",
+        "private_state",
+        "notes"
+      ],
+      "properties": {
+        "schema": {
+          "$ref": "#/$defs/schema"
+        },
+        "turn": {
+          "$ref": "#/$defs/clientId"
+        },
+        "tree": {
+          "type": "object",
+          "propertyNames": {
+            "$ref": "#/$defs/path"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/hash"
+          }
+        },
+        "private_state": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/hash"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "notes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/note"
+          }
+        },
+        "conflicts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "turn",
+              "seq",
+              "paths"
+            ],
+            "properties": {
+              "turn": {
+                "$ref": "#/$defs/clientId"
+              },
+              "seq": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "paths": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "$ref": "#/$defs/path"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "change": {
+      "description": "turns/<turn>/changes/<seq>.json (4.3): one finished result.",
+      "type": "object",
+      "required": [
+        "schema",
+        "turn",
+        "seq",
+        "prev",
+        "files"
+      ],
+      "properties": {
+        "schema": {
+          "$ref": "#/$defs/schema"
+        },
+        "turn": {
+          "$ref": "#/$defs/clientId"
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "prev": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/hash"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "files": {
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": {
+            "$ref": "#/$defs/path"
+          },
+          "additionalProperties": {
+            "type": "object",
+            "required": [
+              "base",
+              "new"
+            ],
+            "properties": {
+              "base": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/hash"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "new": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/hash"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "job": {
+      "description": "turns/<turn>/jobs/<job>/<state>.json (4.5): one state of one paid call, written once.",
+      "type": "object",
+      "required": [
+        "schema",
+        "job",
+        "object",
+        "state",
+        "at"
+      ],
+      "properties": {
+        "schema": {
+          "$ref": "#/$defs/schema"
+        },
+        "job": {
+          "$ref": "#/$defs/clientId"
+        },
+        "object": {
+          "$ref": "#/$defs/path"
+        },
+        "state": {
+          "enum": [
+            "submitted",
+            "succeeded",
+            "failed",
+            "cancelled",
+            "unknown"
+          ]
+        },
+        "at": {
+          "$ref": "#/$defs/time"
+        },
+        "cost": {
+          "$ref": "#/$defs/receipt/properties/cost"
+        }
+      }
+    },
+    "error": {
+      "type": "object",
+      "required": [
+        "code",
+        "message"
+      ],
+      "properties": {
+        "code": {
+          "enum": [
+            "not_found",
+            "invalid",
+            "missing_input",
+            "failed",
+            "unsupported_schema"
+          ]
+        },
+        "message": {
+          "type": "string"
+        },
+        "action": {
+          "type": "string"
+        },
+        "upgrade": {
+          "type": "object",
+          "required": [
+            "studio",
+            "url"
+          ],
+          "properties": {
+            "studio": {
+              "type": "string",
+              "pattern": "^\\d+\\.\\d+\\.\\d+(?![\\s\\S])"
+            },
+            "url": {
+              "type": "string",
+              "format": "uri"
+            }
+          }
+        }
+      }
+    },
+    "return": {
+      "description": "turns/<turn>/return.json (4.6), written last.",
+      "type": "object",
+      "required": [
+        "schema",
+        "turn",
+        "state"
+      ],
+      "properties": {
+        "schema": {
+          "$ref": "#/$defs/schema"
+        },
+        "turn": {
+          "$ref": "#/$defs/clientId"
+        },
+        "state": {
+          "enum": [
+            "stopped",
+            "ended",
+            "failed",
+            "refused"
+          ]
+        },
+        "last": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "required": [
+                "seq",
+                "hash"
+              ],
+              "properties": {
+                "seq": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "hash": {
+                  "$ref": "#/$defs/hash"
+                }
+              }
+            }
+          ]
+        },
+        "private_state": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/hash"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "problems": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "ref",
+              "error"
+            ],
+            "properties": {
+              "ref": {
+                "type": "string"
+              },
+              "error": {
+                "$ref": "#/$defs/error"
+              }
+            }
+          }
+        },
+        "question": {
+          "type": "string"
+        },
+        "error": {
+          "$ref": "#/$defs/error"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "const": "refused"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "error"
+            ]
+          },
+          "else": {
+            "required": [
+              "last",
+              "private_state",
+              "problems"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "const": "stopped"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "question"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "const": "failed"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "error"
+            ]
+          }
+        }
+      ]
+    },
+    "running": {
+      "description": "turns/<turn>/running.json (4.7): written once before any work.",
+      "type": "object",
+      "required": [
+        "schema",
+        "turn",
+        "request",
+        "at"
+      ],
+      "properties": {
+        "schema": {
+          "$ref": "#/$defs/schema"
+        },
+        "turn": {
+          "$ref": "#/$defs/clientId"
+        },
+        "request": {
+          "$ref": "#/$defs/hash"
+        },
+        "at": {
+          "$ref": "#/$defs/time"
+        }
+      }
+    }
+  }
+}
