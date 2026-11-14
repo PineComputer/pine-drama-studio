@@ -7,6 +7,7 @@ import { useEffect, useRef, useState } from 'react';
 import '@vscode/codicons/dist/codicon.css';
 import './seg.css';
 import { RequestView } from './requestView';
+import type { CanvasDetail } from '../src/core/canvasProtocol';
 import { SEG_PROTOCOL, type FromSegEditor, type Poster, type Seg, type SegEditorModel, type ToSegEditor } from '../src/core/segEditorProtocol';
 import { stripDelta } from '../src/core/segStrip';
 
@@ -17,10 +18,19 @@ vscode.setState({ ...document.body.dataset, ...(kept?.seg ? { seg: kept.seg } : 
 const post = (message: FromSegEditor) => vscode.postMessage(message);
 window.addEventListener('error', event => post({ v: SEG_PROTOCOL, type: 'failed', message: `${event.message} (${event.filename}:${event.lineno})` }));
 
+/** This page's own name for its asks: a page drawn again after its panel was hidden never reads an answer to the one before. */
+const PAGE = crypto.randomUUID();
+
 /** The full episode's place in the page state, which keeps strings only. */
 const FULL = '#full';
 
-function Editor({ model, chosen, choose }: { model: SegEditorModel; chosen: string | undefined; choose: (id: string) => void }) {
+/**
+ * What each take on screen was made with, as the extension read it (undefined while asked), by `<page>:<model>:<take>@<version>`:
+ * each new model asks again, and an answer to an ask from an older one lands under a key no longer read.
+ */
+type Requests = Readonly<Record<string, CanvasDetail | null>>;
+
+function Editor({ model, read, chosen, choose, requests }: { model: SegEditorModel; read: number; chosen: string | undefined; choose: (id: string) => void; requests: Requests }) {
 	const full = chosen === FULL;
 	const seg = full ? undefined : model.segs.find(s => s.id === chosen) ?? model.segs[0];
 	// The take the person switched to, per seg; a seg not switched, or whose switched take is gone, plays its shown take.
@@ -58,7 +68,7 @@ function Editor({ model, chosen, choose }: { model: SegEditorModel; chosen: stri
 					: !seg ? <p className="muted">No segs yet: they appear once this episode's breakdown is made.</p>
 						: <>
 							{take && <Player src={take.src} missing={`${take.version} shows no file.`} />}
-							<Prompt seg={seg} take={take} />
+							<Prompt seg={seg} take={take} ask={seg.take && take ? `${PAGE}:${read}:${seg.take}@${take.version}` : null} requests={requests} />
 						</>}
 			</main>
 			<nav className="strip" ref={strip} onWheel={event => {
@@ -110,10 +120,16 @@ function PlannedView({ planned }: { planned: NonNullable<Seg['planned']> }) {
 	);
 }
 
-function Prompt({ seg, take }: { seg: Seg; take: Seg['takes'][number] | undefined }) {
+function Prompt({ seg, take, ask, requests }: { seg: Seg; take: Seg['takes'][number] | undefined; ask: string | null; requests: Requests }) {
+	// The take shown asks once per model for what it was made with; the answer arrives as a 'request' message (App).
+	useEffect(() => {
+		if (ask && seg.take && take) { post({ v: SEG_PROTOCOL, type: 'request', take: seg.take, version: take.version, key: ask }); }
+	}, [ask]);
+	const request = ask ? requests[ask] : undefined;
 	return (
 		<section className="request">
-			{take?.request ? <RequestView detail={take.request} onGo={stageId => post({ v: SEG_PROTOCOL, type: 'go', stageId })} />
+			{ask && request === undefined ? <p className="muted">Reading its request…</p>
+				: request ? <RequestView detail={request} onGo={stageId => post({ v: SEG_PROTOCOL, type: 'go', stageId })} />
 				: seg.planned ? <PlannedView planned={seg.planned} />
 				: <p className="muted">No prompt yet: it is written when the take is planned, and shows here before any take.</p>}
 		</section>
@@ -124,6 +140,9 @@ function App() {
 	const [model, setModel] = useState<SegEditorModel>();
 	const [error, setError] = useState<string>();
 	const [chosen, setChosen] = useState<string | undefined>(kept?.seg);
+	const [requests, setRequests] = useState<Requests>({});
+	// Which read of the episode the page shows: each model message is a new one.
+	const [read, setRead] = useState(0);
 	const choose = (id: string) => {
 		setChosen(id);
 		vscode.setState({ ...document.body.dataset, seg: id } as Record<string, string>);
@@ -136,7 +155,11 @@ function App() {
 			}
 			if (message.type === 'model') {
 				setModel(message.model);
+				// A new read of the episode: each take shown is asked again, as its files may have changed.
+				setRead(n => n + 1);
 				setError(undefined);
+			} else if (message.type === 'request') {
+				setRequests(now => ({ ...now, [message.key]: message.request }));
 			} else if (message.type === 'show') {
 				choose(message.seg);
 			} else if (message.type === 'error') {
@@ -150,7 +173,7 @@ function App() {
 	if (error) {
 		return <p className="error">{error}</p>;
 	}
-	return model ? <Editor model={model} chosen={chosen} choose={choose} /> : <p className="muted">Reading the episode…</p>;
+	return model ? <Editor model={model} read={read} chosen={chosen} choose={choose} requests={requests} /> : <p className="muted">Reading the episode…</p>;
 }
 
 createRoot(document.getElementById('root')!).render(<App />);
