@@ -2,12 +2,12 @@
 // (episodeCanvas.ts) and what the render smoke test posts, one builder for both. No vscode import: a webview address
 // comes from `src`.
 import { stat } from 'node:fs/promises';
-import { extname, isAbsolute, join } from 'node:path';
+import { isAbsolute, join } from 'node:path';
 import { assetsBoard, type AssetsBoard } from './assetsCanvas';
 import { CANVAS_PROTOCOL, type CanvasCard, type CanvasLayout, type ToCanvas } from './canvasProtocol';
 import { ASSETS_CANVAS, assetFocus, episodeLineage, type LineageStage } from './lineage';
 import { marksOf, type ChatTitle, type Drama } from './project';
-import { IMAGE_SUFFIXES } from './versionDetail';
+import { mediaOf } from './versionDetail';
 
 export interface CanvasRead {
 	readonly root: string;
@@ -26,8 +26,7 @@ export interface CanvasRead {
 const exists = (root: string, rel: string) => stat(isAbsolute(rel) ? rel : join(root, ...rel.split('/'))).then(() => true, () => false);
 
 async function card(read: CanvasRead, s: LineageStage, board: AssetsBoard | undefined): Promise<CanvasCard> {
-	const suffix = s.shows ? extname(s.shows).toLowerCase() : '';
-	const media = !s.shows ? 'none' : IMAGE_SUFFIXES.has(suffix) ? 'image' : suffix === '.mp4' ? 'video' : 'text';
+	const media = s.shows ? mediaOf(s.shows) : 'none';
 	const missing = s.shows !== null && !(await exists(read.root, s.shows));
 	const object = read.drama.objects.get(s.id);
 	return {

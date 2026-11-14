@@ -4,8 +4,8 @@
 // only: what it cannot read or resolve is left unnumbered, never guessed and never an error. No vscode import.
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
-import { extname, join } from 'node:path';
-import { IMAGE_SUFFIXES } from './versionDetail';
+import { join } from 'node:path';
+import { mediaOf } from './versionDetail';
 
 /** One image a request sent: its number in the prompt, and the project file it is, when the records say. */
 export interface SentImage {
@@ -62,7 +62,7 @@ export async function sentRequest(at: (path: string) => string, dir: string, spe
 	// sent one; a file that is missing or changed resolves to nothing, never to a guess (the archive's assetFiles).
 	const hashed = new Map<string, string>();
 	if (assets.size) {
-		for (const path of pinned.filter(p => IMAGE_SUFFIXES.has(extname(p).toLowerCase()))) {
+		for (const path of pinned.filter(p => mediaOf(p) === 'image')) {
 			const sha = await readFile(at(path)).then(bytes => createHash('sha256').update(bytes).digest('hex')).catch(() => null);
 			if (sha && !hashed.has(sha)) { hashed.set(sha, path); }
 		}

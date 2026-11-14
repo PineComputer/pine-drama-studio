@@ -8,7 +8,13 @@ import type { CanvasDetail, MadeFrom, MadeWith } from './canvasProtocol';
 import { episodeIn, fileIn, versionFile, versionFolder, versionTitle, type Drama, type DramaObject } from './project';
 import { sentRequest } from './requestRead';
 
-export const IMAGE_SUFFIXES: ReadonlySet<string> = new Set(['.png', '.jpg', '.jpeg', '.webp']);
+const IMAGE_SUFFIXES: ReadonlySet<string> = new Set(['.png', '.jpg', '.jpeg', '.webp']);
+
+/** What a version's file is, as a card and its strip show it: a picture, a take's video, or text. */
+export function mediaOf(file: string): 'image' | 'video' | 'text' {
+	const suffix = extname(file).toLowerCase();
+	return IMAGE_SUFFIXES.has(suffix) ? 'image' : suffix === '.mp4' ? 'video' : 'text';
+}
 
 /**
  * `object`'s version `version` as the panel shows it: its prompt, and every version its record lists it was made from
@@ -27,7 +33,7 @@ export function versionDetail(drama: Drama, object: string, version: string, src
 		const file = used ? versionFile(used, input.version) : unlisted ? fileIn(unlisted.folder, unlisted.file) : null;
 		return {
 			label: versionTitle(drama, input.object, input.version),
-			src: file && IMAGE_SUFFIXES.has(extname(file).toLowerCase()) ? src(file) : null,
+			src: file && mediaOf(file) === 'image' ? src(file) : null,
 			stageId: drama.objects.has(input.object) ? input.object : null,
 		};
 	});
@@ -88,7 +94,7 @@ function picture(drama: Drama, file: string, src: (rel: string) => string): Made
 	const object = of && drama.objects.get(of.object);
 	return {
 		label: object ? versionTitle(drama, object.id, of.version) : file,
-		src: IMAGE_SUFFIXES.has(extname(file).toLowerCase()) ? src(located(drama, file)) : null,
+		src: mediaOf(file) === 'image' ? src(located(drama, file)) : null,
 		stageId: object?.id ?? null,
 	};
 }

@@ -225,7 +225,10 @@ function PictureState({ picture, busy, act }: { picture: CanvasPicture; busy: bo
 					{picture.versions.map(v => (
 						<div key={v.version} role="listitem" className={`version${v.version === chosen ? ' chosen' : ''}`} title={`${v.version} · ${by(v)}${v.accepted ? ' · Main' : ''}`}>
 							<button className="thumb" onClick={() => setChosen(v.version === chosen ? null : v.version)} aria-label={`${v.version}${v.accepted ? ', Main' : ''}`}>
-								{v.src ? <img src={v.src} draggable={false} /> : <span className="codicon codicon-file-media" />}
+								{v.media === 'image' && <img src={v.src!} draggable={false} />}
+								{/* #t=0.5, as the card: frame 0 of a take is often black. */}
+								{v.media === 'video' && <video src={`${v.src}#t=0.5`} preload="metadata" muted playsInline />}
+								{!v.media && <span className="codicon codicon-file-media" />}
 								{v.accepted && <span className="main">Main</span>}
 							</button>
 							<button className="delete" disabled={busy} title={`Delete ${v.version}: it leaves the strip, its files are kept`} aria-label={`Delete ${v.version}`}

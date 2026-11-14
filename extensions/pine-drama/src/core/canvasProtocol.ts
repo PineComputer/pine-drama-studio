@@ -121,7 +121,8 @@ export interface CanvasPicture {
 	readonly usable: boolean;
 	readonly why: string | null;
 	/** The strip: the versions the person has not discarded, oldest first, each with its picture for the thumbnail. */
-	readonly versions: readonly { readonly version: string; /** The person's own import (protocol 2.1). */ readonly own: boolean; readonly accepted: boolean; readonly src: string | null }[];
+	readonly versions: readonly { readonly version: string; /** The person's own import (protocol 2.1). */ readonly own: boolean; readonly accepted: boolean; readonly src: string | null;
+		/** What `src` is: a picture, or a take's video; null without one. */ readonly media: 'image' | 'video' | null }[];
 }
 
 /** The box's one text: the person's prompt where they set one, else the agent's next one; null while there is none. */

@@ -53,14 +53,34 @@ const fileSrc = (rel: string) => `${ORIGIN}/project/${rel.split('/').map(encodeU
 
 async function canvasCase(source: Source, episode: string): Promise<Case> {
 	const message = await lineageMessage({ root: source.root, episode, drama: source.drama, layout: {}, focus: undefined, src: fileSrc });
-	// Every recorded link between two cards on the board is drawn: the person missed them once all were dropped.
+	// Every recorded link between two cards on the board is drawn, from the card used to the card made from it: the
+	// person missed them once all were dropped, and asked which way a take's line runs.
 	const board = new Set(message.cards.filter(onBoard).map(c => c.id));
 	const lines = message.links.filter(l => board.has(l.from) && board.has(l.to)).length;
 	const check = async (page: Page): Promise<string[]> => {
 		const edges = page.locator('.react-flow__edge');
 		for (const until = Date.now() + WAIT_MS; Date.now() < until && await edges.count() < lines;) { await new Promise(resolve => setTimeout(resolve, 100)); }
 		const drawn = await edges.count();
-		return lines === 0 ? [`the fixture's ${episode} canvas has no link to draw`] : drawn === lines ? [] : [`${drawn} lines drawn of ${lines} links`];
+		if (lines === 0 || drawn !== lines) { return [lines === 0 ? `the fixture's ${episode} canvas has no link to draw` : `${drawn} lines drawn of ${lines} links`]; }
+		// Each line leaves what was used from its right side (its output) and enters what was made from it on its left
+		// side (its input), in screen space.
+		type Point = { x: number; matrixTransform(matrix: unknown): Point };
+		type Path = { getTotalLength(): number; getPointAtLength(at: number): Point; getScreenCTM(): unknown };
+		type El = { getAttribute(name: string): string | null; querySelector(selector: string): Path | null; getBoundingClientRect(): { left: number; right: number } };
+		return page.evaluate(() => {
+			const doc = (globalThis as unknown as { document: { querySelectorAll(selector: string): ArrayLike<El>; querySelector(selector: string): El | null } }).document;
+			return Array.from(doc.querySelectorAll('.react-flow__edge')).flatMap(edge => {
+				const [from, to] = (edge.getAttribute('data-id') ?? '').split('->');
+				const path = edge.querySelector('.react-flow__edge-path');
+				const source = doc.querySelector(`.react-flow__node[data-id="${from}"]`)?.getBoundingClientRect();
+				const target = doc.querySelector(`.react-flow__node[data-id="${to}"]`)?.getBoundingClientRect();
+				if (!path || !source || !target) { return [`${from} -> ${to}: no path or card`]; }
+				const start = path.getPointAtLength(0).matrixTransform(path.getScreenCTM()).x;
+				const end = path.getPointAtLength(path.getTotalLength()).matrixTransform(path.getScreenCTM()).x;
+				return Math.abs(start - source.right) <= 4 && Math.abs(end - target.left) <= 4 ? []
+					: [`${from} -> ${to} runs from x ${Math.round(start)} to ${Math.round(end)}, not from ${Math.round(source.right)} to ${Math.round(target.left)}`];
+			});
+		}, null);
 	};
 	return { name: `${source.name}: canvas ${episode}`, page: 'canvas', data: { episode }, root: source.root, message,
 		expect: { selector: '.react-flow__node-card', count: message.cards.filter(onBoard).length }, interact: { answer: () => null, check } };

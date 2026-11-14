@@ -3,11 +3,10 @@
 // drama (core/project.ts): names, readiness and edges are the snapshot's, versions and acceptance the files' and the
 // person's choices. Nothing is judged here. No vscode import.
 
-import { extname } from 'node:path';
 import type { CanvasPicture, CanvasRecord } from './canvasProtocol';
 import type { AddType, Collection, GallerySection, GalleryTile } from './galleryProtocol';
 import { marksOf, variantParent, variantsOf, versionFile, type ChatTitle, type Drama, type DramaObject } from './project';
-import { IMAGE_SUFFIXES } from './versionDetail';
+import { mediaOf } from './versionDetail';
 
 /** The object type of a grid's kind (doc/protocol.md, section 5.1). */
 export const TYPE_OF: Readonly<Record<Collection, AddType>> = { characters: 'character', scenes: 'scene', props: 'prop' };
@@ -45,7 +44,7 @@ export function kindCount(drama: Drama, kind: Collection): { assets: number; toS
 /** The picture a version shows (versionFile), when its file is an image; else null. */
 function picture(object: DramaObject, version: string | null): string | null {
 	const file = versionFile(object, version);
-	return file && IMAGE_SUFFIXES.has(extname(file).toLowerCase()) ? file : null;
+	return file && mediaOf(file) === 'image' ? file : null;
 }
 
 /**
@@ -85,8 +84,10 @@ export function pictureOf(drama: Drama, id: string, src: (rel: string) => string
 	return {
 		object: id, current: resolved.current, accepted: resolved.accepted, usable: object.usable, why: object.usable ? null : object.why,
 		versions: object.versions.filter(v => !resolved.discarded.has(v.id)).map(v => {
-			const file = picture(object, v.id);
-			return { version: v.id, own: resolved.own(v), accepted: v.id === resolved.accepted, src: file ? src(file) : null };
+			// A take's version is a video: its strip shows a frame of it, as its card does.
+			const file = versionFile(object, v.id);
+			const media = file ? mediaOf(file) : 'text';
+			return { version: v.id, own: resolved.own(v), accepted: v.id === resolved.accepted, ...file && media !== 'text' ? { src: src(file), media } : { src: null, media: null } };
 		}),
 	};
 }
