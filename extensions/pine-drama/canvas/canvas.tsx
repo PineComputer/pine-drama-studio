@@ -4,10 +4,12 @@
 // persistence and a layout-only undo/redo. The rest is the workbench's: a picked card's stage shows in the Versions
 // view. React Flow's attribution stays visible: removing it
 // needs React Flow Pro (reactflow.dev/learn/troubleshooting/remove-attribution).
+import { createPortal } from 'react-dom';
 import { createRoot } from 'react-dom/client';
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { autoUpdate, flip, offset, shift, useFloating } from '@floating-ui/react-dom';
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
-	applyNodeChanges, Background, BackgroundVariant, Handle, MiniMap, NodeToolbar, Position, ReactFlow, ReactFlowProvider, useKeyPress, useReactFlow, useViewport,
+	applyNodeChanges, Background, BackgroundVariant, Handle, MiniMap, Position, ReactFlow, ReactFlowProvider, useKeyPress, useReactFlow, useStore, useViewport,
 	type Edge, type Node, type NodeChange, type NodeProps, type Viewport,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
@@ -418,13 +420,38 @@ function Composer({ card, cards, reply, onGo, onClose }: { card: CanvasCard; car
 				{/* Generate draws from the text shown, so a card with none (a storyboard, a cut) offers none. */}
 				{main && (
 					<button className="generate" disabled={busy || main.blank} onClick={generate}
-						title={`${card.kind === 'take' ? 'Shoot only this segment' : 'Draw only this picture'}: puts a request in the Chat, saving your edit first`} aria-label="Generate">
-						<span className="codicon codicon-arrow-up" />
+						title={`${card.kind === 'take' ? 'Shoot only this segment' : 'Draw only this picture'}: puts a request in the Chat, saving your edit first`}>
+						<span className="codicon codicon-arrow-up" />Generate
 					</button>
 				)}
 			</div>
 		</div>
 	);
+}
+
+/**
+ * What floats under a card, centred, and moves with the board: the composer. It is drawn where React Flow draws its
+ * NodeToolbar, in the renderer (so a wheel over it moves the board as over a card), and placed by Floating UI
+ * (https://floating-ui.com/docs/react) with its usual middleware: `shift` keeps it inside the pane, where NodeToolbar
+ * would push it past the pane's edge in a narrow editor, and `flip` puts it above its card when there is no room below.
+ * The room below ends at the minimap, a panel over the renderer: flip's padding is the pane's bottom strip up to it.
+ */
+function UnderCard({ id, minimap, children }: { id: string; minimap: boolean; children: ReactNode }) {
+	const flow = useStore(state => state.domNode);
+	const minimapReach = () => {
+		const [pane, minimap] = [flow?.getBoundingClientRect(), flow?.querySelector('.react-flow__minimap')?.getBoundingClientRect()];
+		return pane && minimap ? pane.bottom - minimap.top : 0;
+	};
+	const { refs, floatingStyles } = useFloating({
+		placement: 'bottom',
+		// The minimap shown or hidden is an input of flip's (its deps), so toggling it places the composer again.
+		middleware: [offset(14), flip(() => ({ padding: { bottom: minimapReach() } }), [minimap]), shift({ padding: 8 })],
+		// The board moves a card by a CSS transform, which fires no scroll or resize event: autoUpdate follows it each frame.
+		whileElementsMounted: (reference, floating, update) => autoUpdate(reference, floating, update, { animationFrame: true }),
+	});
+	useLayoutEffect(() => { refs.setReference(flow?.querySelector(`.react-flow__node[data-id="${CSS.escape(id)}"]`) ?? null); }, [flow, id]);
+	const renderer = flow?.querySelector('.react-flow__renderer');
+	return renderer ? createPortal(<div ref={refs.setFloating} className="under-card" style={floatingStyles}>{children}</div>, renderer) : null;
 }
 
 function Canvas({ message, loaded }: { message: Lineage; loaded: Record<string, Loaded> }) {
@@ -689,10 +716,10 @@ function Canvas({ message, loaded }: { message: Lineage; loaded: Record<string, 
 			<Background variant={BackgroundVariant.Dots} gap={20} size={1.5} className="dots" />
 			{minimap && <MiniMap pannable zoomable nodeClassName={node => `mini-${node.type}`} nodeStrokeWidth={0} />}
 			{pickedCard && (
-				<NodeToolbar nodeId={pickedCard.id} isVisible position={Position.Bottom} align="center" offset={14}>
+				<UnderCard id={pickedCard.id} minimap={minimap}>
 					<Composer key={pickedCard.id} card={pickedCard} cards={message.cards} reply={detail?.stageId === pickedCard.id ? detail : undefined} onGo={goTo}
 						onClose={() => { pick(undefined); setNodes(current => current.map(n => ({ ...n, selected: false }))); }} />
-				</NodeToolbar>
+				</UnderCard>
 			)}
 			{/* The board's own bar (canvas-scope.md): the two tools (canvas-tools.md), zoom and fit; the minimap and Lay out again under More. Undo is ⌘Z. */}
 			<div className="bar" role="toolbar" aria-label="Canvas">
