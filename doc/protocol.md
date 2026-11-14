@@ -55,8 +55,8 @@ The Computer side's own files inside a version folder are opaque to the client. 
 
 **Rules for a session.**
 - A session runs one turn at a time.
-- It sends its next turn only after its previous return is resolved (4.4): installed, or refused by the client. Otherwise the next turn would start from a folder that lacks the previous versions, and could number a version again.
-- If two sessions make the same version folder, the return installed second clashes and is refused whole (4.4).
+- It sends its next turn only after its previous return is resolved (4.4): installed, with anything it could not use left out. Otherwise the next turn would start from a folder that lacks the previous versions, and could number a version again.
+- If two sessions make the same version folder, the return installed second leaves that folder out, with what was made from it (4.4).
 
 ## 2. What the Computer side adds
 
@@ -90,7 +90,7 @@ An acceptance is a file of its own (`$defs/review`), at `<version folder>/review
 ```
 
 - A review file is only ever added.
-- It travels on its own (4.1), never inside the version's archive: an archive with a `reviews/` entry is refused. So a version's archive stays the same whatever reviews it gains later.
+- It travels on its own (4.1), never inside the version's archive: a `reviews/` entry in an archive is left out. So a version's archive stays the same whatever reviews it gains later.
 - An **agent's acceptance** has no `person`.
 - A **person's acceptance** carries `person`, the person's own words, verbatim. It is written when the person tells the Computer side directly, for example through the agent or from a terminal, with no client in between.
 
@@ -199,16 +199,16 @@ The person's own files live under two folders, and only the client writes them:
 2. if there is no such Computer, or the copy fails, it uploads it from its own copy.
 
 **What the client keeps.**
-- **Archive hashes.** For every installed version folder, the hash of the archive it came from, recorded before the folder is renamed into place. The client sends that hash and never archives a folder again. A version folder, or a `config/<version id>` folder, found on disk with no archive, such as one made outside the client, is archived once, on its first use, and is then kept like an installed one.
+- **Archive hashes.** For every installed version folder, the hash of the archive it came from, recorded before the folder is renamed into place. The client sends that hash. A folder the client holds no archive for, such as one made outside the client, a `config/<version id>` folder, or one another client installed, is archived on its first use, and is then kept like an installed one.
 - **Copies.** A copy of every archive and file it installed or sent, private state included, kept by hash.
 - **A cache.** For each hash, one Computer that holds it. This only saves an upload: correctness never depends on it, because a Computer is disposable.
 - **Pruning.** The client MAY delete a copy once no installed version and no pending request names it.
 
 **Archives.**
 - An archive holds only regular files and directories.
-- Their names are relative to the version folder, with no leading `./`. They contain no `..`, are not absolute, and appear once.
-- An archive with a link, a device, or a name outside the folder is invalid.
-- A reader MUST check every archive and file against its hash before it uses it. An upload cut off midway can leave a partial file in a store. On a mismatch, the client uploads the file again.
+- Their names are relative to the version folder, with no leading `./`, and are paths (section 1): no `..` or hidden segment, not absolute. Each appears once.
+- A reader writes only those. A member that is a link, a device or any other kind, whose name is not such a path (`._x` and `.DS_Store` included), or that appears a second time, is left out and never written; the rest of the archive is used.
+- A reader MUST check every archive and file against its hash before it uses it. An upload cut off midway can leave a partial file in a store. On a mismatch, the reader does not use it, and the client uploads the file again.
 
 ### 4.2 Request (client → Computer side)
 
@@ -263,21 +263,26 @@ A choice about an object outside the turn's scope is never an error. That object
 
 ### 4.4 Installing a return (client)
 
-The client installs one return at a time, finishing one before it starts the next, so two returns never pass their checks together. It installs every returned version folder and review file; nothing returned is left out. It works in two passes:
+The client installs one return at a time, finishing one before it starts the next, so two returns never pass their checks together. It installs everything returned that it can use. Nothing is refused whole: what it cannot use is left out, alone, and said. It works in two passes:
 1. **Check everything first.** Before the first rename, the client fetches and checks every archive and file (4.1), and extracts each archive into a temporary sibling folder whose name starts with `.pine-install-` and is its own (two places in one folder can hold the same bytes), so that at start the client can find such folders and delete them. It compares paths without regard to case.
    - **Already there.** A folder that already exists with the same archive hash (the one the client keeps for it, 4.1) is skipped. So is a review file with the same hash.
-   - **Refused whole.** The client refuses the whole return, installs nothing and shows `invalid` if anything:
-     - lies outside the turn's scope (section 1);
-     - fails a check;
-     - names a folder or a review that already exists with another hash.
+   - **Left out.** The client leaves out, and installs the rest:
+     - a version folder or review file whose path is not a path of the drama or lies outside the turn's scope (section 1);
+     - one missing from the store, or that fails its hash check (4.1); an archive's members as 4.1 says;
+     - a folder or a review that already exists with another hash. For a folder, the message says that another session made that version meanwhile, and that the work can be run again;
+     - a returned version made from one left out, through the whole of its `inputs` (2.1), and a review of a version left out;
+     - a part of `return.json` that does not match the schema: each part is checked on its own, `versions` and `reviews` entry by entry, and a version entry left out takes what was made from it with it;
+     - two returned paths that differ only by case: the second is left out;
+     - a version folder whose archive cannot be read, or whose `version.json` does not match the schema;
+     - a `private_state` that cannot be used: the session's next turn carries the one it had.
 
-     For a folder that already exists, the message says that another session made that version meanwhile, and that the work can be run again.
-   - **A refused return is resolved**, like an installed one: the session may send its next turn.
+     The client tells the person what it left out and why. Only a `return.json` it cannot read at all (not JSON, another major, or a `schema`, `turn` or `state` that does not match) installs nothing, and the person is told so.
+   - **A return is resolved** once it is installed or cannot be read: the session may send its next turn.
 2. **Then rename into place:** version folders first, then review files.
 
 The client then stores `private_state` for the session, and shows `problems`, `question` and `review`. Returns are ordered by when they were installed.
 
-**The turn stays with the folder.** For every return it installs or refuses, the client writes `turns/<turn>.json` into the folder: the return's version folders, review files, `problems` and `snapshot` (null when there is none), when it was sent and installed, and the version folders and choices its request carried. Any client that opens the folder shows the drama from these files (5.3), whichever client sent the turns. The Computer side never reads or writes `turns/`, and a request does not carry it. The session's `private_state`, the person's messages and `notes` stay with the client that sent them. One client works in a folder at a time: a folder moves between machines whole, and is not shared while in use. A newer turn's `private_state` or `snapshot` is never replaced by an older one's: when the client installs a return again after a crash, it keeps whatever a later turn left.
+**The turn stays with the folder.** For every return it resolves, the client writes `turns/<turn>.json` into the folder: the return's version folders, review files, `problems` and `snapshot` (null when there is none), when it was sent and installed, and the version folders and choices its request carried. Any client that opens the folder shows the drama from these files (5.3), whichever client sent the turns. The Computer side never reads or writes `turns/`, and a request does not carry it. The session's `private_state`, the person's messages and `notes` stay with the client that sent them. One client works in a folder at a time: a folder moves between machines whole, and is not shared while in use. A newer turn's `private_state` or `snapshot` is never replaced by an older one's: when the client installs a return again after a crash, it keeps whatever a later turn left.
 
 **Versions made from a version deleted during the turn.** Suppose an input of a returned version (2.1) is a version the person deleted after the request was sent. The client then adds that returned version to `discarded` in `choices.json`, and does the same for every returned version made from it. The folders stay installed, so version numbering stays intact, and the person can bring them back.
 
@@ -287,7 +292,7 @@ The client then stores `private_state` for the session, and shows `problems`, `q
 
 The Computer side handles a request in this order:
 1. If `return.json` exists for the turn, it returns it again.
-2. Otherwise, if it finds the turn marked `running`, the run was cut off. It runs nothing and refuses with `interrupted`, because paid work may already have been done.
+2. Otherwise, if it finds the turn marked `running`, the run was cut off. It runs nothing again, because paid work may already have been done, and returns `failed` with what the cut-off run finished. Older Computer sides answer with a `refused` return and `interrupted` instead.
 3. Otherwise, it marks the turn `running` before any work.
 
 A turn id that comes back with a different request is refused with `invalid`.
@@ -370,9 +375,9 @@ An error is `{"code", "message", "action"?}`:
 |---|---|
 | `not_found` | A choice names an object or version that does not exist. |
 | `not_allowed` | A choice breaks a rule of 3.2. |
-| `invalid` | A document or archive does not match this specification (an unknown enum value included), a returned folder clashes with an existing one, or a turn id comes back with a different request. |
+| `invalid` | A document or archive does not match this specification (an unknown enum value included), or a turn id comes back with a different request. |
 | `missing_input` | An archive or file that the request names is not in this Computer's store. |
-| `interrupted` | An earlier run of this turn was cut off and may have spent money. Nothing is run again (4.5). |
+| `interrupted` | An earlier run of this turn was cut off and may have spent money. Nothing is run again (4.5). Older Computer sides may send it; current ones return `failed` with what that run finished. |
 | `failed` | The work broke off. A `failed` return carries what did finish (4.3). |
 | `unsupported_schema` | A document's `schema` is a major the reader does not support. The message names the majors it supports. |
 

@@ -35,8 +35,8 @@ import { entryFor, type Entry } from './binding';
 import { givenBack, refusalLine } from './refusal';
 import { Holders, keptBytes, putAll, requestKey, returnKey, sha256 } from './taskArtifacts';
 import { dramaRecordOf, installedSnapshots, requestKeys, requestOf, taskMessage, type DramaRecord } from './taskRun';
-import { installReturn, InvalidReturn, previewProgress, type ReviewTarget } from './resultImporter';
-import { check, ProtocolDocumentError, UnsupportedMajor, type Return } from './protocol';
+import { installReturn, previewProgress, readReturn, type LeftOut, type ReviewTarget } from './resultImporter';
+import { ProtocolDocumentError, UnsupportedMajor, type Return } from './protocol';
 import { copyImport, readChoices, updateChoices, withObject, writeWhole } from './choices';
 import { resolveReturned, type ResolveSources, type Resolved } from './resolve';
 import { localProjectFile } from './chatLinks';
@@ -2032,10 +2032,11 @@ export class ChatService {
 					// 4.5: no return. Only the person decides whether to run the work again.
 					if (!bytes) { await record.handle(task); tell(NO_RETURN, true); continue; }
 					let back: Return;
-					try { back = check('return', JSON.parse(bytes.toString('utf8')), returnKey(task)); } catch (error) {
+					let unread: readonly LeftOut[];
+					try { ({ ret: back, leftOut: unread } = readReturn(bytes, returnKey(task))); } catch (error) {
 						if (!(error instanceof UnsupportedMajor || error instanceof ProtocolDocumentError || error instanceof SyntaxError)) { throw error; }
 						await record.handle(task);
-						tell(`This task's result was not installed: its return is not valid (${(error as Error).message.replace(/[.\s]+$/, '')}).`, true);
+						tell(`This turn's result couldn't be read: ${(error as Error).message.replace(/[.\s]+$/, '')}. Nothing was installed; ask it to continue.`, true);
 						continue;
 					}
 					if (back.state === 'refused') {
@@ -2043,18 +2044,14 @@ export class ChatService {
 						tell(`The Computer refused this task: ${back.error?.message ?? 'it gave no reason'}${back.error?.action ? ` ${back.error.action}` : ''}`, true);
 						continue;
 					}
-					let installed: number;
-					try {
-						const done = await this.held(key, epoch, () => installReturn({ root, record, kept: join(proto.storage, 'kept'), store, request: sent.request, ret: back }));
-						installed = Object.keys(done.versions).length;
-						returned.push(...Object.keys(done.versions));
-						// The Computer that returned them holds them: the next task copies from it rather than uploading.
-						await this.holders().set([...Object.values(done.versions), ...Object.values(done.reviews), ...(done.private_state ? [done.private_state] : [])], sent.computer);
-					} catch (error) {
-						if (!(error instanceof InvalidReturn)) { throw error; }
-						await record.handle(task, back.problems);
-						tell(`This task's result was not installed: ${error.message}. Nothing of it is in your project.`, true);
-						continue;
+					const { done, leftOut } = await this.held(key, epoch, () => installReturn({ root, record, kept: join(proto.storage, 'kept'), store, request: sent.request, ret: back, unread }));
+					const installed = Object.keys(done.versions).length;
+					returned.push(...Object.keys(done.versions));
+					// The Computer that returned them holds them: the next task copies from it rather than uploading.
+					await this.holders().set([...Object.values(done.versions), ...Object.values(done.reviews), ...(done.private_state ? [done.private_state] : [])], sent.computer);
+					// What could not be used is left out, never the whole result: said in one line (doc/protocol.md, 4.4).
+					if (leftOut.length) {
+						tell(`Installed ${installed} of ${installed + leftOut.filter(l => l.kind === 'version').length} returned versions. Left out: ${leftOut.map(l => `${l.path} (${l.why})`).join('; ')}.`, true);
 					}
 					// A run that broke off returns what it finished, installed above, and why it broke off (doc/protocol.md, 4.3).
 					// It may have finished no version: then saying its work is in the project sends the person looking for none.

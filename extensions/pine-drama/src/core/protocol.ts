@@ -188,7 +188,7 @@ const SCHEMA = require('../../protocol/v1/protocol.schema.json') as { readonly $
 let ajv: Ajv2020 | undefined;
 let schemaId = '';
 
-function validator(def: keyof Defs) {
+function validator(def: string) {
 	if (!ajv) {
 		ajv = new Ajv2020({ allErrors: true, strict: false });
 		addFormats(ajv);
@@ -200,6 +200,14 @@ function validator(def: keyof Defs) {
 		throw new Error(`protocol schema has no $defs/${def} (${schemaId})`);
 	}
 	return validate;
+}
+
+/**
+ * Whether `value` matches the part of the schema at `pointer` under its `$defs` (a JSON Pointer, RFC 6901, such as
+ * `folders` or `return/properties/snapshot`): how a reader checks each part of a document on its own (doc/protocol.md, 4.4).
+ */
+export function matches(pointer: string, value: unknown): boolean {
+	return validator(pointer)(value) as boolean;
 }
 
 /**

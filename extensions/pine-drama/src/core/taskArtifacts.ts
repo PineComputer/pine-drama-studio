@@ -48,7 +48,7 @@ export async function fetchKept(store: ArtifactStore, kept: string, key: string,
 	if (here && sha256(here) === hash) { return here; }
 	const bytes = await store.read(key);
 	if (!bytes) { throw new MissingArtifact(key); }
-	if (sha256(bytes) !== hash) { throw new Error(`${key} does not match its hash`); }
+	if (sha256(bytes) !== hash) { throw new MismatchedArtifact(key); }
 	await mkdir(dirname(join(kept, key)), { recursive: true });
 	await writeWhole(join(kept, key), bytes);
 	return bytes;
@@ -56,6 +56,11 @@ export async function fetchKept(store: ArtifactStore, kept: string, key: string,
 
 export class MissingArtifact extends Error {
 	constructor(readonly key: string) { super(`${key} is not in the Computer's artifacts`); }
+}
+
+/** An archive or file whose bytes do not match the hash that names it (4.1): it is not used. */
+export class MismatchedArtifact extends Error {
+	constructor(readonly key: string) { super(`${key} does not match its hash`); }
 }
 
 /** The content hash an artifact key names: `versions/<hash>.tar`, `files/<hash>`, `state/<hash>.tar`. */

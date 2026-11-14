@@ -16,7 +16,7 @@ async function drain(updates: AsyncGenerator<Update>): Promise<Update[]> {
 	const all: Update[] = []; for await (const update of updates) { all.push(update); } return all;
 }
 
-const version = JSON.stringify({ schema: 1, made_at: '2026-11-12T10:00:00Z', file: 'image-1.png', inputs: [], prompt: null, from_choice: null });
+const version = JSON.stringify({ schema: 1, made_at: '2026-11-12T10:00:00Z', file: 'image-1.png', inputs: [], prompt: null, from_import: null });
 const made = (object: string, picture: string) => ({ [`drama/${object}/v1/version.json`]: version, [`drama/${object}/v1/image-1.png`]: picture });
 
 function fixture(more: Partial<ConstructorParameters<typeof ChatService>[0]> = {}) {
@@ -90,7 +90,7 @@ test('a scope\'s next task waits until the last return is installed, and then st
 test('while a return is collected and installed, the Chat says so, before the turn\'s last words', async () => {
 	const f = fixture();
 	try {
-		f.pine.plans = [{ state: 'completed', text: 'drawn', files: { 'drama/assets/props/cup/v1/image-1.png': 'cup', 'drama/assets/props/cup/v1/version.json': JSON.stringify({ schema: 1, made_at: '2026-11-12T10:00:00Z', file: 'image-1.png', inputs: [], prompt: null, from_choice: null }) } }];
+		f.pine.plans = [{ state: 'completed', text: 'drawn', files: { 'drama/assets/props/cup/v1/image-1.png': 'cup', 'drama/assets/props/cup/v1/version.json': JSON.stringify({ schema: 1, made_at: '2026-11-12T10:00:00Z', file: 'image-1.png', inputs: [], prompt: null, from_import: null }) } }];
 		const updates = await f.send('draw the cup');
 		const installing = updates.findIndex(u => u.kind === 'progress' && /^Collecting the turn's result into your project/.test(u.text));
 		assert.ok(installing >= 0, JSON.stringify(updates.map(u => [u.kind, u.text])));
@@ -112,7 +112,7 @@ test('Review Submit writes the chosen versions with the person\'s words into cho
 	} finally { f.store.close(); }
 });
 
-test('a session other than the Project Chat adds under episodes/, and a shared object only when it is new (D51, protocol section 1): a new version of a shared one is refused whole', async () => {
+test('a session other than the Project Chat adds under episodes/, and a shared object only when it is new (D51, protocol section 1): a new version of a shared one is left out, and the rest installs', async () => {
 	const f = fixture();
 	try {
 		f.pine.plans = [{ state: 'completed', text: 'ok', files: made('assets/props/cup', 'cup') }];
@@ -124,8 +124,9 @@ test('a session other than the Project Chat adds under episodes/, and a shared o
 		assert.equal(readFileSync(join(f.root, 'episodes/EP001/breakdown/v1/image-1.png'), 'utf8'), 'shots');
 		const cup2 = { 'drama/assets/props/cup/v2/version.json': version, 'drama/assets/props/cup/v2/image-1.png': 'cup again' };
 		f.pine.plans = [{ state: 'completed', text: 'redrew the cup', files: { ...cup2, ...made('episodes/EP002/breakdown', 'more') } }];
-		assert.match(f.said(await f.send('and redraw the cup', session)), /not installed: assets\/props\/cup\/v2 is outside the task's scope, episodes/);
-		assert.equal(existsSync(join(f.root, 'episodes/EP002')), false, 'nothing of the refused return is installed');
+		assert.match(f.said(await f.send('and redraw the cup', session)), /Installed 1 of 2 returned versions\. Left out: assets\/props\/cup\/v2 \(this session may not add there/);
+		assert.equal(existsSync(join(f.root, 'assets/props/cup/v2')), false, 'what is left out is not written');
+		assert.equal(readFileSync(join(f.root, 'episodes/EP002/breakdown/v1/image-1.png'), 'utf8'), 'more', 'the rest of the return is installed');
 	} finally { f.store.close(); }
 });
 

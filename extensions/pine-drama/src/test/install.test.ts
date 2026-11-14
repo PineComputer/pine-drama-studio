@@ -2,15 +2,23 @@
 // corrupt the person's drama. System tar makes the archives, as the Computer side does.
 import { strict as assert } from 'node:assert';
 import { execFileSync } from 'node:child_process';
-import { chmodSync, cpSync, existsSync, linkSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { readChoices, updateChoices } from '../core/choices';
 import type { Request, Return } from '../core/protocol';
-import { archiveNames, installReturn, InvalidReturn, previewProgress } from '../core/resultImporter';
+import { list as listTar } from 'tar';
+import { installReturn, previewProgress, readReturn } from '../core/resultImporter';
 import { fileKey, Holders, putAll, sha256, stateKey, versionKey, type ArtifactStore } from '../core/taskArtifacts';
 import { dramaRecordOf, installedSnapshots, previewVersions, publishKeptTurns, requestKeys, requestOf, taskMessage, tasksOf } from '../core/taskRun';
+
+/** The names an archive holds, as node-tar lists them, without a leading `./` or a folder's trailing `/`. */
+function archiveNames(archive: string): string[] {
+	const names: string[] = [];
+	listTar({ file: archive, sync: true, onReadEntry: entry => { names.push(entry.path.replace(/^(\.\/)+/, '').replace(/\/+$/, '')); } });
+	return names.filter(n => n !== '' && n !== '.');
+}
 
 const temp = (name: string) => realpathSync(mkdtempSync(join(tmpdir(), `pds-install-${name}-`)));
 
@@ -39,7 +47,7 @@ function archive(store: ArtifactStore & { files: Map<string, Buffer> }, files: R
 	return sha256(bytes);
 }
 
-const version = (inputs: { object: string; version: string }[] = []) => JSON.stringify({ schema: 1, made_at: '2026-11-12T10:00:00Z', file: 'image-1.png', inputs, prompt: null, from_choice: null });
+const version = (inputs: { object: string; version: string }[] = []) => JSON.stringify({ schema: 1, made_at: '2026-11-12T10:00:00Z', file: 'image-1.png', inputs, prompt: null, from_import: null });
 
 /** A drama folder, its record, a store, and a sent request of `scope`. */
 async function drama(scope: 'project' | 'episodes' = 'project') {
@@ -86,38 +94,114 @@ test('two identical review files for an installed version both land', async () =
 	assert.deepEqual(readdirSync(join(d.root, 'assets/characters/lin/v1/reviews')).sort(), ['r1.json', 'r2.json']);
 });
 
-test('any bad part refuses the whole return before the first rename: nothing of it is in the folder', async () => {
-	const cases: [string, (d: Awaited<ReturnType<typeof drama>>) => Omit<Return, 'schema' | 'turn' | 'state'>][] = [
-		['a folder of another scope', d => ({ versions: { 'episodes/EP001/breakdown/v1': archive(d.store, { 'version.json': version() }) } })],
-		['an archive with a link', d => ({ versions: { 'assets/props/a/v1': archive(d.store, { 'version.json': version() }, dir => symlinkSync('/etc/passwd', join(dir, 'link'))) } })],
-		['an archive with a hard link', d => ({ versions: { 'assets/props/a/v1': archive(d.store, { 'version.json': version() }, dir => linkSync(join(dir, 'version.json'), join(dir, 'twin'))) } })],
-		['an archive whose bytes do not match its hash', d => { const hash = archive(d.store, { 'version.json': version() }); d.store.files.set(versionKey(hash), Buffer.from('other')); return { versions: { 'assets/props/a/v1': hash } }; }],
-		['a review file missing from the store', () => ({ reviews: { 'assets/props/a/v0/reviews/r.json': sha256('absent') } })],
+// The person: "所有的都不要拒收". A part that cannot be used is left out and said; the rest installs (doc/protocol.md, 4.4).
+test('a part that cannot be used is left out and said, never the whole return; the rest installs', async () => {
+	const cases: [string, (d: Awaited<ReturnType<typeof drama>>) => Omit<Return, 'schema' | 'turn' | 'state'>, string, RegExp][] = [
+		['a folder of another scope', d => ({ versions: { 'episodes/EP001/breakdown/v1': archive(d.store, { 'version.json': version() }) } }), 'episodes/EP001/breakdown/v1', /may not add there/],
+		['an archive whose bytes do not match its hash', d => { const hash = archive(d.store, { 'version.json': version() }); d.store.files.set(versionKey(hash), Buffer.from('other')); return { versions: { 'assets/props/a/v1': hash } }; }, 'assets/props/a/v1', /do not match/],
+		['a review file missing from the store', () => ({ reviews: { 'assets/props/good/v1/reviews/r.json': sha256('absent') } }), 'assets/props/good/v1/reviews/r.json', /did not store it/],
 	];
-	for (const [what, ret] of cases) {
+	for (const [what, ret, path, why] of cases) {
 		const d = await drama();
 		const good = archive(d.store, { 'version.json': version(), 'image-1.png': 'good' });
-		const request = await d.send('task-0001', '2026-11-12T10:00:00Z');
 		const bad = ret(d);
-		await assert.rejects(d.install(request, { ...bad, versions: { 'assets/props/good/v1': good, ...bad.versions } }), what);
-		assert.equal(existsSync(join(d.root, 'assets/props/good')) && readdirSync(join(d.root, 'assets/props/good')).some(n => !n.startsWith('.')), false, `${what}: the good folder is not installed`);
-		assert.equal(existsSync(join(d.root, 'assets/props/a/v1')), false, what);
-		assert.equal(d.record.handled('task-0001'), false, `${what}: the return is not recorded`);
+		const { done, leftOut } = await d.install(await d.send('task-0001', '2026-11-12T10:00:00Z'), { ...bad, versions: { 'assets/props/good/v1': good, ...bad.versions } });
+		assert.equal(readFileSync(join(d.root, 'assets/props/good/v1/image-1.png'), 'utf8'), 'good', `${what}: the rest installs`);
+		assert.deepEqual(leftOut.map(l => l.path), [path], what);
+		assert.match(leftOut[0].why, why, what);
+		assert.equal(existsSync(join(d.root, path)), false, `${what}: what is left out is not written`);
+		assert.deepEqual(Object.keys(done.versions), ['assets/props/good/v1'], `${what}: the record names only what was installed`);
+		assert.ok(d.record.handled('task-0001'), what);
 	}
 });
 
-test('a folder that exists with another archive refuses the return; the same archive again is skipped', async () => {
+test('an archive member that is not a plain file of the project is skipped, never written; the version installs', async () => {
+	const d = await drama();
+	const hash = archive(d.store, { 'version.json': version(), 'image-1.png': 'a' }, dir => {
+		symlinkSync('/etc/passwd', join(dir, 'link'));
+		writeFileSync(join(dir, '._image-1.png'), 'AppleDouble');
+		mkdirSync(join(dir, 'reviews'));
+		writeFileSync(join(dir, 'reviews/r.json'), '{}');
+	});
+	const { leftOut } = await d.install(await d.send('task-0001', '2026-11-12T10:00:00Z'), { versions: { 'assets/props/a/v1': hash } });
+	assert.deepEqual(readdirSync(join(d.root, 'assets/props/a/v1')).sort(), ['image-1.png', 'version.json']);
+	assert.deepEqual(leftOut.map(l => l.path).sort(), ['assets/props/a/v1/._image-1.png', 'assets/props/a/v1/link', 'assets/props/a/v1/reviews', 'assets/props/a/v1/reviews/r.json']);
+});
+
+test('a returned version made from one left out is left out too, through every input it lists', async () => {
+	const d = await drama();
+	const a = archive(d.store, { 'version.json': version(), 'image-1.png': 'a' });
+	d.store.files.set(versionKey(a), Buffer.from('not the archive'));
+	const b = archive(d.store, { 'version.json': version([{ object: 'assets/props/a', version: 'v1' }]) });
+	const c = archive(d.store, { 'version.json': version([{ object: 'assets/props/x', version: 'v1' }, { object: 'assets/props/b', version: 'v1' }]) });
+	const e = archive(d.store, { 'version.json': version() });
+	const { leftOut } = await d.install(await d.send('task-0001', '2026-11-12T10:00:00Z'), { versions: { 'assets/props/a/v1': a, 'assets/props/b/v1': b, 'assets/props/c/v1': c, 'assets/props/e/v1': e } });
+	assert.deepEqual(leftOut.map(l => [l.path, l.why]), [
+		['assets/props/a/v1', 'its bytes do not match what the Computer named'],
+		['assets/props/b/v1', 'it was made from assets/props/a/v1, which was left out'],
+		['assets/props/c/v1', 'it was made from assets/props/b/v1, which was left out'],
+	]);
+	assert.deepEqual(['a', 'b', 'c', 'e'].filter(x => existsSync(join(d.root, `assets/props/${x}/v1`))), ['e']);
+});
+
+test('a return is read for what it can use: a bad entry or snapshot is left out; only an unreadable envelope reads nothing', () => {
+	const hash = 'a'.repeat(64);
+	const { ret, leftOut } = readReturn(Buffer.from(JSON.stringify({ schema: 1, turn: 'task-0001', state: 'ended',
+		versions: { 'assets/props/a/v1': hash, '../x/v1': hash, 'assets/props/b/v1': 'nothash' }, reviews: {}, private_state: 7, snapshot: { objects: 3 }, problems: 'none' })), 'return.json');
+	assert.deepEqual(ret.versions, { 'assets/props/a/v1': hash });
+	assert.equal(ret.snapshot, undefined);
+	assert.deepEqual(leftOut.map(l => [l.path, l.kind]), [['../x/v1', 'version'], ['assets/props/b/v1', 'version'], ["the return's private state", 'part'], ["the return's snapshot", 'part'], ["the return's problems", 'part']]);
+	assert.throws(() => readReturn(Buffer.from('{"schema":1,"turn":"task-0001"}'), 'return.json'), /state does not match/);
+	assert.throws(() => readReturn(Buffer.from('null'), 'return.json'), /must be object/);
+	assert.throws(() => readReturn(Buffer.from('not json'), 'return.json'), SyntaxError);
+});
+
+test('a version entry left out when the return is read takes what was made from it and its reviews with it', async () => {
+	const d = await drama();
+	const b = archive(d.store, { 'version.json': version([{ object: 'assets/props/a', version: 'v1' }]) });
+	const review = Buffer.from('{"schema":1,"accepted_at":"2026-11-12T10:00:00Z","reason":"ok"}');
+	d.store.files.set(fileKey(sha256(review)), review);
+	const request = await d.send('task-0001', '2026-11-12T10:00:00Z');
+	const { ret, leftOut: unread } = readReturn(Buffer.from(JSON.stringify({ schema: 1, turn: request.turn, state: 'ended',
+		versions: { 'assets/props/a/v1': 'nothash', 'assets/props/b/v1': b }, reviews: { 'assets/props/a/v1/reviews/r.json': sha256(review) }, snapshot: { observed_at: '2026-11-12T10:00:00Z', objects: {}, edges: [] }, problems: [] })), 'return.json');
+	const { leftOut } = await installReturn({ root: d.root, record: d.record, kept: join(d.storage, 'kept'), store: d.store, request, ret, unread });
+	assert.deepEqual(leftOut.map(l => l.path), ['assets/props/a/v1', "the return's private state", 'assets/props/b/v1', 'assets/props/a/v1/reviews/r.json']);
+	assert.equal(existsSync(join(d.root, 'assets')), false, 'nothing left out leaves a folder behind');
+});
+
+test('a version whose archive or version.json cannot be read is left out alone; paths differing only by case are one', async () => {
+	const d = await drama();
+	const garbage = Buffer.from('not a tar archive at all, but its hash is right');
+	const broken = Buffer.concat([Buffer.from([0x1f, 0x8b, 0x08, 0x00]), Buffer.from('a broken gzip stream, with its hash right')]);
+	for (const bytes of [garbage, broken]) { d.store.files.set(versionKey(sha256(bytes)), bytes); }
+	const badRecord = archive(d.store, { 'version.json': '{"schema":1, not JSON', 'image-1.png': 'b' });
+	const folderRecord = archive(d.store, { 'version.json/x': 'a folder named version.json', 'image-1.png': 'c' });
+	const good = archive(d.store, { 'version.json': version(), 'image-1.png': 'good' });
+	const { leftOut } = await d.install(await d.send('task-0001', '2026-11-12T10:00:00Z'), {
+		versions: { 'assets/props/a/v1': sha256(garbage), 'assets/props/z/v1': sha256(broken), 'assets/props/b/v1': badRecord, 'assets/props/c/v1': folderRecord, 'assets/props/good/v1': good, 'assets/props/Good/v1': good } });
+	assert.deepEqual(leftOut.map(l => [l.path, l.why]), [
+		['assets/props/a/v1', 'its archive could not be read'],
+		['assets/props/z/v1', 'its archive could not be read'],
+		['assets/props/b/v1', 'its version.json cannot be read'],
+		['assets/props/c/v1', 'its version.json cannot be read'],
+		['assets/props/Good/v1', 'another returned path differs from it only by case'],
+	]);
+	assert.deepEqual(readdirSync(join(d.root, 'assets/props')), ['good']);
+});
+
+test('a folder that exists with another archive is left out and kept as it is; the same archive again is skipped', async () => {
 	const d = await drama();
 	const first = archive(d.store, { 'version.json': version(), 'image-1.png': 'first' });
 	await d.install(await d.send('task-0001', '2026-11-12T10:00:00Z'), { versions: { 'assets/props/a/v1': first } });
 	const other = archive(d.store, { 'version.json': version(), 'image-1.png': 'other' });
-	await assert.rejects(d.install(await d.send('task-0002', '2026-11-12T10:01:00Z'), { versions: { 'assets/props/a/v1': other } }),
-		(error: Error) => error instanceof InvalidReturn && /another session made assets\/props\/a\/v1 while this task ran[^]*run this work again/.test(error.message));
+	const { leftOut } = await d.install(await d.send('task-0002', '2026-11-12T10:01:00Z'), { versions: { 'assets/props/a/v1': other } });
+	assert.deepEqual(leftOut.map(l => l.path), ['assets/props/a/v1']);
+	assert.match(leftOut[0].why, /another session made a version with the same name while this task ran[^]*run this work again/);
 	assert.equal(readFileSync(join(d.root, 'assets/props/a/v1/image-1.png'), 'utf8'), 'first', 'the installed version is never replaced');
 	await d.install(await d.send('task-0003', '2026-11-12T10:02:00Z'), { versions: { 'assets/props/a/v1': first } });
 });
 
-test('two clashing returns installed at once: the first lands whole, the second installs nothing', async () => {
+test('two clashing returns installed at once: the first lands whole, the second leaves out only the clash', async () => {
 	const d = await drama();
 	const first = archive(d.store, { 'version.json': version(), 'image-1.png': 'first' });
 	const second = archive(d.store, { 'version.json': version(), 'image-1.png': 'second' });
@@ -129,9 +213,9 @@ test('two clashing returns installed at once: the first lands whole, the second 
 		d.install(b, { versions: { 'assets/props/b/v1': other, 'assets/props/a/v1': second } }),
 	]);
 	assert.equal(ra.status, 'fulfilled');
-	assert.equal(rb.status, 'rejected');
+	assert.ok(rb.status === 'fulfilled' && rb.value.leftOut.map(l => l.path).join() === 'assets/props/a/v1');
 	assert.equal(readFileSync(join(d.root, 'assets/props/a/v1/image-1.png'), 'utf8'), 'first');
-	assert.equal(existsSync(join(d.root, 'assets/props/b/v1')), false, 'nothing of the second return is installed');
+	assert.equal(readFileSync(join(d.root, 'assets/props/b/v1/image-1.png'), 'utf8'), 'other', 'the rest of the second return is installed');
 });
 
 test('an install cut off between its record and its renames finishes when run again', async () => {
@@ -272,9 +356,9 @@ test('an episodes return may add a new shared object under assets/, with its own
 	assert.ok(existsSync(join(d.root, 'assets/scenes/x/variants/y/entry/v1/entry.json')));
 	// Installed again after a crash, with its folders already in place: still new, since they are this return's own.
 	await d.install(first, adds);
-	// A new version of an object the drama has: refused whole.
+	// A new version of an object the drama has: left out.
 	const again = archive(d.store, { 'version.json': version(), 'image-1.png': 'v2' });
-	await assert.rejects(d.install(await d.send('task-0002', '2026-11-12T10:01:00Z'), { versions: { 'assets/scenes/x/variants/y/v2': again } }), InvalidReturn);
+	assert.deepEqual((await d.install(await d.send('task-0002', '2026-11-12T10:01:00Z'), { versions: { 'assets/scenes/x/variants/y/v2': again } })).leftOut.map(l => l.path), ['assets/scenes/x/variants/y/v2']);
 	assert.equal(existsSync(join(d.root, 'assets/scenes/x/variants/y/v2')), false);
 });
 
@@ -301,7 +385,7 @@ test('an episodes return may add inside a shared object made in an episodes turn
 	assert.ok(existsSync(join(d.root, 'assets/scenes/street/variants/y/views/front/v1/image-1.png')));
 	// Inside z, which the Project Chat made, or inside w, whose asset the request holds no version of: refused whole.
 	for (const [task, versions] of [['task-0003', { 'assets/scenes/street/variants/z/v1': picture('z') }], ['task-0004', { 'assets/scenes/yard/variants/w/v1': picture('w') }]] as const) {
-		await assert.rejects(d.install(await d.send(task, '2026-11-12T10:02:00Z', 'episodes'), { versions }), /outside the task's scope, episodes/);
+		assert.deepEqual((await d.install(await d.send(task, '2026-11-12T10:02:00Z', 'episodes'), { versions })).leftOut.map(l => l.path), Object.keys(versions));
 		assert.equal(existsSync(join(d.root, Object.keys(versions)[0])), false);
 	}
 });
@@ -318,7 +402,7 @@ test('the asset an episodes return must hold follows the latest snapshot of the 
 	// The latest snapshot lists m with no variant_of edge: m derives from nothing the request holds beside its own.
 	await d.install(await d.send('task-0002', '2026-11-12T10:01:00Z'), { snapshot: { observed_at: '2026-11-12T10:01:00Z', objects, edges: [] } });
 	const picture = archive(d.store, { 'version.json': version(), 'image-1.png': 'm' });
-	await assert.rejects(d.install(await d.send('task-0003', '2026-11-12T10:02:00Z', 'episodes'), { versions: { 'assets/scenes/a/variants/m/v1': picture } }), /outside the task's scope, episodes/);
+	assert.deepEqual((await d.install(await d.send('task-0003', '2026-11-12T10:02:00Z', 'episodes'), { versions: { 'assets/scenes/a/variants/m/v1': picture } })).leftOut.map(l => l.path), ['assets/scenes/a/variants/m/v1']);
 });
 
 test('an episodes return may not draw a planned shared object an installed snapshot lists', async () => {
@@ -326,7 +410,7 @@ test('an episodes return may not draw a planned shared object an installed snaps
 	const snapshot = { observed_at: '2026-11-12T10:00:00Z', objects: { 'assets/props/umbrella': { type: 'prop' as const, name: 'Umbrella', segment: null, usable: false, from_add: null } }, edges: [] };
 	await d.install(await d.send('task-0001', '2026-11-12T10:00:00Z'), { snapshot });
 	const drawn = archive(d.store, { 'version.json': version(), 'image-1.png': 'umbrella' });
-	await assert.rejects(d.install(await d.send('task-0002', '2026-11-12T10:01:00Z'), { versions: { 'assets/props/umbrella/v1': drawn } }), /outside the task's scope, episodes/);
+	assert.deepEqual((await d.install(await d.send('task-0002', '2026-11-12T10:01:00Z'), { versions: { 'assets/props/umbrella/v1': drawn } })).leftOut.map(l => l.path), ['assets/props/umbrella/v1']);
 	assert.equal(existsSync(join(d.root, 'assets/props/umbrella')), false);
 });
 

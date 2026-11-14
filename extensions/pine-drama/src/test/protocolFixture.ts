@@ -23,7 +23,7 @@ export function reviewPlan(targets: readonly { object: string; version: string; 
 	for (const t of targets) {
 		const shown = Object.keys(t.files ?? { 'content.md': '' })[0];
 		for (const [name, text] of Object.entries(t.files ?? { 'content.md': t.object })) { files[`drama/${t.object}/${t.version}/${name}`] = text; }
-		files[`drama/${t.object}/${t.version}/version.json`] = JSON.stringify({ schema: 1, made_at: '2026-11-12T10:00:00Z', file: shown, inputs: [], prompt: null, from_choice: null });
+		files[`drama/${t.object}/${t.version}/version.json`] = JSON.stringify({ schema: 1, made_at: '2026-11-12T10:00:00Z', file: shown, inputs: [], prompt: null, from_import: null });
 	}
 	return { state: 'needs_input', text: 'Please review these exact versions.', files, review: targets.map(t => ({ object: t.object, version: t.version, reason: t.reason ?? 'The driver checked this version.' })) };
 }
