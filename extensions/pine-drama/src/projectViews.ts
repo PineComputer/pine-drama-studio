@@ -23,6 +23,9 @@ const ICONS: Partial<Record<Role, string>> = {
 	'script-episode': 'list-ordered', 'script-later': 'list-ordered', voices: 'mic', motion: 'run', note: 'info',
 };
 
+/** The roles of the asset rows (roleOf): characters, scenes and props, and their variants. */
+const ASSET_ROLES: ReadonlySet<Role> = new Set<Role>(['character', 'look', 'location', 'view', 'prop']);
+
 /** A project file's URI: a path in the project, or an absolute one (a downloaded preview, core/project.ts). */
 function fileUri(root: string, path: string): vscode.Uri {
 	return vscode.Uri.file(isAbsolute(path) ? path : join(root, ...path.split('/')));
@@ -37,8 +40,8 @@ export interface RowFile {
 /**
  * What a row opens on the person's click or Enter, never on a selection the Studio makes. A row that stands for a file
  * opens it with the editor's own open, as the Explorer does (`file`): 1. Script the screenplay, an episode under it the
- * screenplay at that episode's section (#73), any other stage its approved version, else its current one. A group with
- * nothing to open has no command, so clicking its label expands it.
+ * screenplay at that episode's section (#73), any other stage but an asset its approved version, else its current one.
+ * A group with nothing to open has no command, so clicking its label expands it.
  */
 export function rowCommand(node: OutlineNode, initialized = true, file?: RowFile): vscode.Command | undefined {
 	// An empty Script's next action: the project's main Chat, where the screenplay and brief are attached.
@@ -53,7 +56,9 @@ export function rowCommand(node: OutlineNode, initialized = true, file?: RowFile
 	if (node.role === 'characters' || node.role === 'scenes' || node.role === 'props') {
 		return { command: 'pineDrama.openGallery', title: 'Open', arguments: [node.role] };
 	}
-	if (node.stagePath && (node.role === 'character' || node.role === 'location')) {
+	// Every asset row, a base or a variant (its own card, in its asset's frame), selects its card on the assets canvas, as
+	// a layer selected in Figma's Layers panel is selected on the canvas; its file stays one context-menu entry away.
+	if (node.stagePath && ASSET_ROLES.has(node.role)) {
 		return { command: 'pineDrama.openAssetsCanvas', title: 'Open in the assets canvas', arguments: [node.stagePath] };
 	}
 	// An episode opens its seg editor, its main view; the editor's toggle opens its canvas.

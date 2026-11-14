@@ -32,12 +32,25 @@ test('in the empty New Project folder only the next action opens something; the 
 
 // A row that stands for a file opens it with the editor's own open, as the Explorer does: 1. Script the screenplay, a
 // stage its approved version.
-test('a file row opens its file with vscode.open; a character or a location opens the assets canvas on it', () => {
+test('a file row opens its file with vscode.open', () => {
 	const script: OutlineNode = { id: 'screenplay', label: '1. Script', kind: 'stage', role: 'script', stagePath: 'screenplay', hasChildren: true };
 	assert.deepEqual(rowCommand(script, true, file), { command: 'vscode.open', title: 'Open', arguments: [file.uri, { preview: true }] });
-	const lin: OutlineNode = { id: 'assets/characters/lin', label: 'Lin', kind: 'stage', role: 'character', stagePath: 'assets/characters/lin', hasChildren: false };
-	assert.deepEqual(rowCommand(lin, true, file), { command: 'pineDrama.openAssetsCanvas', title: 'Open in the assets canvas', arguments: ['assets/characters/lin'] });
 });
+
+// The person, 2026-11-13: a prop row went nowhere and a look or a view opened its picture file; every asset row goes to
+// its card on the assets canvas, a variant to its own card.
+for (const [role, stagePath] of [
+	['character', 'assets/characters/lin'], ['look', 'assets/characters/lin/variants/rain'],
+	['location', 'assets/scenes/pool'], ['view', 'assets/scenes/pool/variants/night'],
+	['prop', 'assets/props/lamp'], ['prop', 'assets/props/lamp/variants/lit'],
+] as const) {
+	test(`a ${role} row (${stagePath}) opens the assets canvas on its card, with a file or without`, () => {
+		const row: OutlineNode = { id: stagePath, label: stagePath, kind: 'stage', role, stagePath, hasChildren: false };
+		for (const at of [file, undefined]) {
+			assert.deepEqual(rowCommand(row, true, at), { command: 'pineDrama.openAssetsCanvas', title: 'Open in the assets canvas', arguments: [stagePath] });
+		}
+	});
+}
 
 // The person, 650: a Script episode with no breakdown yet did nothing when clicked; then, once broken down, it opened
 // its breakdown (#73: "我要看的是script，总给我看breakdown，breakdown在下边啊"). A row under 1. Script opens the screenplay at
