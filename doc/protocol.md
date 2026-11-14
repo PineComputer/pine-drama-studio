@@ -228,7 +228,7 @@ An error is `{code, message, action?, upgrade?}`. `message` is for the person, a
 
 The conversion is the client's alone. Its working records are its own, and only its outcome is normative.
 
-1. **Freeze.** No turn is sent and no person change is written. A return still owed is collected and installed first, by major 1's rules.
+1. **Freeze.** No turn is sent and no person change is written. While a major-1 turn has no return yet, the conversion refuses. It says that nothing was changed, and asks the person to finish or stop that turn in the previous client, with a link to its download. No major-1 installer is kept for this case.
 2. **Back up.** The folder is copied beside itself as `<name>.backup-<YYYY-MM-DD>`, by clonefile where the file system has it, otherwise as a plain copy. Going back to the older client stays possible.
 3. **Inventory.** Every major-1 version folder on disk goes in: those of installed turns, adopted ones, takes and discarded versions. So do every review and choice. The client records them with their archive hashes before it changes anything, so a cut-off conversion resumes from it.
 4. **History.** Per object, in `made_at` order, one commit per old version writes that version's shown file to the object's file and its records to its receipt, as `recovered`. So `git log` of the file lists every old version, discarded ones included. Unresolved paid calls keep their records until a turn settles them.
