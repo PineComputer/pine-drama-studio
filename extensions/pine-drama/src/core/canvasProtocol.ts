@@ -209,7 +209,7 @@ export type FromCanvas =
 	| { readonly v: typeof CANVAS_PROTOCOL; readonly type: 'failed'; readonly message: string }
 	/** A panel's card action (cardActions.ts), the asset grid's own. */
 	| ({ readonly v: typeof CANVAS_PROTOCOL; readonly type: 'entry'; readonly stageId: string } & EntryAction)
-	/** A box's Generate: a request for its picture or take, put in the Chat's input for the person to send. */
+	/** A box's Generate: a request for its picture or take, put in the input of the session that owns it for the person to send. */
 	| { readonly v: typeof CANVAS_PROTOCOL; readonly type: 'generate'; readonly stageId: string };
 
 const nullableString = (value: unknown): value is string | null => value === null || typeof value === 'string';

@@ -1,6 +1,6 @@
 // The seg editor's glue: one webview panel per episode, the
 // episode's main view, fed the seg editor's model (core/segEditor.ts). Its toggle and the canvas's open each other: an
-// episode's two views of one model. Its takes play inside it. Generate and Regenerate put the request in the Chat's
+// episode's two views of one model. Its takes play inside it. Generate and Regenerate put the request in its episode's session's
 // input for the person to send: sending it is their go, and BUDGET (core/instructions.ts) covers the
 // cost. Nothing here starts a paid call.
 import { isAbsolute } from 'node:path';
@@ -53,8 +53,8 @@ export function registerSegEditor(context: vscode.ExtensionContext, views: Proje
 				await send(panel, episode);
 				await show(panel, episode);
 			} else if (message?.type === 'generate') {
-				// The request in the Chat's input, not sent (`isPartialQuery`), as the canvas's Generate does (episodeCanvas.ts).
-				await vscode.commands.executeCommand('workbench.action.chat.open', { query: shootRequest(episode, message.seg, message.again), isPartialQuery: true });
+				// The request in its episode's session's input, not sent, as the canvas's Generate does (episodeCanvas.ts).
+				await vscode.commands.executeCommand('pineDrama.askOwner', `episodes/${episode}`, shootRequest(episode, message.seg, message.again));
 			} else if (message?.type === 'canvas') {
 				await vscode.commands.executeCommand('pineDrama.openEpisodeCanvas', { id: `episodes/${episode}` });
 			} else if (message?.type === 'go') {

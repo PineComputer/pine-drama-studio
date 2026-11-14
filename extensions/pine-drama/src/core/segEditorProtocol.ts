@@ -61,7 +61,7 @@ export type ToSegEditor =
 
 export type FromSegEditor =
 	| { readonly v: typeof SEG_PROTOCOL; readonly type: 'ready' }
-	/** Generate (`again` false) or Regenerate (true): put the seg's shoot request in the Chat's input for the person to send. */
+	/** Generate (`again` false) or Regenerate (true): put the seg's shoot request in its episode's session's input for the person to send. */
 	| { readonly v: typeof SEG_PROTOCOL; readonly type: 'generate'; readonly seg: string; readonly again: boolean }
 	/** The toggle: show this episode's canvas (section 12c, the episode's two views of one model). */
 	| { readonly v: typeof SEG_PROTOCOL; readonly type: 'canvas' }

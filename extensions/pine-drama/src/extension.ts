@@ -9,7 +9,7 @@ import { dramaRecordOf, installedSnapshots, previewVersions, publishKeptTurns, t
 import type { SecretVault } from './core/pinePort';
 import { setAsideNotice, Store } from './core/store';
 import { lockProjectWindow, type ProjectWindowLock } from './core/projectWindowLock';
-import { sessionProjectRoot } from './core/projectSessions';
+import { ownerOf, sessionProjectRoot } from './core/projectSessions';
 import { configLine, endpointHost, notSetUpText, pineConfig, type PineConfig } from './pineConfig';
 import { registerPineSessions, windowFileFolders } from './pineSessions';
 import { registerEpisodeCanvas } from './episodeCanvas';
@@ -270,9 +270,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 		}
 	}));
 
-	// Start Episode (B8): a Script episode with no breakdown opens a new session of this project, as New Session makes
-	// one, with the request in its input for the person to send. An episode is a peer of the Project Chat, which must
-	// exist first: a first send without it would make this session the Project Chat (projectSessions.ts).
+	// Generate and Start Episode put their request, unsent, in the input of the session that owns the item (ownerOf): an
+	// episode's one session, or the Project Chat for a shared item; asking again opens the same session.
+	const askOwner = async (id: string, query: string) => {
+		const project = sessions?.scope();
+		if (!project) { return; }
+		await startInChatView((command, ...args) => vscode.commands.executeCommand(command, ...args), tabs,
+			sessions!.newSession(ownerOf(project, id)).resource, query);
+	};
+	context.subscriptions.push(vscode.commands.registerCommand('pineDrama.askOwner', askOwner));
+	// Start Episode (B8): a Script episode with no breakdown asks its episode's session to make it. An episode is a peer
+	// of the Project Chat, which must exist first: a first send without it would make this session the Project Chat
+	// (projectSessions.ts).
 	context.subscriptions.push(vscode.commands.registerCommand('pineDrama.startEpisode', async (node?: OutlineNode) => {
 		const project = sessions?.scope();
 		const episode = node?.episode && episodeIn(node.episode);
@@ -281,8 +290,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 			void vscode.window.showInformationMessage('Pine: start the project in its Project Chat first; episodes come after its assets.');
 			return;
 		}
-		await startInChatView((command, ...args) => vscode.commands.executeCommand(command, ...args), tabs,
-			sessions!.newSession().resource, startEpisodeRequest(episode));
+		await askOwner(`episodes/${episode}`, startEpisodeRequest(episode));
 	}));
 
 	// The Chats list is upstream's Agent Sessions view inside Chat; this opens Chat and shows it.

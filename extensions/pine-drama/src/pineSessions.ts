@@ -53,7 +53,7 @@ export function registerPineSessions(
 	service: ChatService,
 	/** The Review index's submit, and its record of a continuation in flight (reviewView.ts), which the Chat cards show. */
 	review: { submitReviewDecisions(key: string, id: string, words?: string): Promise<void>; continuing(id: string): boolean; readonly onDidChangeContinuing: vscode.Event<void> },
-): { refresh(key: string): void; scope(): ProjectSessions | undefined; newSession(): vscode.ChatSessionItem } {
+): { refresh(key: string): void; scope(): ProjectSessions | undefined; newSession(key?: string): vscode.ChatSessionItem } {
 	const titleOf = (key: string) => service.chat(key)?.label;
 
 	const openFolder = (folder: vscode.Uri) => vscode.commands.executeCommand('vscode.openFolder', folder, { forceNewWindow: false });
@@ -251,8 +251,9 @@ export function registerPineSessions(
 	const reviewCards = registerReviewCards(context, service, output, key => scope()?.chats.some(c => c.key === key) ?? false, (key, id, words) => review.submitReviewDecisions(key, id, words), id => review.continuing(id));
 	context.subscriptions.push(review.onDidChangeContinuing(() => reviewCards.refresh()));
 	const controller = vscode.chat.createChatSessionItemController(SESSION_TYPE, async () => refresh());
-	// New Session's native "+" and Start Episode (B8) make a session the same way.
-	const newSession = (): vscode.ChatSessionItem => {
+	// New Session's native "+" makes a new session; Start Episode and Generate open the item owner's (ownerOf) the same
+	// way, as it is listed once it has been sent.
+	const newSession = (key = vscode.Uri.from({ scheme: SESSION_TYPE, path: `/session-${randomUUID()}` }).toString()): vscode.ChatSessionItem => {
 		const project = scope();
 		if (!project) {
 			// A current unsent request is not global history. The folder refusal gives its message back.
@@ -263,8 +264,9 @@ export function registerPineSessions(
 		}
 		// New Session is a new peer Chat, which its first send binds to the project (entryFor, bindFolder). Until the
 		// project has its Project Chat, the new session is that entry.
-		const item = project.main ? controller.createChatSessionItem(vscode.Uri.from({ scheme: SESSION_TYPE, path: `/session-${randomUUID()}` }), 'New Session') : mainEntry(project);
-		if (project.main) {
+		const sent = project.main && project.chats.find(c => c.key === key);
+		const item = sent ? toItem(sent, rows(project)) : project.main ? controller.createChatSessionItem(vscode.Uri.parse(key), 'New Session') : mainEntry(project);
+		if (project.main && !sent) {
 			item.metadata = { workingDirectoryPath: project.root };
 			item.timing = itemTiming(undefined, undefined, Date.now());
 		}
@@ -272,6 +274,7 @@ export function registerPineSessions(
 		return item;
 	};
 	controller.newChatSessionItemHandler = async () => newSession();
+	const rows = (project: ProjectSessions) => sessionEpisodes(project.chats, key => service.latestTurnFiles(key));
 	const entryCreatedAt = Date.now();
 	const mainEntry = (project: ProjectSessions): vscode.ChatSessionItem => {
 		const item = controller.createChatSessionItem(vscode.Uri.parse(project.mainKey), 'New Session');
@@ -310,7 +313,7 @@ export function registerPineSessions(
 	const refresh = (_key?: string) => {
 		reviewCards.refresh();
 		const project = scope();
-		const episodes = project && sessionEpisodes(project.chats, key => service.latestTurnFiles(key));
+		const episodes = project && rows(project);
 		controller.items.replace(project ? [
 			...(project.main ? [] : [mainEntry(project)]),
 			...project.chats.map(conv => toItem(conv, episodes)),

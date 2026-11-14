@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, realpathSync, renameSync, symlinkSync, unlinkSy
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { projectSessions, sessionProjectRoot } from '../core/projectSessions';
+import { ownerOf, projectSessions, sessionProjectRoot } from '../core/projectSessions';
 import { Store } from '../core/store';
 import { ChatService } from '../core/chats';
 import { FakePine, MemoryVault } from './fakePine';
@@ -76,6 +76,28 @@ test('a default main entry is deterministic and creates no Store row, runtime or
 	assert.equal(a.main, undefined);
 	assert.deepEqual(a.chats, []);
 	assert.equal(store.chat(a.mainKey), undefined);
+	store.close();
+});
+
+test('Generate and Start Episode ask the session that owns the item: its episode\'s one session, else the Project Chat', () => {
+	const { dir, root, other, store } = fixture();
+	const before = projectSessions(sessionProjectRoot([root])!, store.chats());
+	associateProject(store, 'main', root, { kind: 'main' });
+	const after = projectSessions(sessionProjectRoot([root])!, store.chats());
+	const ep6 = ownerOf(after, 'episodes/EP006');
+	// B2: a second Start Episode, sent or not, in this window or another, opens the same session, before the Project
+	// Chat exists as after. B6: the seg editor's and the canvas's Generate on the episode's items ask it too.
+	for (const id of ['episodes/EP006', 'episodes/EP006/seg01', 'episodes/EP006/seg01/shot01/keyframe']) {
+		assert.equal(ownerOf(after, id), ep6, id);
+		assert.equal(ownerOf(before, id), ep6, `${id} before the Project Chat`);
+	}
+	const alias = join(dir, 'alias'); symlinkSync(root, alias);
+	assert.equal(ownerOf(projectSessions(sessionProjectRoot([alias])!, store.chats()), 'episodes/EP006'), ep6, 'another window of the project');
+	// Another episode, the Project Chat and another project's EP006 are other sessions.
+	assert.equal(new Set([ep6, ownerOf(after, 'episodes/EP007/seg01'), after.mainKey, ownerOf(projectSessions(sessionProjectRoot([other])!, store.chats()), 'episodes/EP006')]).size, 4);
+	// B6, case 3: a shared item asks the Project Chat.
+	assert.equal(ownerOf(after, 'assets/characters/mia'), 'main');
+	assert.equal(ownerOf(before, 'assets/characters/mia'), before.mainKey);
 	store.close();
 });
 

@@ -16,7 +16,7 @@ export function plannedPrompt(drama: Drama, object: DramaObject): PlannedPrompt 
 }
 
 /**
- * The request to shoot a seg, put in the Chat's input for the person to send: the seg editor's Generate
+ * The request to shoot a seg, put in its episode's session's input for the person to send: the seg editor's Generate
  * and Regenerate (`again`, a new take), and a take card's Generate on the canvas. It asks for no second yes: BUDGET
  * (instructions.ts) covers the cost.
  */
