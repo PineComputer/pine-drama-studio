@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { ChatService, type Update } from '../core/chats';
-import { BUDGET, LOCAL_REVIEW, STANDING_PARAGRAPH } from '../core/instructions';
+import { BUDGET, STANDING_PARAGRAPH, UNKNOWN_CALL } from '../core/instructions';
 import type { PineConnection } from '../core/pinePort';
 import { Store } from '../core/store';
 import { FakePine, MemoryVault } from './fakePine';
@@ -40,8 +40,8 @@ test('a session\'s first run carries the instructions once, recorded as the Stud
 	await send(service, 'make a drama');
 	const first = sentText(store)[0];
 	assert.equal(first.text, `make a drama\n\n${STANDING_PARAGRAPH}`);
-	assert.ok(first.text.endsWith(LOCAL_REVIEW));
-	assert.equal(first.text.split(LOCAL_REVIEW).length - 1, 1);
+	assert.ok(first.text.endsWith(UNKNOWN_CALL));
+	assert.equal(first.text.split(UNKNOWN_CALL).length - 1, 1);
 	// The first run states the budget once, so the agent has no reason to ask about it.
 	assert.equal(first.text.split(BUDGET).length - 1, 1);
 	assert.ok(BUDGET.includes('drama/drama-cli.cfg.yaml') && BUDGET.includes('without asking me about cost') && BUDGET.includes('stop and tell me'));

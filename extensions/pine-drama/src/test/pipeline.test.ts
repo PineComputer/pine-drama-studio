@@ -1,22 +1,13 @@
 import { strict as assert } from 'node:assert';
 import { test } from 'node:test';
-import { BUDGET, EPISODE_SESSION, LOCAL_REVIEW, STANDING_INSTRUCTIONS, STANDING_PARAGRAPH, UNKNOWN_CALL, standingParagraph, withStandingInstructions } from '../core/instructions';
+import { BUDGET, EPISODE_SESSION, STANDING_INSTRUCTIONS, STANDING_PARAGRAPH, UNKNOWN_CALL, standingParagraph, withStandingInstructions } from '../core/instructions';
 
 // The Studio's standing instructions. Each rule is pinned by the words that carry it,
 // so a rewrite that drops a rule fails here. How the driver works between the person's stops is the skill's
 // ("Start or resume"): the Studio says only what the skill cannot know.
 
-test('the standing paragraph: the budget, the unknown call and local review; the person\'s text still comes first and unchanged', () => {
-	assert.deepEqual(STANDING_INSTRUCTIONS, [BUDGET, UNKNOWN_CALL, LOCAL_REVIEW], 'the local approval ownership contract is explicit; task transport remains separate');
-	assert.match(LOCAL_REVIEW, /^My approvals of a version reach you in the task's choices, which drama-cli applies before you start\./);
-	assert.match(LOCAL_REVIEW, /Keep doing the driver-owned acceptances/);
-	assert.match(LOCAL_REVIEW, /never run accept --person/);
-	// The rule is about a version, which the Studio's review records; the person's words on a continuity check are accepted
-	// with no version, and the skill has the agent record them (its third stop).
-	assert.match(LOCAL_REVIEW, /never run accept --person on a version \(vN or tNN\)/);
-	assert.match(LOCAL_REVIEW, /my words on a continuity check, which accept takes with no version, you record as the skill says/);
-	// One rule with the skill's five stops: a file the person accepts keeps its review targets; a canvas go accepts none.
-	assert.match(LOCAL_REVIEW, /Ask me to approve a file that is mine to accept, such as a take or a photoreal storyboard I asked for, through the task's review, never by reading a Chat reply as approval; my go at a canvas stop approves no file\./);
+test('the standing paragraph: the budget and the unknown call; the person\'s text still comes first and unchanged', () => {
+	assert.deepEqual(STANDING_INSTRUCTIONS, [BUDGET, UNKNOWN_CALL]);
 	assert.equal(withStandingInstructions('make a drama'), `make a drama\n\n${STANDING_PARAGRAPH}`);
 });
 

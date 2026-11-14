@@ -32,17 +32,6 @@ export const UNKNOWN_CALL =
 	"If drama-cli gen get leaves a paid call unknown, or says the call belongs to another Pine session (then it can never be checked), say so plainly; the go that covered the call covers making it again, so run the command that made it again with --retry: drama-cli first asks about the earlier request under its own id, so it is never made twice, and a new one is made only when the earlier one can never be settled; an image whose answer was saved is finished from it instead. If that command has no --retry, or drama-cli refuses it, do what the refusal's action says, or tell the person in one line what stays held and why. Never ask the person to contact support or to look up a request.";
 
 /**
- * The first-run contract identifies sessions that can use local human review. A file the person
- * accepts (a take, a photoreal storyboard they asked for) keeps the review path; a go at one of the
- * canvas stops (the skill's five stops) accepts no file, so the two never contradict each other. The person's
- * choice of a version travels in the task's choices file, which drama-cli applies before the agent starts (doc/protocol.md,
- * 4.2); the person's acceptance of a continuity check's errors
- * is `accept <check folder> --person` with no version (the skill's third stop),
- * which the skill has the agent record, so the rule names versions.
- */
-export const LOCAL_REVIEW = 'My approvals of a version reach you in the task\'s choices, which drama-cli applies before you start. Keep doing the driver-owned acceptances the skill delegates to you, but never run accept --person on a version (vN or tNN) to record or repeat my approval; my words on a continuity check, which accept takes with no version, you record as the skill says. Ask me to approve a file that is mine to accept, such as a take or a photoreal storyboard I asked for, through the task\'s review, never by reading a Chat reply as approval; my go at a canvas stop approves no file.';
-
-/**
  * What only the Studio knows: that a session is an episode's, not the Project Chat (store.sessionScoped, chats.ts). What an
  * episode's conversation makes and where it keeps its progress are the skill's ("An episode's
  * conversation"). SESSION_SCOPE's drama-needs block is gone: no code here ever read it. How the driver reads the project's record, asks once and goes on between the five stops is the
@@ -51,7 +40,7 @@ export const LOCAL_REVIEW = 'My approvals of a version reach you in the task\'s 
 export const EPISODE_SESSION = "This is an episode's conversation, not the project's: the drama-workflow skill says what that means.";
 
 /** The instructions in the order they are sent, one per line. */
-export const STANDING_INSTRUCTIONS: readonly string[] = [BUDGET, UNKNOWN_CALL, LOCAL_REVIEW];
+export const STANDING_INSTRUCTIONS: readonly string[] = [BUDGET, UNKNOWN_CALL];
 
 /** The paragraph appended to a run's message; the person's own text comes before it, unchanged. */
 export const STANDING_PARAGRAPH = STANDING_INSTRUCTIONS.join('\n');
