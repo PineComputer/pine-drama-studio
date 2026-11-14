@@ -1,0 +1,12 @@
+{
+	"schema": 2,
+	"type": "character",
+	"name": "Lin",
+	"shown_file": null,
+	"relations": [
+		{
+			"kind": "appears_in",
+			"to": "episodes/EP001"
+		}
+	]
+}

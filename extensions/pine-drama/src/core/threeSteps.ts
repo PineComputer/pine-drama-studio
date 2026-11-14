@@ -1,9 +1,9 @@
 // The three steps' words that are not objects: an episode's
-// decomposition under Script, which steps are reached, and the kinds' counts, all from the drama. No vscode import.
+// decomposition under Script, which steps are reached, and the kinds' counts, all from the read model. No vscode import.
 
 import { kindCount } from './assetStatus';
 import type { Collection } from './galleryProtocol';
-import type { Drama, DramaObject, OutlineNode } from './project';
+import type { OutlineNode, ProjectObject, ProjectReadModel } from './project';
 
 /** An episode's decomposition under Script: the label for its row, and whether "Go to episode" applies. */
 interface Decomposition {
@@ -11,12 +11,9 @@ interface Decomposition {
 	readonly decomposed: boolean;
 }
 
-/** An episode's breakdown, in the person's words: none is "Not started"; usable is "Shots planned"; else the snapshot's `why`. */
-export function decomposition(breakdown: DramaObject | undefined): Decomposition {
-	if (!breakdown?.versions.length) {
-		return { text: 'Not started', decomposed: false };
-	}
-	return breakdown.usable ? { text: 'Shots planned', decomposed: true } : { text: breakdown.why ?? 'not usable yet', decomposed: false };
+/** An episode's breakdown, in the person's words: none written is "Not started"; a written one is "Shots planned". */
+export function decomposition(breakdown: ProjectObject | undefined): Decomposition {
+	return breakdown?.shownFile ? { text: 'Shots planned', decomposed: true } : { text: 'Not started', decomposed: false };
 }
 
 /** The action on a Script episode not broken down yet: a new session for it (B8; the skill names it too). */
@@ -43,12 +40,12 @@ interface OpenSteps {
 	readonly episodes: boolean;
 }
 
-/** 2. Assets opens once the drama has an asset; 3. Episodes once an episode's breakdown is accepted. */
-export function openSteps(drama: Drama): OpenSteps {
+/** 2. Assets opens once the project has an asset; 3. Episodes once an episode's breakdown is written. */
+export function openSteps(drama: ProjectReadModel): OpenSteps {
 	const objects = [...drama.objects.values()];
 	return {
 		assets: objects.some(o => o.type === 'character' || o.type === 'scene' || o.type === 'prop'),
-		episodes: objects.some(o => o.type === 'breakdown' && o.resolved.accepted !== null),
+		episodes: objects.some(o => o.type === 'breakdown' && o.shownFile !== null),
 	};
 }
 
@@ -60,14 +57,14 @@ interface Lock {
 
 /**
  * The locked rows (627/628: as Pippit shows its later steps): 2. Assets before any asset, 3. Episodes before
- * a breakdown is accepted, and audio and motion until drama-cli has their stages. Null for a row that is open.
+ * a breakdown is written, and audio and motion until drama-cli has their stages. Null for a row that is open.
  */
 export function lockOf(id: string, open: OpenSteps): Lock | null {
 	if (id === '#assets' && !open.assets) {
 		return { description: 'available after the bible', tooltip: 'Available after the bible: it lists every character, scene and prop' };
 	}
 	if (id === 'episodes' && !open.episodes) {
-		return { description: 'available after the episodes are broken down', tooltip: `Start an episode from its row under 1. Script (${START_EPISODE}); it opens here once its breakdown is approved, in its seg editor` };
+		return { description: 'available after the episodes are broken down', tooltip: `Start an episode from its row under 1. Script (${START_EPISODE}); it opens here once its breakdown is written, in its seg editor` };
 	}
 	if (id === '#audio') {
 		// drama-cli has no voice stage: a voice is the bible's text.
@@ -83,16 +80,16 @@ export function lockOf(id: string, open: OpenSteps): Lock | null {
  * A file the tree has no row for but whose object Versions still follows: the bible's, since the bible has no row of
  * its own. The node is detached: Versions shows it, the tree selects nothing.
  */
-export function detachedStage(drama: Drama, path: string): (OutlineNode & { readonly detached: true }) | undefined {
+export function detachedStage(drama: ProjectReadModel, path: string): (OutlineNode & { readonly detached: true }) | undefined {
 	const bible = [...drama.objects.values()].find(o => o.type === 'bible' && (path === o.id || path.startsWith(`${o.id}/`)));
 	return bible ? { id: bible.id, label: 'Bible', kind: 'stage', role: 'bible', stagePath: bible.id, hasChildren: false, detached: true } : undefined;
 }
 
-/** A kind's row under Assets: how many assets, and how many of their objects are still to be set. */
-export function kindRow(kind: Collection, drama: Drama): { description: string; tooltip: string } {
+/** A kind's row under Assets: how many assets, and how many of their objects are still to be made. */
+export function kindRow(kind: Collection, drama: ProjectReadModel): { description: string; tooltip: string } {
 	const { assets, toSet } = kindCount(drama, kind);
 	return {
-		description: [`${assets}`, toSet ? `${toSet} to set` : ''].filter(Boolean).join(' · '),
-		tooltip: `${assets} ${kind}; ${toSet} of their pictures still to be set`,
+		description: [`${assets}`, toSet ? `${toSet} to make` : ''].filter(Boolean).join(' · '),
+		tooltip: `${assets} ${kind}; ${toSet} of their pictures still to be made`,
 	};
 }

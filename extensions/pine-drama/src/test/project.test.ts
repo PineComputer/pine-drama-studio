@@ -1,179 +1,130 @@
 import { strict as assert } from 'node:assert';
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { DramaProject, episodeOfNode, readDrama, versionFile, versionTitle } from '../core/project';
+import { lineageMessage } from '../core/canvasMessage';
+import { onBoard } from '../core/canvasLayout';
+import { DramaProject, episodeOfNode, fileAddressByVersion, objectTitle, readProjectFromFolder, versionTitle } from '../core/project';
 import { decomposition } from '../core/threeSteps';
-import type { Choices, Snapshot } from '../core/protocol';
-import type { ScopedSnapshot, TasksOf } from '../core/project';
 
-// The drama as the readers see it (core/project.ts, readDrama), on the protocol fixture (test-fixtures/protocol): the
-// rules that, broken, would show the person a removed object, hide one that exists, or drop their own edit or add.
-const FIXTURE = join(__dirname, '..', '..', 'test-fixtures', 'protocol');
-const snapshot = (name: string) => JSON.parse(readFileSync(join(FIXTURE, name), 'utf8')) as Snapshot;
-/** The `n`th installed return's snapshot: task-<n>, its request sent at minute 2n and its return installed at minute 2n + 1. */
-const at = (minute: number) => `2026-11-12T13:${String(minute).padStart(2, '0')}:00Z`;
-const scoped = (scope: 'project' | 'episodes') => (s: Snapshot, n: number): ScopedSnapshot =>
-	({ scope, snapshot: s, task: `task-${n}`, sent: at(2 * n), installed: at(2 * n + 1) });
-const project = scoped('project');
-const episodes = scoped('episodes');
-const PROJECT = snapshot('snapshot-project.json');
-const EPISODES = snapshot('snapshot-episodes.json');
+// The project as every view reads it (core/project.ts, readProjectFromFolder), on the major-2 fixture
+// (test-fixtures/project-v2): the rules that, broken, would hide an object, show a folder that is none, lose what a
+// picture was made from, or name an object wrongly.
+const FIXTURES = join(__dirname, '..', '..', 'test-fixtures', 'project-v2');
 
-/** A copy of the fixture's folder with `choices` as its choices.json. */
-function folder(choices?: Choices): string {
-	const root = mkdtempSync(join(tmpdir(), 'pds-drama-'));
-	cpSync(join(FIXTURE, 'drama'), root, { recursive: true });
-	if (choices) { writeFileSync(join(root, 'choices.json'), JSON.stringify(choices)); }
+/** A copy of one of the fixture's projects. */
+function copy(name: 'full' | 'after-bible'): string {
+	const root = mkdtempSync(join(tmpdir(), 'pds-project-'));
+	cpSync(join(FIXTURES, name), root, { recursive: true });
 	return root;
 }
 
-/** `snapshot` without `id`, observed later. */
-const without = (from: Snapshot, id: string, at: string): Snapshot =>
-	({ observed_at: at, objects: Object.fromEntries(Object.entries(from.objects).filter(([key]) => key !== id)), edges: from.edges.filter(e => e.from !== id && e.to !== id) });
-
-test('each object comes from the latest snapshot that lists it; a later snapshot of its owner that omits it removes it, and no other does', async () => {
-	const root = folder();
-	const drama = await readDrama(root, () => [project(PROJECT, 1), episodes(EPISODES, 2)]);
-	assert.equal(drama.objects.get('assets/characters/lin')?.observedAt, PROJECT.observed_at);
-	assert.equal(drama.objects.get('episodes/EP001')?.observedAt, EPISODES.observed_at, 'the episode session listed EP001 later');
-	assert.ok(drama.objects.has('episodes/EP001/segments/seg02'));
-	// An episode session's snapshot lists no shared object, and removes none.
-	assert.ok(drama.objects.has('assets/props/umbrella'));
-	assert.ok(drama.edges.some(e => e.kind === 'needs' && e.from === 'episodes/EP001'), "the episode's needs come with it");
-	// The Project Chat's later snapshot without the umbrella removes it, and the edges to it.
-	const later = await readDrama(root, () => [project(PROJECT, 1), episodes(EPISODES, 2), project(without(PROJECT, 'assets/props/umbrella', '2026-11-12T12:00:00Z'), 3)]);
-	assert.ok(!later.objects.has('assets/props/umbrella'));
-	assert.ok(!later.edges.some(e => e.to === 'assets/props/umbrella'));
-	assert.ok(later.objects.has('episodes/EP001/segments/seg01'), "the Project Chat's snapshot removes no object inside an episode");
-	// A later snapshot listing EP001 without seg02 removes seg02.
-	const episode = await readDrama(root, () => [project(PROJECT, 1), episodes(EPISODES, 2), episodes(without(EPISODES, 'episodes/EP001/segments/seg02', '2026-11-12T12:30:00Z'), 3)]);
-	assert.ok(!episode.objects.has('episodes/EP001/segments/seg02'));
-	assert.ok(episode.objects.has('episodes/EP001/segments/seg01'));
+test('every folder holding object.json is an object, with its shown file, its receipt, its text and its episode', async () => {
+	const drama = await readProjectFromFolder(copy('full'));
+	assert.deepEqual([...drama.objects.keys()].sort(), [
+		'assets/characters/lin', 'assets/characters/lin/variants/rain', 'assets/props/umbrella', 'assets/scenes/office', 'assets/scenes/street', 'bible',
+		'episodes/EP001', 'episodes/EP001/breakdown', 'episodes/EP001/keyframe/seg01/shot01', 'episodes/EP001/segments/seg01', 'episodes/EP001/segments/seg02', 'screenplay',
+	]);
+	const lin = drama.objects.get('assets/characters/lin')!;
+	assert.deepEqual([lin.type, lin.name, lin.shownFile, lin.episode, lin.description, lin.prompt],
+		['character', 'Lin', 'assets/characters/lin/look.png', null, 'A reporter, calm under pressure.\n', 'Lin, 30, grey wool coat\n']);
+	assert.equal(lin.shownFileReceipt?.paidCallId, 'call-lin-look-0002');
+	const take = drama.objects.get('episodes/EP001/segments/seg01')!;
+	assert.deepEqual([take.episode, take.segment, take.shownFile], ['EP001', 'seg01', 'episodes/EP001/segments/seg01/take.mp4']);
+	assert.deepEqual(take.objectsSentByDrawRequest, ['episodes/EP001/keyframe/seg01/shot01', 'assets/characters/lin'], 'what its draw request sends, in order');
+	assert.equal(drama.objects.get('assets/scenes/office')!.shownFileReceipt, null, "the person's own picture has no receipt");
+	assert.equal(drama.objects.get('assets/scenes/street')!.shownFile, null, 'a planned object shows nothing');
+	assert.deepEqual(drama.objects.get('episodes/EP001/segments/seg02')!.objectsSentByDrawRequest, ['assets/characters/lin', 'assets/props/umbrella', 'assets/scenes/street'],
+		'an undrawn object has the same list');
+	assert.equal(drama.objects.get('assets/scenes/office')!.setting, 'interior');
 });
 
-test("the person's choices win: removed hides an object with its variants; their prompt and description show over the agent's", async () => {
-	const root = folder({ schema: 1, objects: {
-		'assets/characters/lin': { removed: true },
-		'assets/scenes/office': { prompt: 'My office, at dusk', description: 'My newsroom' },
-		'assets/props/umbrella': { prompt: '' },
-	}, added: [], imports: [] });
-	const drama = await readDrama(root, () => [project(PROJECT, 1), episodes(EPISODES, 2)]);
-	assert.ok(!drama.objects.has('assets/characters/lin'));
-	assert.ok(!drama.objects.has('assets/characters/lin/variants/rain'), 'a variant of a removed asset is removed with it');
-	assert.ok(!drama.edges.some(e => e.from.startsWith('assets/characters/lin') || e.to.startsWith('assets/characters/lin')));
-	assert.equal(drama.objects.get('assets/scenes/office')?.prompt, 'My office, at dusk');
-	assert.equal(drama.objects.get('assets/scenes/office')?.description, 'My newsroom');
-	assert.equal(drama.objects.get('assets/props/umbrella')?.prompt, '', 'an emptied prompt is the person\'s, not the agent\'s');
+test("the edges are each variant's derivation and the relations object.json states, between objects the project holds", async () => {
+	const root = copy('full');
+	// A relation to an object the project does not hold draws nothing.
+	writeFileSync(join(root, 'assets/props/umbrella/object.json'), JSON.stringify({ schema: 2, type: 'prop', name: 'Umbrella', shown_file: 'picture.png',
+		relations: [{ kind: 'appears_in', to: 'episodes/EP009' }] }));
+	const drama = await readProjectFromFolder(root);
+	assert.deepEqual(drama.edges.map(e => `${e.kind} ${e.from} → ${e.to}`).sort(), [
+		'appears_in assets/characters/lin → episodes/EP001',
+		'needs episodes/EP001 → assets/props/umbrella',
+		'variant_of assets/characters/lin/variants/rain → assets/characters/lin',
+	]);
 });
 
-test("an add shows until a snapshot names it in an object's from_add", async () => {
-	const add = { id: 'add-0002-taxi', type: 'prop' as const, name: 'Taxi', description: 'A yellow cab.' };
-	const root = folder({ schema: 1, objects: {}, added: [add], imports: [] });
-	const before = await readDrama(root, () => [project(PROJECT, 1)]);
-	assert.deepEqual(before.adds.map(a => a.id), ['add-0002-taxi']);
-	const made: Snapshot = { ...PROJECT, observed_at: '2026-11-12T13:00:00Z', objects: { ...PROJECT.objects,
-		'assets/props/taxi': { type: 'prop', name: 'Taxi', segment: null, usable: false, from_add: 'add-0002-taxi' } } };
-	const after = await readDrama(root, () => [project(PROJECT, 1), project(made, 2)]);
-	assert.deepEqual(after.adds, []);
-	assert.ok(after.objects.has('assets/props/taxi'));
+test('a folder without object.json, or under a name starting with ".", is no object; makingNow names the objects being made', async () => {
+	const root = copy('after-bible');
+	mkdirSync(join(root, 'assets/characters/lin/looks/face'), { recursive: true });
+	writeFileSync(join(root, 'assets/characters/lin/looks/face/face.png'), 'x');
+	mkdirSync(join(root, '.git/thing'), { recursive: true });
+	writeFileSync(join(root, '.git/thing/object.json'), JSON.stringify({ schema: 2, type: 'prop', name: 'Hidden', shown_file: null }));
+	const drama = await readProjectFromFolder(root, new Set(['assets/characters/lin']));
+	assert.deepEqual([...drama.objects.keys()].sort(), ['assets/characters/lin', 'assets/props/umbrella', 'assets/scenes/office', 'bible', 'episodes/EP001', 'screenplay']);
+	assert.equal(drama.objects.get('assets/characters/lin')!.makingNow, true);
+	assert.equal(drama.objects.get('assets/props/umbrella')!.makingNow, false);
+	assert.ok([...drama.objects.values()].filter(o => o.type === 'character' || o.type === 'scene' || o.type === 'prop').every(o => o.shownFile === null),
+		'right after the bible every asset is planned');
 });
 
-test('a downloaded version shows as its object\'s newest until its return installs it; then the installed one is read', async () => {
-	const root = folder();
-	const dir = mkdtempSync(join(tmpdir(), 'pds-preview-'));
-	writeFileSync(join(dir, 'version.json'), JSON.stringify({ schema: 1, made_at: '2026-11-12T12:00:00Z', file: 'image-1.png', inputs: [], prompt: 'Lin, rain', from_import: null }));
-	writeFileSync(join(dir, 'image-1.png'), 'png');
-	const previews = () => [{ object: 'assets/characters/lin', version: 'v3', dir }];
-	const before = (await readDrama(root, () => [project(PROJECT, 1)], previews)).objects.get('assets/characters/lin')!;
-	assert.equal(before.resolved.current, 'v3');
-	assert.equal(versionFile(before, 'v3'), join(dir, 'image-1.png'), 'its file is read from where it was downloaded');
-	// Installed: the folder's version is the one read, once.
-	mkdirSync(join(root, 'assets', 'characters', 'lin', 'v3'), { recursive: true });
-	writeFileSync(join(root, 'assets', 'characters', 'lin', 'v3', 'version.json'), readFileSync(join(dir, 'version.json')));
-	const after = (await readDrama(root, () => [project(PROJECT, 1)], previews)).objects.get('assets/characters/lin')!;
-	assert.equal(after.versions.filter(v => v.id === 'v3').length, 1);
-	assert.equal(versionFile(after, 'v3'), 'assets/characters/lin/v3/image-1.png');
-});
-
-test("the cards' marks: a choice its scope's last request did not carry is outgoing; a carried add is in flight until its return; the last return's problems", async () => {
-	const add = { id: 'add-0003-bus', type: 'prop' as const, name: 'Bus', description: 'A night bus.' };
-	const choices: Choices = { schema: 1, objects: { 'assets/scenes/office': { description: 'My newsroom' } }, added: [add], imports: [] };
-	const root = folder(choices);
-	const carried: Choices = { schema: 1, objects: {}, added: [add], imports: [] };
-	const problem = { code: 'not_allowed' as const, message: 'The umbrella cannot be removed: EP001 needs it.', action: 'Remove it from EP001 first.' };
-	const tasks = (handled: boolean) => ({
-		requests: () => [{ sent: '2026-11-12T12:00:00Z', chat: 'chat-project', request: { turn: 'task-0001-aaaa', scope: 'project' as const, choices: carried, versions: {} } }],
-		returns: () => [
-			{ task: 'task-0000-zzzz', scope: 'project', sent: '2026-11-12T11:00:00Z', problems: [{ ref: 'assets/props/umbrella', error: problem }] },
-			...(handled ? [{ task: 'task-0001-aaaa', scope: 'project', sent: '2026-11-12T12:00:00Z', problems: [] }] : []),
-		],
-	});
-	const running = await readDrama(root, () => [project(PROJECT, 1)], () => [], tasks(false));
-	assert.deepEqual(running.objects.get('assets/scenes/office')?.outgoing, { chat: 'chat-project' }, 'the description the request did not carry');
-	assert.equal(running.objects.get('assets/characters/lin')?.outgoing, null, 'no choice, nothing outgoing');
-	assert.equal(running.addsInFlight.get('add-0003-bus'), 'chat-project');
-	assert.equal(running.objects.get('assets/props/umbrella')?.problem?.message, problem.message);
-	// Its return dealt with: no longer in flight, and the scope's last return named no problem.
-	const back = await readDrama(root, () => [project(PROJECT, 1)], () => [], tasks(true));
-	assert.equal(back.addsInFlight.size, 0);
-	assert.equal(back.objects.get('assets/props/umbrella')?.problem, null);
-});
-
-test("a shared object an episode turn made stays until a snapshot whose turn knew it omits it, whichever session returned it", async () => {
-	const root = folder();
-	const rain = 'assets/scenes/office/variants/rain_night';
-	// EP001's session makes a new variant of the office: its snapshot lists it, with its edge to the office.
-	const made: Snapshot = { ...EPISODES, observed_at: '2026-11-12T13:05:00Z',
-		objects: { ...EPISODES.objects, [rain]: { type: 'variant', name: 'Office, rainy night', segment: null, usable: false, from_add: null } },
-		edges: [...EPISODES.edges, { from: rain, to: 'assets/scenes/office', kind: 'variant_of' }] };
-	const episode = (n: number, sent: number, installed: number): ScopedSnapshot => ({ scope: 'episodes', snapshot: made, task: `task-${n}`, sent: at(sent), installed: at(installed) });
-	const chat = (n: number, sent: number, installed: number): ScopedSnapshot =>
-		({ scope: 'project', snapshot: { ...PROJECT, observed_at: at(installed - 1) }, task: `task-${n}`, sent: at(sent), installed: at(installed) });
-	const requests = (...carrying: { n: number; folders: string[] }[]): TasksOf => ({
-		requests: () => carrying.map(c => ({ sent: at(0), chat: 'chat', request: { turn: `task-${c.n}`, scope: 'project' as const, choices: { schema: 1 as const, objects: {}, added: [], imports: [] }, versions: Object.fromEntries(c.folders.map(f => [f, 'h'])) } })),
-		returns: () => [],
-	});
-	// A Project Chat turn sent before the episode's return installed never saw the variant: its snapshot does not remove it.
-	const unseen = await readDrama(root, () => [project(PROJECT, 1), episode(2, 4, 8), chat(3, 6, 10)], () => [], requests());
-	assert.ok(unseen.objects.has(rain), 'merged by id from the episode snapshot');
-	assert.ok(unseen.edges.some(e => e.from === rain && e.kind === 'variant_of'), 'with its edge');
-	// One sent after that install knew it: its omission removes it.
-	const knew = await readDrama(root, () => [project(PROJECT, 1), episode(2, 4, 8), chat(3, 12, 14)], () => [], requests());
-	assert.ok(!knew.objects.has(rain));
-	// So does one whose request carried a version folder of it, though no snapshot listed it before.
-	const carried = await readDrama(root, () => [project(PROJECT, 1), episode(2, 4, 8), chat(3, 6, 10)], () => [], requests({ n: 3, folders: [`${rain}/v1`] }));
-	assert.ok(!carried.objects.has(rain));
-});
-
-// B18: a 53-episode screenplay listed 53 rows, each "Decomposed" or "Not decomposed".
 test('Script lists the episodes under way, folds the ones not started into one row, and says so in plain words', async () => {
-	const episode = (name: string) => ({ type: 'episode' as const, name, segment: null, usable: true, from_add: null });
-	const listed: Snapshot = { ...PROJECT, objects: { ...PROJECT.objects, screenplay: { type: 'screenplay', name: 'Screenplay', segment: null, usable: true, from_add: null },
-		'episodes/EP002': episode('EP002 Second'), 'episodes/EP003': episode('EP003 Third') } };
-	const drama = new DramaProject(folder(), () => [project(listed, 1), episodes(EPISODES, 2)]);
-	const [script] = await drama.children();
-	const rows = await drama.children(script);
+	const root = copy('full');
+	for (const [id, name] of [['EP002', 'EP002 Second'], ['EP003', 'EP003 Third']]) {
+		mkdirSync(join(root, 'episodes', id), { recursive: true });
+		writeFileSync(join(root, 'episodes', id, 'object.json'), JSON.stringify({ schema: 2, type: 'episode', name, shown_file: null }));
+	}
+	const project = new DramaProject(root);
+	const [script] = await project.children();
+	const rows = await project.children(script);
 	assert.deepEqual(rows.map(r => r.label), ['EP001 The Interview', '2 not started yet']);
-	assert.deepEqual((await drama.children(rows[1])).map(r => [r.label, r.episode]), [['EP002 Second', 'episodes/EP002'], ['EP003 Third', 'episodes/EP003']]);
-	const objects = (await drama.drama()).objects;
+	assert.deepEqual((await project.children(rows[1])).map(r => [r.label, r.episode]), [['EP002 Second', 'episodes/EP002'], ['EP003 Third', 'episodes/EP003']]);
+	const objects = (await project.drama()).objects;
 	assert.equal(decomposition(objects.get('episodes/EP001/breakdown')).text, 'Shots planned');
 	assert.equal(decomposition(undefined).text, 'Not started');
-	assert.deepEqual((await drama.locate('#script/episodes/EP003')).map(n => n.id), ['screenplay', '#script/later', '#script/episodes/EP003'], 'a folded episode is still found');
+	assert.deepEqual((await project.locate('#script/episodes/EP003')).map(n => n.id), ['screenplay', '#script/later', '#script/episodes/EP003'], 'a folded episode is still found');
 	// Its canvas and seg editor open from its row (Codex on B18): the row names its episode.
-	const folded = (await drama.children(rows[1]))[1];
+	const folded = (await project.children(rows[1]))[1];
 	assert.equal(episodeOfNode(folded), 'EP003');
 	assert.equal(episodeOfNode(rows[0]), 'EP001');
 });
 
-// B13: a review card titled versions by their folders' paths ("episodes/EP001/segments/seg02 t01"); the canvas's
-// reference tooltips did too. Both now name a version as the canvas names its card.
-test("a version's name for the person: a variant after its asset, an episode's object after its episode, a take by its number", async () => {
-	const drama = await readDrama(folder(), () => [project(PROJECT, 1), episodes(EPISODES, 2)]);
-	assert.equal(versionTitle(drama, 'assets/characters/lin/variants/rain', 'v1'), 'Lin · In the rain · v1');
-	assert.equal(versionTitle(drama, 'assets/characters/lin', 'v3'), 'Lin · v3');
-	assert.equal(versionTitle(drama, 'episodes/EP001/segments/seg02', 't01'), 'EP001 · seg02 · take 1');
-	assert.equal(versionTitle(drama, 'episodes/EP001', 'v1'), 'EP001 The Interview · v1');
-	assert.equal(versionTitle(drama, 'assets/props/kettle', 'v2'), 'kettle · v2', 'an object no snapshot names yet, by its folder');
+test("an object's name for the person: a variant after its asset, an episode's object after its episode", async () => {
+	const drama = await readProjectFromFolder(copy('full'));
+	assert.equal(objectTitle(drama, 'assets/characters/lin/variants/rain'), 'Lin · In the rain');
+	assert.equal(objectTitle(drama, 'episodes/EP001/segments/seg02'), 'EP001 · seg02');
+	assert.equal(objectTitle(drama, 'episodes/EP001'), 'EP001 The Interview');
+	assert.equal(versionTitle(drama, 'episodes/EP001/segments/seg02', 't01'), 'EP001 · seg02 · take 1', 'the major-1 turn flow names a version so until it moves');
+	assert.equal(objectTitle(drama, 'assets/props/kettle'), 'kettle', 'an object the project does not hold, by its folder');
+});
+
+test('a document of another protocol major in the project is refused whole, an object or a receipt', async () => {
+	const object = copy('full');
+	writeFileSync(join(object, 'assets/props/umbrella/object.json'), JSON.stringify({ schema: 3, type: 'prop', name: 'Umbrella', shown_file: null }));
+	await assert.rejects(readProjectFromFolder(object), /assets\/props\/umbrella\/object\.json is a document of protocol major 3/);
+	const receipt = copy('full');
+	writeFileSync(join(receipt, 'assets/props/umbrella/picture.png.receipt.json'), JSON.stringify({ schema: 1 }));
+	await assert.rejects(readProjectFromFolder(receipt), /picture\.png\.receipt\.json is a document of protocol major 1/);
+});
+
+test("a file's webview address changes when the file does, since a result overwrites it in place", async () => {
+	const root = copy('full');
+	const address = fileAddressByVersion(root, rel => `webview:${rel}`);
+	const before = address('assets/characters/lin/look.png');
+	writeFileSync(join(root, 'assets/characters/lin/look.png'), 'a new look, longer than the old one');
+	assert.notEqual(address('assets/characters/lin/look.png'), before);
+	assert.match(before, /^webview:assets\/characters\/lin\/look\.png\?v=\d+-\d+$/);
+	assert.equal(address('assets/props/none.png'), 'webview:assets/props/none.png', 'a file not there has its plain address');
+});
+
+test('an object of a type the Studio does not know is kept as a plain card; a listed object the project lacks draws no line', async () => {
+	const root = copy('full');
+	mkdirSync(join(root, 'episodes/EP001/sound/seg01'), { recursive: true });
+	writeFileSync(join(root, 'episodes/EP001/sound/seg01/sound.wav'), 'RIFF');
+	writeFileSync(join(root, 'episodes/EP001/sound/seg01/object.json'), JSON.stringify({ schema: 2, type: 'sound', name: 'seg01 sound', shown_file: 'sound.wav',
+		segment: 'seg01', objects_sent_by_draw_request: ['episodes/EP001/segments/seg01', 'assets/props/kettle', 'episodes/EP001/segments/seg01'] }));
+	const drama = await readProjectFromFolder(root);
+	assert.equal(drama.objects.get('episodes/EP001/sound/seg01')?.type, 'sound', 'kept, its type as written');
+	const message = await lineageMessage({ root, episode: 'EP001', drama, layout: {}, focus: undefined, viewport: undefined, src: rel => rel });
+	assert.ok(message.cards.filter(onBoard).some(c => c.id === 'episodes/EP001/sound/seg01'), 'its card is on its episode\'s board, a file it cannot draw too');
+	assert.deepEqual(message.links.filter(l => l.to === 'episodes/EP001/sound/seg01').map(l => l.from), ['episodes/EP001/segments/seg01'], 'one line from an object sent twice, none from one the project lacks');
 });

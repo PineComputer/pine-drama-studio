@@ -10,11 +10,10 @@ import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { readChoices, updateChoices } from '../core/choices';
 import { UnsupportedMajor, type Request, type Return } from '../core/protocol';
-import { readDrama, roleOf } from '../core/project';
 import { list as listTar } from 'tar';
 import { installReturn, previewProgress, readReturn } from '../core/resultImporter';
 import { fileKey, Holders, putAll, stateKey, versionKey, type ArtifactStore } from '../core/taskArtifacts';
-import { dramaRecordOf, installedSnapshots, previewVersions, publishKeptTurns, requestKeys, requestOf, taskMessage, tasksOf } from '../core/taskRun';
+import { dramaRecordOf, installedSnapshots, publishKeptTurns, requestKeys, requestOf, taskMessage, tasksOf } from '../core/taskRun';
 
 /** The names an archive holds, as node-tar lists them, without a leading `./` or a folder's trailing `/`. */
 function archiveNames(archive: string): string[] {
@@ -175,13 +174,6 @@ test('a return is taken as it is: an object or edge of a kind this Studio does n
 		problems: { first: { ref: 'plans/p1', error: { code: 'too_early', message: 'later' } }, second: null } })), request.turn);
 	const { leftOut } = await installReturn({ root: d.root, record: d.record, kept: join(d.storage, 'kept'), store: d.store, request, ret });
 	assert.deepEqual(leftOut.map(l => [l.path, l.why]), [['../x/v1', 'its name is not a path in the project'], ['assets/props/b/v1', 'the Computer did not store it']]);
-	const read = await readDrama(d.root, () => installedSnapshots(d.root), () => [{ object: 'plans/p1', version: 'v1', dir: preview }], tasksOf(d.record, d.root));
-	assert.deepEqual([...read.objects.keys()].sort(), ['assets/characters/lin', 'assets/props/b', 'assets/props/n', 'plans/p1']);
-	assert.equal(roleOf(read, read.objects.get('plans/p1')!), 'other', 'a type with no mapping is a plain card');
-	assert.equal(read.objects.get('plans/p1')!.problem?.message, 'later');
-	assert.deepEqual(read.objects.get('assets/characters/lin')!.versions.map(v => [v.id, v.reviews.length]), [['v1', 3]], 'an older version.json and reviews still read');
-	assert.deepEqual(read.objects.get('plans/p1')!.versions.map(v => v.id), ['v1'], 'and an older preview');
-	assert.equal(read.unlisted.get('assets/old/x/v1')?.file, 'image-1.png', 'and an older version an object was made from');
 	assert.deepEqual(readReturn(Buffer.from('{"versions":"x"}'), 'task-0001').versions, { 0: 'x' }, 'a map given as something else is read as one');
 	assert.throws(() => readReturn(Buffer.from('{"schema":2}'), 'task-0001'), UnsupportedMajor);
 	assert.throws(() => readReturn(Buffer.from('not json'), 'task-0001'), SyntaxError);
@@ -316,14 +308,14 @@ test('a version announced while its task runs is previewed from the record, then
 	d.store.files.set(`turns/task-0001/progress/${unnamed}.json`, Buffer.from(JSON.stringify({ schema: 1, version: 'v1' })));
 	assert.equal(await previewProgress({ record: d.record, kept: join(d.storage, 'kept'), store: d.store, task: 'task-0001' }), 2);
 	assert.equal(await previewProgress({ record: d.record, kept: join(d.storage, 'kept'), store: d.store, task: 'task-0001' }), 0, 'once');
-	const preview = previewVersions(d.storage, d.root).find(p => p.object)!;
+	const preview = d.record.previews().find(p => p.object)!;
 	assert.deepEqual([preview.object, preview.version, preview.task], ['assets/characters/lin', 'v1', 'task-0001']);
 	assert.equal(readFileSync(join(preview.dir, 'image-1.png'), 'utf8'), 'lin');
 	assert.equal(existsSync(join(d.root, 'assets')), false, 'nothing reaches the folder before the return');
 	d.store.reads.length = 0;
 	await d.install(request, { versions: { 'assets/characters/lin/v1': hash } });
 	assert.deepEqual(d.store.reads.filter(r => r.startsWith('versions/')), [], 'the archive came from the kept copy');
-	assert.deepEqual(previewVersions(d.storage, d.root), [], 'the preview ends with the install');
+	assert.deepEqual(d.record.previews(), [], 'the preview ends with the install');
 	assert.equal(existsSync(preview.dir), false);
 });
 

@@ -9,7 +9,7 @@ import { dirname, join } from 'node:path';
 import { writeWhole } from './choices';
 import { throughNoLink } from './placement';
 import { commitPathsToHistory, historyHasTurnChange, runInProjectWriteQueue, turnChangeTrailers } from './projectHistory';
-import { matches } from './protocol';
+import { matches, RECEIPT_SUFFIX } from './protocol';
 import { sha256, sha256OfFileOnDisk } from './sha256';
 
 /** Files to land: each path with the sha256 of its new bytes, or null to delete it. */
@@ -67,7 +67,7 @@ export function applyChangeToProjectFolder(projectRoot: string, change: ProjectF
 			return [path, got] as const;
 		})));
 		// Receipts before the outputs they describe (2.3), so an output is never on disk without its receipt.
-		for (const path of [...paths].sort((a, b) => Number(!a.endsWith(RECEIPT)) - Number(!b.endsWith(RECEIPT)))) {
+		for (const path of [...paths].sort((a, b) => Number(!a.endsWith(RECEIPT_SUFFIX)) - Number(!b.endsWith(RECEIPT_SUFFIX)))) {
 			const file = join(projectRoot, path);
 			const got = bytes.get(path)!;
 			if (got === null) {
@@ -81,9 +81,6 @@ export function applyChangeToProjectFolder(projectRoot: string, change: ProjectF
 		return 'written and committed';
 	});
 }
-
-/** A receipt's name ends so (doc/protocol.md 2.3). */
-const RECEIPT = '.receipt.json';
 
 /** A Windows reserved name, with or without an extension (doc/protocol.md section 1). */
 const RESERVED = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i;

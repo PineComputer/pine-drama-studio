@@ -1,17 +1,19 @@
 import { readFile } from 'node:fs/promises';
 import { isAbsolute, join, relative, sep } from 'node:path';
 import * as vscode from 'vscode';
+import { notMadeText } from './core/canvasProtocol';
 import { Latest } from './core/latest';
 import { PROJECT_VIEW_ID, startOnProduction } from './productionStart';
 import { ProjectFinder, PROJECT_FILES } from './core/projectFinder';
-import { DramaProject, describeStage, NOTE_ATTACH, NOTE_INTAKE, reviewText, versionHolding, versionRows, type Drama, type OutlineNode, type PreviewsOf, type Role, type SnapshotOf, type TasksOf, type StageDetail, type Version } from './core/project';
+import { DramaProject, NOTE_ATTACH, NOTE_INTAKE, type OutlineNode, type ProjectReadModel, type Role } from './core/project';
+import { listHistoryOfFile, type FileHistoryEntry } from './core/projectHistory';
 import { holdsNoProject } from './core/binding';
 import { decomposition, detachedStage, kindRow, lockOf, openSteps, sectionLines } from './core/threeSteps';
 
 // The Production view container, after the practice of the Docker, Kubernetes, GitLens and npm
 // extensions: a project seen by what it holds rather than by its files. Project groups a
-// drama-cli project's stages; Versions shows the selected stage's versions with their pointers,
-// reviews and cost. Native Outline and Timeline keep their own meaning. Read-only.
+// project's objects; Versions shows the selected object's shown file through its history (git log), newest first.
+// Native Outline and Timeline keep their own meaning. Read-only.
 
 /** The scheme of a locked row's resourceUri, which the Project view's decoration greys. */
 const LOCKED_SCHEME = 'pine-locked';
@@ -26,9 +28,9 @@ const ICONS: Partial<Record<Role, string>> = {
 /** The roles of the asset rows (roleOf): characters, scenes and props, and their variants. */
 const ASSET_ROLES: ReadonlySet<Role> = new Set<Role>(['character', 'look', 'location', 'view', 'prop']);
 
-/** A project file's URI: a path in the project, or an absolute one (a downloaded preview, core/project.ts). */
+/** A project file's URI, by its project-relative path. */
 function fileUri(root: string, path: string): vscode.Uri {
-	return vscode.Uri.file(isAbsolute(path) ? path : join(root, ...path.split('/')));
+	return vscode.Uri.file(join(root, ...path.split('/')));
 }
 
 /** The file a row opens, and the line to reveal in it: an episode's section of the screenplay. */
@@ -80,7 +82,7 @@ class ProjectProvider implements vscode.TreeDataProvider<OutlineNode> {
 	/** Undefined while the window's folder holds no project: the view is empty and shows its welcome. */
 	project: DramaProject | undefined;
 	/** The screenplay's section lines, by the drama read they belong to (fileOf). */
-	private readonly sections = new WeakMap<Drama, Promise<number[]>>();
+	private readonly sections = new WeakMap<ProjectReadModel, Promise<number[]>>();
 	/**
 	 * The window's folders, for the empty folder New Project opened, which awaits its first request
 	 * (core/projectEntry.ts): the three steps show there too.
@@ -101,7 +103,7 @@ class ProjectProvider implements vscode.TreeDataProvider<OutlineNode> {
 	shown(): DramaProject | undefined {
 		if (this.project) { return this.project; }
 		const [folder, ...more] = this.folders();
-		try { return folder && !more.length && holdsNoProject(folder) ? new DramaProject(folder, undefined, true) : undefined; }
+		try { return folder && !more.length && holdsNoProject(folder) ? new DramaProject(folder, true) : undefined; }
 		catch { return undefined; }
 	}
 
@@ -129,19 +131,17 @@ class ProjectProvider implements vscode.TreeDataProvider<OutlineNode> {
 
 	/**
 	 * The file a row opens: an episode under 1. Script the screenplay at its section (the Nth top-level section is the
-	 * Nth episode, else the top), any other stage its approved version, else its current one, else its first.
+	 * Nth episode, else the top), any other object its shown file.
 	 */
 	async fileOf(node: OutlineNode): Promise<RowFile | undefined> {
 		const project = this.project!;
 		const drama = await project.drama();
 		const path = await this.stageOf(node);
-		const detail = path ? await project.detail(path) : undefined;
-		const name = detail && (detail.pointers.accepted ?? detail.pointers.current);
-		const rel = detail && (detail.versions.find(v => v.name === name) ?? detail.versions[0])?.file;
+		const rel = path ? drama.objects.get(path)?.shownFile : undefined;
 		if (!rel) { return undefined; }
 		const uri = fileUri(project.root, rel);
 		if (!node.episode) { return { uri }; }
-		// One read per drama read (DramaProject.drama: until the folder changes), not one per row and redraw.
+		// One read per project read (DramaProject.drama: until the folder changes), not one per row and redraw.
 		let sections = this.sections.get(drama);
 		if (!sections) {
 			sections = readFile(uri.fsPath, 'utf8').then(sectionLines, () => []);
@@ -182,10 +182,10 @@ class ProjectProvider implements vscode.TreeDataProvider<OutlineNode> {
 		// A group's role lets a menu target it, e.g. "Open Canvas" on an episode.
 		item.contextValue = node.kind === 'group' ? `group ${node.role}` : node.kind;
 		if (node.stagePath && this.project) {
-			const detail = await this.project.detail(node.stagePath);
+			const object = (await this.project.drama()).objects.get(node.stagePath);
 			item.contextValue = 'stage';
-			item.description = describeStage(detail);
-			item.tooltip = `${node.stagePath}\n${item.description}`;
+			item.description = !object || object.shownFile ? undefined : notMadeText(object.type, object.makingNow);
+			item.tooltip = [node.stagePath, item.description].filter(Boolean).join('\n');
 		}
 		if (node.role === 'script-episode') {
 			// No breakdown at all, not even one in review: Start Episode opens a session to make it (B8).
@@ -217,91 +217,41 @@ class ProjectProvider implements vscode.TreeDataProvider<OutlineNode> {
 	}
 }
 
-type TimelineEntry =
-	| { kind: 'version'; version: Version; detail: StageDetail; parts: readonly Version[]; parent?: string }
-	| { kind: 'review'; text: string; tooltip: string }
-	| { kind: 'note'; text: string };
+/** A row of Versions: one commit of the shown file's history. */
+type TimelineEntry = FileHistoryEntry & { readonly file: string; readonly newest: boolean };
+
+/** Who a history commit is by, in the person's words (doc/protocol.md 2.1). */
+const BY: Readonly<Record<string, string>> = { 'pine-computer': 'by the Pine Computer', person: 'by you', 'client-found-changes-on-disk': 'found on disk' };
 
 class TimelineProvider implements vscode.TreeDataProvider<TimelineEntry> {
 	private readonly changed = new vscode.EventEmitter<void>();
 	readonly onDidChangeTreeData = this.changed.event;
-	private selection: { detail: StageDetail } | undefined;
+	private entries: readonly TimelineEntry[] = [];
 	/** The project the selection is of; undefined while the folder holds none (the selection is then cleared). */
 	project: DramaProject | undefined;
 
-	show(detail: StageDetail): void {
-		this.selection = { detail };
+	show(entries: readonly TimelineEntry[]): void {
+		this.entries = entries;
 		this.changed.fire();
 	}
 
 	clear(): void {
-		this.selection = undefined;
-		this.changed.fire();
-	}
-
-	/** The row of the shown stage's version `name`, for `reveal`: its own, or a part's under the one it continues into. */
-	entryOf(name: string): TimelineEntry | undefined {
-		const detail = this.selection?.detail;
-		const row = detail && versionRows(detail).find(r => r.version.name === name);
-		// A part folded under more than one entry (two versions continue it) is revealed under the newest.
-		const under = detail && !row ? versionRows(detail).find(r => r.parts.some(p => p.name === name)) : undefined;
-		return row ? { kind: 'version', ...row, detail: detail! }
-			: under ? { kind: 'version', version: under.parts.find(p => p.name === name)!, parts: [], detail: detail!, parent: under.version.name } : undefined;
-	}
-
-	/** `reveal` needs it (vscode.d.ts, TreeView.reveal): a part's parent is the entry it was listed under. */
-	getParent(entry: TimelineEntry): TimelineEntry | undefined {
-		const detail = this.selection?.detail;
-		const row = entry.kind === 'version' && entry.parent && detail ? versionRows(detail).find(r => r.version.name === entry.parent) : undefined;
-		return row && { kind: 'version', ...row, detail: detail! };
+		this.show([]);
 	}
 
 	getChildren(entry?: TimelineEntry): TimelineEntry[] {
-		if (!this.selection) {
-			return [];
-		}
-		if (!entry) {
-			return versionRows(this.selection.detail).map(row => ({ kind: 'version', ...row, detail: this.selection!.detail }));
-		}
-		if (entry.kind !== 'version') {
-			return [];
-		}
-		// A version written in parts holds its earlier parts, each its own version (doc/protocol.md 2.1, `continues`).
-		const out: TimelineEntry[] = [...entry.parts.map(version => ({ kind: 'version' as const, version, parts: [], detail: entry.detail, parent: entry.version.name })),
-			...entry.version.reviews.map(r => ({ kind: 'review' as const, ...reviewText(r, shortDate(r.acceptedAt)) }))];
-		if (entry.version.discarded) {
-			out.push({ kind: 'note', text: 'Deleted by you' });
-		}
-		return out;
+		return entry ? [] : [...this.entries];
 	}
 
 	getTreeItem(entry: TimelineEntry): vscode.TreeItem {
-		if (entry.kind === 'version') {
-			const { version, detail } = entry;
-			const tags = [
-				detail.pointers.accepted === version.name ? 'accepted' : '',
-				detail.pointers.current === version.name ? 'working' : '',
-				version.own ? 'your import' : '',
-			].filter(Boolean);
-			const item = new vscode.TreeItem(version.name, entry.parts.length ? vscode.TreeItemCollapsibleState.Collapsed
-				: version.reviews.length || version.discarded ? vscode.TreeItemCollapsibleState.Expanded : vscode.TreeItemCollapsibleState.None);
-			const written = entry.parts.length ? `written in ${entry.parts.length + 1} parts` : '';
-			item.description = [[...tags, written].filter(Boolean).join(' · '), shortDate(version.createdAt)].filter(Boolean).join('  ');
-			item.iconPath = new vscode.ThemeIcon(tags.includes('accepted') ? 'pass-filled' : 'circle-small');
-			item.tooltip = version.path;
-			if (version.file && this.project) {
-				item.command = { command: 'vscode.open', title: 'Open', arguments: [fileUri(this.project.root, version.file), { preview: true }] };
-			}
-			return item;
+		const item = new vscode.TreeItem(shortDate(entry.committedAt));
+		item.description = [BY[entry.author] ?? entry.author, entry.blob === null ? 'deleted' : '', entry.newest ? 'shown' : ''].filter(Boolean).join(' · ');
+		item.iconPath = new vscode.ThemeIcon(entry.newest ? 'pass-filled' : entry.blob === null ? 'trash' : 'circle-small');
+		item.tooltip = `${entry.file}\n${entry.commit.slice(0, 12)}${entry.turnChange ? `\nTurn ${entry.turnChange.turnId}, change ${entry.turnChange.changeNumber}` : ''}`;
+		// The shown file opens from its newest row; an earlier one is brought back by Use, on its card.
+		if (entry.newest && entry.blob !== null && this.project) {
+			item.command = { command: 'vscode.open', title: 'Open', arguments: [fileUri(this.project.root, entry.file), { preview: true }] };
 		}
-		if (entry.kind === 'review') {
-			const item = new vscode.TreeItem(entry.text);
-			item.tooltip = entry.tooltip;
-			item.iconPath = new vscode.ThemeIcon('comment');
-			return item;
-		}
-		const item = new vscode.TreeItem(entry.text);
-		item.iconPath = new vscode.ThemeIcon('warning');
 		return item;
 	}
 }
@@ -349,9 +299,7 @@ export interface ProjectViews {
  * Step 5). The tree views are created once; only their providers' project changes.
  * `opened` is told the views when the window's project first appears.
  */
-export async function registerProjectViews(context: vscode.ExtensionContext, output: vscode.OutputChannel, opened: (views: ProjectViews) => void,
-	snapshots: (root: string) => SnapshotOf = () => () => [], downloaded: (root: string) => PreviewsOf = () => () => [],
-	tasks: (root: string) => TasksOf | undefined = () => undefined): Promise<ProjectFinder> {
+export async function registerProjectViews(context: vscode.ExtensionContext, output: vscode.OutputChannel, opened: (views: ProjectViews) => void): Promise<ProjectFinder> {
 	const projectTree = new ProjectProvider();
 	const versions = new TimelineProvider();
 	projectTree.folders = () => (vscode.workspace.workspaceFolders ?? []).filter(folder => folder.uri.scheme === 'file').map(folder => folder.uri.fsPath);
@@ -370,16 +318,17 @@ export async function registerProjectViews(context: vscode.ExtensionContext, out
 	};
 	const uri = (path: string) => fileUri(current().root, path);
 	const latest = new Latest();
-	// Shows a stage in Versions without opening anything, unless a newer request came first.
+	// Shows an object's shown file in Versions through its history, without opening anything, unless a newer request came first.
 	const show = async (stage: StageRef, latestOnly: () => boolean) => {
-		const detail = await current().detail(stage.stagePath);
+		const project = current();
+		const file = (await project.drama()).objects.get(stage.stagePath)?.shownFile ?? null;
+		const history = file ? await listHistoryOfFile(project.root, file) : [];
 		if (latestOnly()) {
-			versions.show(detail);
+			versions.show(history.map((entry, i) => ({ ...entry, file: file!, newest: i === 0 })));
 			await vscode.commands.executeCommand('setContext', 'pineDrama.versionsShown', true);
 			versionsView.title = `Versions · ${stage.label}`;
-			versionsView.description = describeStage(detail);
+			versionsView.description = file ? undefined : 'nothing shown yet';
 		}
-		return detail;
 	};
 	const inspect = (stagePath: string, label: string) => show({ stagePath, label }, latest.next());
 	const clearVersions = async () => {
@@ -424,16 +373,7 @@ export async function registerProjectViews(context: vscode.ExtensionContext, out
 		const stage = subject.versions === 'node' ? (node.stagePath ? { stagePath: node.stagePath, label: node.label } : undefined)
 			: subject.versions === 'none' ? undefined : subject.versions;
 		if (stage) {
-			const detail = await show(stage, current);
-			// The file's own version, as the Explorer selects the active file; only while the
-			// view is visible, for reveal would otherwise open the side bar, and not again when that row is already selected.
-			const held = subject.versions === 'node' ? versionHolding(detail.versions, subject.path) : undefined;
-			const row = held && versions.entryOf(held.name);
-			const chosen = versionsView.selection[0];
-			const already = chosen?.kind === 'version' && chosen.version.name === held?.name;
-			if (current() && row && versionsView.visible && !already) {
-				await versionsView.reveal(row, { select: true, focus: false });
-			}
+			await show(stage, current);
 		} else {
 			await clearVersions();
 		}
@@ -493,7 +433,7 @@ export async function registerProjectViews(context: vscode.ExtensionContext, out
 					.then(reload => reload && vscode.commands.executeCommand('workbench.action.reloadWindow'));
 				return;
 			}
-			const project = root ? first?.project ?? new DramaProject(root, snapshots(root), false, downloaded(root), tasks(root)) : undefined;
+			const project = root ? first?.project ?? new DramaProject(root) : undefined;
 			projectTree.project = project;
 			versions.project = project;
 			await vscode.commands.executeCommand('setContext', 'pineDrama.projectOpen', !!project);

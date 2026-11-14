@@ -1,0 +1,12 @@
+{
+	"schema": 2,
+	"type": "episode",
+	"name": "EP001 The Interview",
+	"shown_file": null,
+	"relations": [
+		{
+			"kind": "needs",
+			"to": "assets/props/umbrella"
+		}
+	]
+}

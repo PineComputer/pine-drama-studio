@@ -1,14 +1,15 @@
-// A drama read from its folder in the protocol's form (doc/protocol.md): the version folders and the person's
-// choices.json, which are always current, and the snapshots of the installed returns, which say what
-// the files do not: names, readiness, edges, planned objects. The Outline and Versions read
-// it here; nothing writes. No vscode import.
+// The project read from its folder in protocol major 2's form (doc/protocol.md 2.2, section 5): every folder holding
+// object.json is an object, with its shown file, the receipt beside it, and the person's description and prompt. Every
+// view reads it here (readProjectFromFolder); nothing writes. The major-1 turn flow's snapshots stay below until the
+// turn flow moves to major 2. No vscode import.
 
 import { readFileSync, statSync } from 'node:fs';
-import { readFile } from 'node:fs/promises';
-import { isAbsolute, join } from 'node:path';
-import { CHOICES_FILE, readChoices, readVersions, resolve, VERSION_FILE, versionRecordOf, writeWhole, type Resolved, type Version as ProtocolVersion } from './choices';
+import { readdir, readFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { CHOICES_FILE, writeWhole } from './choices';
+import { noFileThere } from './placement';
 import { projectIdentity } from './projectPlace';
-import { PROJECT_MARKER_FILE, type Add, type Choices, type Edge, type ObjectType, type ProtocolError, type Request, type Snapshot } from './protocol';
+import { PROJECT_MARKER_FILE, RECEIPT_SUFFIX, type Edge, type ObjectType, type ProtocolError, type Request, type Snapshot } from './protocol';
 
 /**
  * An installed return's snapshot, with the scope of the task it came from (doc/protocol.md, section 1), its task id, when
@@ -22,22 +23,6 @@ export interface ScopedSnapshot {
 	readonly installed: string;
 }
 
-/** The snapshots of the drama's installed returns, oldest installed first (core/taskRun.ts, installedSnapshots). */
-export type SnapshotOf = () => readonly ScopedSnapshot[];
-
-/**
- * A version a running task has finished and the Studio has downloaded, not installed yet (doc/protocol.md, section 4.6):
- * its folder, extracted in the drama's record outside the drama's folder (core/taskRun.ts, previewVersions).
- */
-export interface PreviewVersion {
-	readonly object: string;
-	readonly version: string;
-	/** The extracted version folder, absolute. */
-	readonly dir: string;
-}
-
-/** The downloaded versions not installed yet. */
-export type PreviewsOf = () => readonly PreviewVersion[];
 
 /**
  * The drama's tasks (core/taskRun.ts, tasksOf): each request as sent, with the Chat that sent it when this Studio did
@@ -48,52 +33,146 @@ export interface TasksOf {
 	returns(): readonly { readonly task: string; readonly scope: string; readonly sent: string; readonly problems?: readonly { readonly ref: string; readonly error: ProtocolError }[] }[];
 }
 
-/** One object as the client shows it (doc/protocol.md, section 5.3): its scope's snapshot, its files and the person's choices. */
-export interface DramaObject {
+/** A relation object.json states (doc/protocol.md 2.2), or a variant's derivation. */
+export interface ObjectEdge {
+	readonly from: string;
+	readonly to: string;
+	readonly kind: 'variant_of' | 'inside_of' | 'appears_in' | 'needs';
+}
+
+/** The receipt beside a paid output (doc/protocol.md 2.3): what it was made from, with what prompt, for what cost. */
+export interface Receipt {
+	readonly paidCallId: string;
+	readonly finishedAt: string;
+	/** The files it was sent, in order (Image 1..N), each with the sha256 of its bytes then. */
+	readonly inputsSentInOrder: readonly { readonly path: string; readonly sha256: string }[];
+	readonly promptSent: string | null;
+	readonly cost: { readonly usd: number; readonly reportedBy: string } | null;
+}
+
+/** One object of the project as every view shows it: a folder holding object.json (doc/protocol.md 2.2). */
+export interface ProjectObject {
+	/** Its folder, project-relative. */
 	readonly id: string;
 	readonly type: ObjectType;
 	readonly name: string;
+	/** Its episode's folder name (`EP001` for `episodes/EP001/…`), or null for a shared object. */
+	readonly episode: string | null;
 	readonly segment: string | null;
-	readonly usable: boolean;
-	readonly why: string | null;
-	readonly making: boolean;
-	/** The person's prompt and description where they set one, else the agent's; null when not editable. */
-	readonly prompt: string | null;
-	readonly description: string | null;
-	/** For an object with no version yet: the objects its first version will be made from. */
-	readonly plannedInputs: readonly string[];
-	readonly fromAdd: string | null;
-	/** When its scope's snapshot was observed: readiness, `making` and edges are as of then. */
-	readonly observedAt: string;
+	readonly setting: 'interior' | 'exterior' | null;
+	/** Its shown file, project-relative, or null for a planned, empty card. */
+	readonly shownFile: string | null;
+	/** The receipt beside the shown file, or null: the person's own file, a text, or nothing shown. */
+	readonly shownFileReceipt: Receipt | null;
+	/** For a variant: the object it derives from. */
+	readonly variantOf: string | null;
 	/**
-	 * The person's choice for it that its scope's last request did not carry: the Chat that sent that
-	 * request, whose next run carries it, or null when the scope has sent none. Null when nothing is outgoing.
+	 * The objects its draw request sends, in order, Image 1..N (object.json `objects_sent_by_draw_request`,
+	 * doc/protocol.md 2.2): the one source of its lines, drawn or not.
 	 */
-	readonly outgoing: { readonly chat: string | null } | null;
-	/** The problem the scope's last return named for it, or null. */
-	readonly problem: ProtocolError | null;
-	/** Oldest first, the downloaded versions not installed yet among them. */
-	readonly versions: readonly ProtocolVersion[];
-	/** Each downloaded version's folder, absolute, by version id; an installed version's folder is `<id>/<version>`. */
-	readonly previews: ReadonlyMap<string, string>;
-	readonly resolved: Resolved;
+	readonly objectsSentByDrawRequest: readonly string[];
+	/** The text of its description.md and prompt.md, or null without one. */
+	readonly description: string | null;
+	readonly prompt: string | null;
+	/** A paid call for it is under way: sent to the provider, with no terminal state yet (doc/protocol.md 4.5). */
+	readonly makingNow: boolean;
 }
 
-export interface Drama {
-	readonly objects: ReadonlyMap<string, DramaObject>;
-	readonly edges: readonly Edge[];
-	/** The person's adds no snapshot object names yet: shown as cards until the Computer makes them objects. */
-	readonly adds: readonly Add[];
-	readonly choices: Choices | null;
-	/** Each add a running task carries, by its id: the Chat that sent it. */
-	readonly addsInFlight: ReadonlyMap<string, string>;
-	/** The problem the last return of its scope named for each add, by the add's id. */
-	readonly addProblems: ReadonlyMap<string, ProtocolError>;
-	/**
-	 * Each version listed as an input where no snapshot lists its object (a scene's floor plan), by `<object>/<version>`:
-	 * its folder (versionFolder's form) and the file its version.json shows, read for display only.
-	 */
-	readonly unlisted: ReadonlyMap<string, { readonly folder: string; readonly file: string }>;
+/** The project as every view reads it, from its folder alone (readProjectFromFolder). */
+export interface ProjectReadModel {
+	readonly objects: ReadonlyMap<string, ProjectObject>;
+	/** Each variant's derivation and each relation its object.json states, between objects the project holds. */
+	readonly edges: readonly ObjectEdge[];
+}
+
+const OBJECT_FILE = 'object.json';
+
+/** The object a file belongs to among `ids`: the deepest object folder that holds it. */
+function owning(ids: Iterable<string>, path: string): string | undefined {
+	return [...ids].filter(id => path.startsWith(`${id}/`)).sort((a, b) => b.length - a.length)[0];
+}
+
+/** The object of `drama` whose folder holds the project file `path` (its deepest), or undefined. */
+export function objectOwningFile(drama: ProjectReadModel, path: string): string | undefined {
+	return owning(drama.objects.keys(), path);
+}
+
+/**
+ * A webview address of a project file that changes when the file does: `address` with its size and modification time
+ * as a query, since a result overwrites its file in place (doc/protocol.md 4.4) and a webview keeps what it loaded from
+ * an address it has seen.
+ */
+export function fileAddressByVersion(projectRoot: string, address: (rel: string) => string): (rel: string) => string {
+	return rel => {
+		const stat = statSync(join(projectRoot, ...rel.split('/')), { throwIfNoEntry: false });
+		return stat ? `${address(rel)}?v=${stat.size}-${Math.trunc(stat.mtimeMs)}` : address(rel);
+	};
+}
+
+/** A file's text, or null when there is none. */
+const textOrNull = (file: string) => readFile(file, 'utf8').catch(error => {
+	if (noFileThere(error)) { return null; }
+	throw error;
+});
+
+/** A document of protocol major 2, else refused whole (doc/protocol.md section 7: one major per reader). */
+function majorTwo(name: string, raw: unknown): Record<string, any> {
+	const document = Object(raw);
+	if (document.schema !== 2) { throw new Error(`${name} is a document of protocol major ${JSON.stringify(document.schema)}, which this Studio does not read`); }
+	return document;
+}
+
+/** A receipt's fields as protocol major 2 names them, in the Studio's names. */
+function receiptOf(raw: unknown): Receipt {
+	const r = Object(raw);
+	return {
+		paidCallId: String(r.paid_call_id), finishedAt: String(r.finished_at), promptSent: typeof r.prompt_sent === 'string' ? r.prompt_sent : null,
+		inputsSentInOrder: Array.isArray(r.inputs_sent_in_order) ? r.inputs_sent_in_order.map((i: unknown) => ({ path: String(Object(i).path), sha256: String(Object(i).sha256) })) : [],
+		cost: r.cost && typeof r.cost === 'object' ? { usd: Number(r.cost.usd), reportedBy: String(r.cost.reported_by) } : null,
+	};
+}
+
+/**
+ * Every object.json below `dir` (project-relative `prefix`), never descending into a name starting with "." (.git, a
+ * cache): such a name is never a path of the protocol (doc/protocol.md section 1).
+ */
+async function objectFiles(dir: string, prefix: string): Promise<string[]> {
+	const entries = await readdir(dir, { withFileTypes: true });
+	const below = await Promise.all(entries.filter(e => e.isDirectory() && !e.name.startsWith('.')).map(e => objectFiles(join(dir, e.name), `${prefix}${e.name}/`)));
+	return [...entries.some(e => e.isFile() && e.name === OBJECT_FILE) ? [`${prefix}${OBJECT_FILE}`] : [], ...below.flat()];
+}
+
+/**
+ * Reads the project at `projectRoot` from its folder (doc/protocol.md 2.2, section 5), the one reader every view uses:
+ * every folder holding object.json, outside names starting with "." (section 1), is an object. `makingNow` names the
+ * objects a paid call is under way for, as the Studio has read their paid-call states.
+ */
+export async function readProjectFromFolder(projectRoot: string, makingNow: ReadonlySet<string> = new Set()): Promise<ProjectReadModel> {
+	const listed = await objectFiles(projectRoot, '');
+	const read = await Promise.all(listed.map(async name => {
+		const id = name === OBJECT_FILE ? '' : name.slice(0, -OBJECT_FILE.length - 1);
+		const at = (file: string) => join(projectRoot, ...id.split('/'), file);
+		const raw = majorTwo(`${id}/${OBJECT_FILE}`, JSON.parse(await readFile(at(OBJECT_FILE), 'utf8')));
+		const shown = typeof raw.shown_file === 'string' ? raw.shown_file : null;
+		const receipt = shown ? await textOrNull(at(`${shown}${RECEIPT_SUFFIX}`)) : null;
+		return {
+			id, raw, shownFile: shown ? `${id}/${shown}` : null, shownFileReceipt: receipt === null ? null : receiptOf(majorTwo(`${id}/${shown}${RECEIPT_SUFFIX}`, JSON.parse(receipt))),
+			description: await textOrNull(at('description.md')), prompt: await textOrNull(at('prompt.md')),
+		};
+	}));
+	const ids = new Set(read.map(o => o.id));
+	const objects = new Map(read.map(({ id, raw, ...files }): [string, ProjectObject] => [id, {
+		id, type: raw.type, name: String(raw.name),
+		episode: episodeIn(id) ?? null, segment: typeof raw.segment === 'string' ? raw.segment : null,
+		setting: raw.setting === 'interior' || raw.setting === 'exterior' ? raw.setting : null,
+		variantOf: typeof raw.variant_of === 'string' ? raw.variant_of : null,
+		objectsSentByDrawRequest: Array.isArray(raw.objects_sent_by_draw_request) ? raw.objects_sent_by_draw_request.map(String) : [],
+		makingNow: makingNow.has(id), ...files,
+	}]));
+	const relations = read.flatMap(({ id, raw }) => (Array.isArray(raw.relations) ? raw.relations : []).map((r: unknown) => ({ from: id, to: String(Object(r).to), kind: Object(r).kind })));
+	const edges: ObjectEdge[] = [...[...objects.values()].filter(o => o.variantOf).map(o => ({ from: o.id, to: o.variantOf!, kind: 'variant_of' as const })), ...relations]
+		.filter(e => ids.has(e.from) && ids.has(e.to));
+	return { objects, edges };
 }
 
 /**
@@ -131,84 +210,6 @@ export function snapshotState(snapshots: readonly ScopedSnapshot[], tasks?: Task
 	return { listed, edges };
 }
 
-/**
- * Reads the drama. Each object, and each edge from it, comes from the latest installed snapshot that lists the object,
- * labelled with that snapshot's `observed_at`, whichever session returned it. A later snapshot that should list an object
- * and does not removes it, but only an object the client knew when that turn's request was sent: a version folder of it
- * was in the request, or a snapshot installed before then listed it (doc/protocol.md, sections 1 and 5.3). So a shared
- * object an episode turn made is not removed by a Project Chat turn that never saw it. The person's `removed` removes an
- * object with every variant derived from it.
- */
-export async function readDrama(root: string, snapshotOf: SnapshotOf, previewsOf: PreviewsOf = () => [], tasks?: TasksOf): Promise<Drama> {
-	const { listed, edges } = snapshotState(snapshotOf(), tasks);
-	const choices = await readChoices(root);
-	const removed = new Set(Object.entries(choices?.objects ?? {}).filter(([, c]) => c.removed).map(([id]) => id));
-	// A variant of a removed object is removed with it, down its chain.
-	for (let grew = true; grew;) {
-		grew = false;
-		for (const e of edges) {
-			if (e.kind === 'variant_of' && removed.has(e.to) && !removed.has(e.from)) {
-				removed.add(e.from);
-				grew = true;
-			}
-		}
-	}
-	const objects = new Map<string, DramaObject>();
-	const previewed = previewsOf();
-	// A scope's last request, and its last return: what the Computer has seen of the choices, and the problems it named.
-	const requests = [...tasks?.requests() ?? []].sort((a, b) => a.sent.localeCompare(b.sent));
-	const returns = [...tasks?.returns() ?? []].sort((a, b) => a.sent.localeCompare(b.sent));
-	const scopeOfId = (id: string) => episodeIn(id) ? 'episodes' : 'project';
-	const lastRequest = (scope: string) => requests.filter(r => r.request.scope === scope).at(-1);
-	const problems = new Map<string, ProtocolError>();
-	for (const scope of ['project', 'episodes']) {
-		for (const p of returns.filter(r => (r.scope === 'project' ? 'project' : 'episodes') === scope).at(-1)?.problems ?? []) {
-			problems.set(p.ref, p.error);
-		}
-	}
-	const outgoing = (id: string) => {
-		const last = lastRequest(scopeOfId(id));
-		const mine = JSON.stringify(choices?.objects[id] ?? null);
-		return mine !== JSON.stringify(last?.request.choices?.objects[id] ?? null) ? { chat: last?.chat || null } : null;
-	};
-	await Promise.all([...listed].filter(([id]) => !removed.has(id)).map(async ([id, { object, at }]) => {
-		const installed = await readVersions(root, id);
-		// A downloaded version shows like any other until its return installs it.
-		const previews = new Map(previewed.filter(p => p.object === id && !installed.some(v => v.id === p.version)).map(p => [p.version, p.dir]));
-		const versions = [...installed, ...await Promise.all([...previews].map(async ([version, dir]) =>
-			({ id: version, reviews: [], record: versionRecordOf(JSON.parse(await readFile(join(dir, VERSION_FILE), 'utf8'))) })))]
-			.sort((a, b) => a.record.made_at < b.record.made_at ? -1 : a.record.made_at > b.record.made_at ? 1 : a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
-		const mine = choices?.objects[id];
-		objects.set(id, {
-			id, type: object.type, name: object.name, segment: object.segment, usable: object.usable, why: object.why ?? null, making: object.making === true,
-			prompt: mine?.prompt ?? object.prompt ?? null, description: mine?.description ?? object.description ?? null,
-			plannedInputs: object.inputs ?? [], fromAdd: object.from_add, observedAt: at, versions, previews, resolved: resolve(versions, choices, id),
-			outgoing: outgoing(id), problem: problems.get(id) ?? null,
-		});
-	}));
-	const made = new Set([...objects.values()].map(o => o.fromAdd).filter(Boolean));
-	const unlistedInputs = new Set([...objects.values()].flatMap(o => o.versions.flatMap(v => v.record.inputs))
-		.filter(input => !objects.has(input.object)).map(input => `${input.object}/${input.version}`));
-	const unlisted = new Map((await Promise.all([...unlistedInputs].map(async key => {
-		// A downloaded version's folder is its preview's (absolute), as versionFile reads it; an installed one's, in the project.
-		const folder = previewed.find(p => `${p.object}/${p.version}` === key)?.dir ?? key;
-		const at = join(isAbsolute(folder) ? folder : join(root, ...key.split('/')), VERSION_FILE);
-		// A folder the record names but the project does not hold, or holds unreadable, shows no picture.
-		const file = await readFile(at, 'utf8').then(text => versionRecordOf(JSON.parse(text)).file).catch(() => null);
-		return file ? [[key, { folder, file }] as const] : [];
-	}))).flat());
-	return {
-		objects,
-		edges: edges.filter(e => objects.has(e.from) && objects.has(e.to)),
-		adds: (choices?.added ?? []).filter(a => !made.has(a.id)),
-		choices,
-		addsInFlight: new Map(requests.filter(r => !returns.some(d => d.task === r.request.turn))
-			.flatMap(r => (r.request.choices?.added ?? []).filter(a => !made.has(a.id)).map(a => [a.id, r.chat] as const))),
-		addProblems: new Map((choices?.added ?? []).filter(a => problems.has(a.id)).map(a => [a.id, problems.get(a.id)!])),
-		unlisted,
-	};
-}
-
 /** One node of the Outline: a group, or an object of the drama. */
 export interface OutlineNode {
 	/** An object's id (its folder), or a group's path or synthetic `#group/...` id. */
@@ -231,7 +232,7 @@ export type Role = 'project' | 'script' | 'bible' | 'assets' | 'characters' | 'c
 	| 'script-episode' | 'script-later' | 'voices' | 'motion' | 'note';
 
 /** An object's role, for its icon; a variant takes its asset's (variantRoot). */
-export function roleOf(drama: Drama, object: DramaObject): Role {
+export function roleOf(drama: ProjectReadModel, object: ProjectObject): Role {
 	switch (object.type) {
 		case 'screenplay': return 'script';
 		case 'bible': return 'bible';
@@ -252,7 +253,7 @@ export function roleOf(drama: Drama, object: DramaObject): Role {
 }
 
 /** The asset a variant derives from, down its `variant_of` chain; the object itself when it is no variant. */
-export function variantRoot(drama: Pick<Drama, 'edges'>, id: string): string {
+export function variantRoot(drama: { readonly edges: readonly { readonly from: string; readonly to: string; readonly kind: string }[] }, id: string): string {
 	const seen = new Set<string>();
 	let at = id;
 	for (let up = variantParent(drama, at); up && !seen.has(up); up = variantParent(drama, at)) {
@@ -263,7 +264,7 @@ export function variantRoot(drama: Pick<Drama, 'edges'>, id: string): string {
 }
 
 /** Script's row of each episode, in episode order: its breakdown once it has one, which the row describes; it opens the screenplay. */
-function scriptRows(drama: Drama): OutlineNode[] {
+function scriptRows(drama: ProjectReadModel): OutlineNode[] {
 	const objects = [...drama.objects.values()].sort((a, b) => (a.id < b.id ? -1 : 1));
 	return objects.filter(ep => ep.type === 'episode').map(ep => {
 		const breakdown = objects.find(b => b.type === 'breakdown' && episodeIn(b.id) === episodeIn(ep.id));
@@ -278,7 +279,7 @@ export function episodeOfNode(node: Partial<OutlineNode> | undefined): string | 
 	return episodeIn(node?.episode ?? node?.id ?? '');
 }
 
-/** What naming reads: each object's name and the edges (a Drama, or the snapshots' state alone, snapshotState). */
+/** What naming reads: each object's name and the edges (the read model, or the snapshots' state alone, snapshotState). */
 export interface Named {
 	readonly objects: ReadonlyMap<string, { readonly name: string }>;
 	readonly edges: readonly Edge[];
@@ -303,7 +304,7 @@ export function versionTitle(drama: Named, object: string, version: string): str
 }
 
 /** The object a variant derives from directly (its `variant_of` edge), or undefined. */
-export function variantParent(drama: Pick<Drama, 'edges'>, id: string): string | undefined {
+function variantParent(drama: { readonly edges: readonly { readonly from: string; readonly to: string; readonly kind: string }[] }, id: string): string | undefined {
 	return drama.edges.find(e => e.kind === 'variant_of' && e.from === id)?.to;
 }
 
@@ -319,165 +320,6 @@ const NOTES: Record<string, string> = {
 };
 function note(id: keyof typeof NOTES & string): OutlineNode {
 	return { id, label: NOTES[id], kind: 'group', role: 'note', hasChildren: false };
-}
-
-export interface Pointers {
-	readonly current?: string;
-	readonly accepted?: string;
-}
-
-export interface Review {
-	readonly reason: string;
-	/** The person's own words, when the person approved. */
-	readonly person: string | null;
-	readonly acceptedAt: string;
-}
-
-/** A version as Versions lists it. */
-export interface Version {
-	readonly name: string;
-	/** Its folder, project-relative. */
-	readonly path: string;
-	readonly createdAt: string;
-	/** The file it shows, project-relative, or null (version.json `file`). */
-	readonly file: string | null;
-	/** Made from the person's own import. */
-	readonly own: boolean;
-	readonly discarded: boolean;
-	readonly reviews: readonly Review[];
-	/** The version it goes on from, written in parts (doc/protocol.md 2.1, `continues`), or null. */
-	readonly continues: string | null;
-}
-
-/**
- * The version of an object that holds the project-relative file `rel`: the file is the version's folder or inside it.
- * Versions selects this row when a file of the object becomes the active one, as the Explorer selects the active file
- *.
- */
-export function versionHolding<T extends Pick<Version, 'path'>>(versions: readonly T[], rel: string): T | undefined {
-	return versions.find(version => rel === version.path || rel.startsWith(`${version.path}/`));
-}
-
-export interface StageDetail {
-	readonly path: string;
-	readonly pointers: Pointers;
-	/** Who accepted the accepted version. */
-	readonly acceptedBy: 'person' | 'agent' | null;
-	/** Newest first. */
-	readonly versions: readonly Version[];
-}
-
-/**
- * The file a version of `object` shows (version.json `file`): project-relative for an installed version, absolute for a
- * downloaded one in the drama's record. Null when it shows none.
- */
-export function versionFile(object: DramaObject, version: string | null): string | null {
-	const file = object.versions.find(v => v.id === version)?.record.file;
-	if (!file || version === null) {
-		return null;
-	}
-	return fileIn(versionFolder(object, version), file);
-}
-
-/** `file` (relative, '/'-separated) in a version's folder: a downloaded version's absolute preview folder, or project-relative. */
-export function fileIn(folder: string, file: string): string {
-	return isAbsolute(folder) ? join(folder, ...file.split('/')) : `${folder}/${file}`;
-}
-
-/** A version's folder: project-relative for an installed version, absolute for a downloaded one. */
-export function versionFolder(object: DramaObject, version: string): string {
-	return object.previews.get(version) ?? `${object.id}/${version}`;
-}
-
-/** A Chat's title by its key, as the sessions list shows it (its first message); undefined while unknown. */
-export type ChatTitle = (key: string) => string | undefined;
-
-/** The three marks a card shows of the person's choices, in the approved words. */
-export function marksOf(drama: Drama, chatTitle: ChatTitle, object: DramaObject | null, add: string | null): {
-	outgoing: string | null; inFlight: string | null; problem: { message: string; action: string | null } | null;
-} {
-	const chat = (key: string | null) => (key && chatTitle(key)) ?? 'its Chat';
-	const flying = add ? drama.addsInFlight.get(add) : undefined;
-	const problem = object?.problem ?? (add ? drama.addProblems.get(add) : undefined) ?? null;
-	return {
-		outgoing: object?.outgoing ? `Saved. The agent sees it at ${chat(object.outgoing.chat)}'s next run.` : add && !flying ? 'Saved. The agent sees it at its Chat\'s next run.' : null,
-		inFlight: flying ? `Being created in ${chat(flying)}` : null,
-		problem: problem && { message: problem.message, action: problem.action ?? null },
-	};
-}
-
-/** An object's versions and pointers, as Versions shows them. */
-export function detailOf(object: DramaObject): StageDetail {
-	const { resolved } = object;
-	return {
-		path: object.id,
-		pointers: { ...(resolved.current ? { current: resolved.current } : {}), ...(resolved.accepted ? { accepted: resolved.accepted } : {}) },
-		acceptedBy: resolved.acceptedBy,
-		versions: object.versions.map(v => ({
-			name: v.id, path: `${object.id}/${v.id}`, createdAt: v.record.made_at,
-			file: versionFile(object, v.id),
-			own: resolved.own(v), discarded: resolved.discarded.has(v.id),
-			reviews: v.reviews.map(r => ({ reason: r.reason, person: r.person ?? null, acceptedAt: r.accepted_at })),
-			continues: v.record.continues ?? null,
-		})).reverse(),
-	};
-}
-
-/**
- * The parts `version` is written in, itself first: the versions it continues, one after another, while the object
- * holds them (doc/protocol.md 2.1, `continues`). One part for a version that continues none.
- */
-export function partsOf(version: string, continues: (version: string) => string | null | undefined): string[] {
-	const parts = [version];
-	for (let up = continues(version); up && !parts.includes(up); up = continues(up)) { parts.push(up); }
-	return parts;
-}
-
-/** `continues` within `detail`: the version a held version goes on from, when it is held too and folding it closes no cycle. */
-function continuesIn(detail: Pick<StageDetail, 'versions'>): (version: string) => string | null {
-	const held = new Map(detail.versions.map(v => [v.name, v]));
-	const named = (name: string) => { const up = held.get(name)?.continues; return up && held.has(up) ? up : null; };
-	return name => { const up = named(name); return up && !partsOf(up, named).includes(name) ? up : null; };
-}
-
-/** How many parts `version` of `detail` is written in: one for a version that continues none. */
-export function writtenIn(detail: Pick<StageDetail, 'versions'>, version: string): number {
-	return partsOf(version, continuesIn(detail)).length;
-}
-
-/** The Versions list's rows: each version no held version continues, with the earlier parts it continues. */
-export function versionRows(detail: Pick<StageDetail, 'versions'>): { version: Version; parts: Version[] }[] {
-	const held = new Map(detail.versions.map(v => [v.name, v]));
-	const continues = continuesIn(detail);
-	const continued = new Set(detail.versions.map(v => continues(v.name)));
-	return detail.versions.filter(v => !continued.has(v.name))
-		.map(version => ({ version, parts: partsOf(version.name, continues).slice(1).map(name => held.get(name)!) }));
-}
-
-/** An object's pointers in one line, "accepted v2 by you · working v3", and the parts the working one is written in. */
-export function describeStage(detail: Pick<StageDetail, 'pointers' | 'acceptedBy' | 'versions'>): string {
-	const { current, accepted } = detail.pointers;
-	const parts: string[] = [];
-	if (accepted) {
-		parts.push(`approved ${accepted}${detail.acceptedBy ? ` by ${detail.acceptedBy === 'person' ? 'you' : 'the agent'}` : ''}`);
-	}
-	if (current && current !== accepted) {
-		parts.push(`working ${current}`);
-	}
-	// The newest work's parts, after its pointer: the working version's, else the approved one's.
-	const shown = current ?? accepted;
-	const written = shown ? writtenIn(detail, shown) : 1;
-	if (written > 1) {
-		parts.push(`written in ${written} parts`);
-	}
-	return parts.length ? parts.join(' · ') : 'no version';
-}
-
-/** A review file as the Versions view lists it: when, who, and the person's words or that it has none. */
-export function reviewText(review: Review, date: string): { text: string; tooltip: string } {
-	return review.person
-		? { text: `Approved ${date} by you: “${review.person}”`, tooltip: `Your words: ${review.person}\nThe agent's reason: ${review.reason}` }
-		: { text: `Approved ${date} by the agent, without your words`, tooltip: `The review holds no words of yours: the agent approved it on its own reason.\nThe agent's reason: ${review.reason}` };
 }
 
 const ASSET_GROUPS: readonly [string, string, Role, ObjectType][] = [
@@ -509,15 +351,14 @@ export function writeProjectMarker(root: string): Promise<void> {
 }
 
 export class DramaProject {
-	private read: Promise<Drama> | undefined;
+	private read: Promise<ProjectReadModel> | undefined;
 
 	/**
-	 * `snapshotOf`: the installed returns' snapshots (core/taskRun.ts, installedSnapshots). `awaiting`: the empty folder New Project
-	 * opened, which awaits its first request (core/projectEntry.ts): the three steps show, and Script's next action is
-	 * attaching the screenplay in the Project Chat.
+	 * `awaiting`: the empty folder New Project opened, which awaits its first request (core/projectEntry.ts): the three
+	 * steps show, and Script's next action is attaching the screenplay in the Project Chat. `makingNow`: the objects a paid
+	 * call is under way for (readProjectFromFolder).
 	 */
-	constructor(readonly root: string, private readonly snapshotOf: SnapshotOf = () => [], private readonly awaiting = false, private readonly previewsOf: PreviewsOf = () => [],
-		private readonly tasks?: TasksOf) { }
+	constructor(readonly root: string, private readonly awaiting = false, private readonly makingNow: () => ReadonlySet<string> = () => new Set()) { }
 
 	/**
 	 * The selected production root only. A folder is a drama to the Studio when its pine-drama-project.json says major 2
@@ -531,9 +372,9 @@ export class DramaProject {
 		return readProjectMajor(dir) === 2;
 	}
 
-	/** The drama as its files and snapshots say now; read once until `forget`, which a change of the folder calls. */
-	drama(): Promise<Drama> {
-		this.read ??= readDrama(this.root, this.snapshotOf, this.previewsOf, this.tasks);
+	/** The project as its folder says now (readProjectFromFolder); read once until `forget`, which a change of the folder calls. */
+	drama(): Promise<ProjectReadModel> {
+		this.read ??= readProjectFromFolder(this.root, this.makingNow());
 		this.read.catch(() => { this.read = undefined; });
 		return this.read;
 	}
@@ -606,17 +447,11 @@ export class DramaProject {
 		}
 		return [];
 	}
-
-	/** An object's versions and pointers; an object the drama does not list has none. */
-	async detail(object: string): Promise<StageDetail> {
-		const found = (await this.drama()).objects.get(object);
-		return found ? detailOf(found) : { path: object, pointers: {}, acceptedBy: null, versions: [] };
-	}
 }
 
 /** The variants derived directly from `id`, by their `variant_of` edges. */
-export function variantsOf(drama: Drama, id: string): DramaObject[] {
-	return drama.edges.filter(e => e.kind === 'variant_of' && e.to === id).map(e => drama.objects.get(e.from)).filter((o): o is DramaObject => !!o)
+export function variantsOf(drama: ProjectReadModel, id: string): ProjectObject[] {
+	return drama.edges.filter(e => e.kind === 'variant_of' && e.to === id).map(e => drama.objects.get(e.from)).filter((o): o is ProjectObject => !!o)
 		.sort((a, b) => (a.id < b.id ? -1 : 1));
 }
 
@@ -634,6 +469,6 @@ function group(id: string, label: string, role: Role): OutlineNode {
 	return { id, label, kind: 'group', role, hasChildren: true };
 }
 
-function stage(drama: Drama, object: DramaObject, label: string, hasChildren: boolean): OutlineNode {
+function stage(drama: ProjectReadModel, object: ProjectObject, label: string, hasChildren: boolean): OutlineNode {
 	return { id: object.id, label, kind: 'stage', role: roleOf(drama, object), stagePath: object.id, hasChildren };
 }

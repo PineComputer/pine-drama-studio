@@ -2,17 +2,16 @@
 // for that episode (core/lineage.ts), and the global assets canvas. A click shows the object in the Versions view; a
 // double-click opens exactly the file the card shows in the native viewer. Production logic is in core (lineage.ts,
 // canvasLayout.ts, canvasProtocol.ts); the webview is canvas/canvas.tsx, on React Flow (spike S11).
-import { isAbsolute, resolve } from 'node:path';
 import * as vscode from 'vscode';
 import { CANVAS_COMMANDS, CANVAS_PROTOCOL, readFromCanvas, type CanvasDetail, type CanvasLayout, type CanvasViewport, type Shown, type ToCanvas } from './core/canvasProtocol';
 import { unchangedLine, type EntryDone } from './core/entryActions';
-import { pictureOf, recordOf } from './core/assetStatus';
-import { plannedPrompt, shootRequest } from './core/segEditor';
-import { madeWith, plannedWith, requestDetail } from './core/versionDetail';
+import { recordOf } from './core/assetStatus';
+import { shootRequest } from './core/segEditor';
+import { nextDrawRequest, receiptDetail } from './core/versionDetail';
 import { canvasTreePath } from './core/assetsCanvas';
 import { lineageMessage } from './core/canvasMessage';
 import { ASSETS_CANVAS } from './core/lineage';
-import { episodeIn, episodeOfNode, roleOf, versionFolder, type ChatTitle, type OutlineNode, type Role } from './core/project';
+import { episodeIn, episodeOfNode, fileAddressByVersion, roleOf, type OutlineNode, type Role } from './core/project';
 import type { CardAction } from './cardActions';
 import type { ProjectViews, StageRef } from './projectViews';
 import { CanvasPicks } from './core/canvasPicks';
@@ -22,7 +21,7 @@ const VIEW_TYPE = 'pineDrama.episodeCanvas';
 
 /** `act`: the card actions (cardActions.ts), which the record panel and a card's box run. */
 export function registerEpisodeCanvas(context: vscode.ExtensionContext, views: ProjectViews, output: vscode.OutputChannel,
-	act: (action: CardAction) => Promise<EntryDone | undefined>, chatTitle: ChatTitle = () => undefined): { refresh(): void } {
+	act: (action: CardAction) => Promise<EntryDone | undefined>): { refresh(): void } {
 	const { project } = views;
 	const panels = new Map<string, vscode.WebviewPanel>();
 	// The card picked on each canvas, so that coming back to a canvas shows it in Versions again.
@@ -38,8 +37,8 @@ export function registerEpisodeCanvas(context: vscode.ExtensionContext, views: P
 	const viewportKey = (episode: string) => `pineDrama.canvasViewport:${project.root}:${episode}`;
 	const media = vscode.Uri.joinPath(context.extensionUri, 'media', 'canvas');
 	const root = vscode.Uri.file(project.root);
-	// A version's file: project-relative, or absolute for a downloaded version in the drama's record (project.ts versionFile).
-	const fileUri = (path: string) => isAbsolute(path) ? vscode.Uri.file(path) : vscode.Uri.joinPath(root, ...path.split('/'));
+	// A project file, project-relative.
+	const fileUri = (path: string) => vscode.Uri.joinPath(root, ...path.split('/'));
 
 	// The card each canvas centres on when it is next drawn: the asset the person clicked (the assets canvas).
 	const focus = new Map<string, string>();
@@ -52,7 +51,7 @@ export function registerEpisodeCanvas(context: vscode.ExtensionContext, views: P
 		try {
 			const built = await lineageMessage({
 				root: project.root, episode, drama: await project.drama(), layout: context.workspaceState.get<CanvasLayout>(layoutKey(episode)) ?? {},
-				focus: focus.get(episode), viewport: context.workspaceState.get<CanvasViewport>(viewportKey(episode)), src: rel => panel.webview.asWebviewUri(fileUri(rel)).toString(), chatTitle,
+				focus: focus.get(episode), viewport: context.workspaceState.get<CanvasViewport>(viewportKey(episode)), src: fileAddressByVersion(project.root, rel => panel.webview.asWebviewUri(fileUri(rel)).toString()),
 			});
 			message = built;
 			focus.delete(episode);
@@ -69,25 +68,22 @@ export function registerEpisodeCanvas(context: vscode.ExtensionContext, views: P
 	};
 
 	/**
-	 * The detail panel's reply for a card: what its shown version was made with (versionDetail.ts); an asset's or a
-	 * variant's card, its record and picture strip too; and the box's prompt for an object that has one to edit.
+	 * The detail panel's reply for a card: what its shown file was made with (its receipt, versionDetail.ts); an asset's or
+	 * a variant's card, its record too; and the box's prompt (prompt.md) for an object that has one to edit.
 	 */
 	const detailReply = async (webview: vscode.Webview, episode: string, shown: Shown): Promise<ToCanvas> => {
 		try {
 			const drama = await project.drama();
 			const object = drama.objects.get(shown.stageId);
-			const src = (rel: string) => webview.asWebviewUri(fileUri(rel)).toString();
-			const detail: CanvasDetail | null = object ? await requestDetail(drama, project.root, object, shown.version, src) : null;
-			const planned = object && plannedPrompt(drama, object);
-			const prompt = object && (planned || object.prompt !== null) ? { object: object.id, text: planned?.text ?? null } : null;
-			// The shown version's request, or before any is drawn, the one planned for it (versionDetail.ts).
-			const made = !object ? null : shown.version ? await madeWith(resolve(project.root, versionFolder(object, shown.version))) : await plannedWith(resolve(project.root, object.id));
-			return { v: CANVAS_PROTOCOL, type: 'detail', stageId: shown.stageId, version: shown.version, detail, record: recordOf(drama, shown.stageId),
-				picture: pictureOf(drama, shown.stageId, src), prompt, made, error: object ? null : `${shown.stageId} is not in the drama any more` };
+			const src = fileAddressByVersion(project.root, rel => webview.asWebviewUri(fileUri(rel)).toString());
+			const detail: CanvasDetail | null = object ? receiptDetail(project.root, drama, object, src) : null;
+			const prompt = object && object.prompt !== null ? { object: object.id, text: object.prompt } : null;
+			return { v: CANVAS_PROTOCOL, type: 'detail', stageId: shown.stageId, detail, record: recordOf(drama, shown.stageId),
+				prompt, nextDraw: object ? nextDrawRequest(drama, object, src) : [], error: object ? null : `${shown.stageId} is not in the project any more` };
 		} catch (error) {
 			const text = (error as Error).message;
 			output.appendLine(`canvas ${episode}: ${text} (project ${project.root})`);
-			return { v: CANVAS_PROTOCOL, type: 'detail', stageId: shown.stageId, version: shown.version, detail: null, error: text };
+			return { v: CANVAS_PROTOCOL, type: 'detail', stageId: shown.stageId, detail: null, error: text };
 		}
 	};
 
@@ -142,11 +138,9 @@ export function registerEpisodeCanvas(context: vscode.ExtensionContext, views: P
 					output.appendLine(`canvas ${episode}: entry ${message.request.action} ${message.stageId}: ${error} (project ${project.root})`);
 				}
 				await panel.webview.postMessage({ v: CANVAS_PROTOCOL, type: 'actionEnded', key: message.key, error, unchanged } satisfies ToCanvas);
-				// The canvas reads the drama again, and the panel then shows the record as written, for the version its card
-				// now shows (lineage.ts: the object's current one).
+				// The canvas reads the project again, and the panel then shows the record as written.
 				await send(panel, episode);
-				const version = (await project.drama()).objects.get(message.stageId)?.resolved.current ?? null;
-				await panel.webview.postMessage(await detailReply(panel.webview, episode, { stageId: message.stageId, version, file: null }));
+				await panel.webview.postMessage(await detailReply(panel.webview, episode, { stageId: message.stageId, file: null }));
 			} else if (message?.type === 'generate') {
 				// Put in the input of the session that owns the item (pineDrama.askOwner) for the person to send, never sent
 				// from here: an asset's picture or a keyframe's is drawn; a take is shot, asked as the seg editor's

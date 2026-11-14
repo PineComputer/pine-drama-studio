@@ -5,16 +5,17 @@ import { isPath, readEntryAction, type EntryAction } from './galleryProtocol';
 
 export const CANVAS_PROTOCOL = 1;
 
+/**
+ * What an object with nothing shown yet says, the one wording for the canvas card, the seg editor's badge and the tree:
+ * being made while a paid call for it is under way, else not shot yet for a take or a cut, not drawn yet for the rest.
+ */
+export function notMadeText(type: string, makingNow: boolean): string {
+	return makingNow ? 'Being made' : type === 'take' || type === 'cut' ? 'Not shot yet' : 'Not drawn yet';
+}
+
 /** The global assets canvas's key, in place of an episode (the assets canvas). */
 export const ASSETS_CANVAS = 'assets';
 
-/**
- * When the canvas's readiness and edges were observed: the newest snapshot it read, or null before
- * its scope's first return. Versions and choices are always current; only the snapshot's fields can be old (protocol 5.3).
- */
-export type CanvasOrigin = { readonly kind: 'snapshot'; readonly observedAt: string | null };
-
-/** One stage of the episode as its card shows it: drama-cli's facts and the file of the version it shows. */
 /** An assets card's names: its asset's and its node's own ("Base" for the asset's own card, a variant's record name otherwise). */
 export interface NodeName {
 	readonly asset: string;
@@ -29,20 +30,15 @@ export interface CanvasCard {
 	readonly section: string;
 	/** Its column in the pipeline's order (lineage.ts TYPES), which orders the cards in a group. */
 	readonly column: number;
-	/** The working version the card shows, or null when drama-cli has none (not generated). */
-	readonly version: string | null;
-	readonly accepted: string | null;
-	/** The parts `version` is written in, when more than one (lineage.ts `parts`). */
-	readonly parts?: number;
-	/** Why the next steps cannot use it yet, in the snapshot's words (`why`), else null. */
-	readonly notUsable: string | null;
-	/** Project-relative file of `version` the card shows (lineage `shows`), or null. */
+	/** Its shown file, project-relative (object.json `shown_file`), or null for a planned, empty card. */
 	readonly file: string | null;
+	/** A paid call for it is under way (project.ts makingNow). */
+	readonly makingNow: boolean;
 	/** What the file is: an image or video the webview loads, a text, or no file. */
 	readonly media: 'image' | 'video' | 'text' | 'none';
 	/** A webview URI of the file, for an image or video. */
 	readonly src: string | null;
-	/** The file is named by drama-cli but was not found when the canvas was sent. */
+	/** Its object.json names the file, but it was not found when the canvas was sent. */
 	readonly missing: boolean;
 	/**
 	 * On the assets canvas, the episodes its asset's record says it appears in (an empty list when it says none); null on
@@ -53,14 +49,6 @@ export interface CanvasCard {
 	readonly segment: string | null;
 	/** On the assets canvas, its asset's name and its node's own (assetsCanvas.ts), which its box names; null otherwise. */
 	readonly name: NodeName | null;
-	/** The person's choice the Computer has not seen yet: the mark's tooltip, or null. */
-	readonly outgoing: string | null;
-	/** An add a running task carries: its line, or null; its edit and remove wait. */
-	readonly inFlight: string | null;
-	/** The problem the scope's last return named for it, or null. */
-	readonly problem: { readonly message: string; readonly action: string | null } | null;
-	/** A stage its episode plans and has not made yet (lineage `planned`): its card stands in its final place, says Planned. */
-	readonly planned?: boolean;
 }
 
 export interface Point {
@@ -95,7 +83,7 @@ export interface CanvasViewport {
 
 export type ToCanvas =
 	| {
-		readonly v: typeof CANVAS_PROTOCOL; readonly type: 'lineage'; readonly episode: string; readonly origin: CanvasOrigin;
+		readonly v: typeof CANVAS_PROTOCOL; readonly type: 'lineage'; readonly episode: string;
 		/** drama-cli's group titles in drama-cli's order (lineage `sections`), those with a card. */
 		readonly sections: readonly string[];
 		readonly cards: readonly CanvasCard[];
@@ -115,32 +103,18 @@ export type ToCanvas =
 	 * commands zoom the whole window (canvas-scope.md, review finding 1).
 	 */
 	| { readonly v: typeof CANVAS_PROTOCOL; readonly type: 'command'; readonly name: CanvasCommand }
-	/** What the clicked card's version was made with (versionDetail.ts), for the read-only detail panel; `error` when its records could not be read. */
-	| { readonly v: typeof CANVAS_PROTOCOL; readonly type: 'detail'; readonly stageId: string; readonly version: string | null; readonly detail: CanvasDetail | null; readonly error: string | null;
+	/** What the clicked card's shown file was made with (its receipt, versionDetail.ts), for the detail panel; `error` when it could not be read. */
+	| { readonly v: typeof CANVAS_PROTOCOL; readonly type: 'detail'; readonly stageId: string; readonly detail: CanvasDetail | null; readonly error: string | null;
 		/** An asset's card: what the record panel edits; null elsewhere. */
 		readonly record?: CanvasRecord | null;
-		/** An asset card's picture versions; null with none. */
-		readonly picture?: CanvasPicture | null;
 		/** The box's prompt; null for an object with none to edit. */
 		readonly prompt?: CanvasPrompt | null;
-		/** The model and settings the shown version was made with, for display only (versionDetail.ts, madeWith); null when unknown. */
-		readonly made?: MadeWith | null }
+		/** What its next draw request sends, Image 1..N (versionDetail.ts nextDrawRequest): the composer's references. */
+		readonly nextDraw?: readonly MadeFrom[] }
 	/** A record panel's action ended (cardActions.ts): its failure, or `unchanged` when it wrote nothing (unchangedLine). */
 	| { readonly v: typeof CANVAS_PROTOCOL; readonly type: 'actionEnded'; readonly key: string; readonly error: string | null; readonly unchanged: string | null };
 
-/** An asset card's picture versions as the record panel shows them ("The record panel's picture versions"). */
-export interface CanvasPicture {
-	readonly object: string;
-	readonly current: string | null;
-	readonly accepted: string | null;
-	readonly usable: boolean;
-	readonly why: string | null;
-	/** The strip: the versions the person has not discarded, oldest first, each with its picture for the thumbnail. */
-	readonly versions: readonly { readonly version: string; /** The person's own import (protocol 2.1). */ readonly own: boolean; readonly accepted: boolean; readonly src: string | null;
-		/** What `src` is: a picture, or a take's video; null without one. */ readonly media: 'image' | 'video' | null }[];
-}
-
-/** The box's one text: the person's prompt where they set one, else the agent's next one; null while there is none. */
+/** The box's one text: the object's prompt.md, which the person and the agent edit; null while there is none. */
 export interface CanvasPrompt {
 	readonly object: string;
 	readonly text: string | null;
@@ -150,35 +124,28 @@ export interface CanvasPrompt {
 export interface CanvasRecord {
 	readonly object: string;
 	readonly type: string;
-	/** The person's description where set, else the agent's. */
+	/** Its description.md, which the person and the agent edit (doc/protocol.md 2.2). */
 	readonly description: string;
 	/** What a variant derives from (`variant_of`), as an object id the canvas centres; null for an asset. */
 	readonly from: string | null;
 }
 
-/** A version a version was made from: its name, its picture when it is one, and its card when on the board. */
+/** A file the shown file was made from: its object's name, its picture when it is one, and its card when on the board. */
 export interface MadeFrom {
 	readonly label: string;
 	readonly src: string | null;
 	readonly stageId: string | null;
-	/** Its "Image N" in the prompt, where the request it was sent with says (versionDetail.ts requestDetail). */
+	/** Its "Image N" in the prompt, by the order its receipt says it was sent (versionDetail.ts receiptDetail). */
 	readonly n?: number;
 }
 
-/** A version's model and its request's settings, each as a person reads it ("2048×1152", "high", "1 image", "19 s"). */
-export interface MadeWith {
-	readonly model: string;
-	readonly settings: readonly string[];
-}
-
 /**
- * What a version was made with, as the panel shows it (core/versionDetail.ts): its prompt, when it was finished, and the
- * versions it was made from, in their order: the pictures, then the text ones by name.
+ * What a shown file was made with, as the panel shows it (core/versionDetail.ts): its receipt's prompt, when it was
+ * finished, and the files it was sent, in their order: the pictures, then the text ones by name.
  */
 export interface CanvasDetail {
 	readonly prompt: string | null;
-	/** When it was finished; null for a request not sent yet (a seg not shot). */
-	readonly madeAt: string | null;
+	readonly madeAt: string;
 	readonly pictures: readonly MadeFrom[];
 	readonly madeFrom: readonly MadeFrom[];
 }
@@ -186,10 +153,9 @@ export interface CanvasDetail {
 export const CANVAS_COMMANDS = ['zoomIn', 'zoomOut', 'fit', 'selectAll'] as const;
 export type CanvasCommand = typeof CANVAS_COMMANDS[number];
 
-/** A card's identity as shown: the stage, the version on screen and its file, so an action never lands on another version. */
+/** A card as shown: its object and its shown file. */
 export interface Shown {
 	readonly stageId: string;
-	readonly version: string | null;
 	readonly file: string | null;
 }
 
@@ -226,8 +192,8 @@ export function readFromCanvas(value: unknown): FromCanvas | undefined {
 	if (message.type === 'ready' || message.type === 'unpick') {
 		return { v: CANVAS_PROTOCOL, type: message.type };
 	}
-	if (message.type === 'inspect' && typeof message.stageId === 'string' && nullableString(message.version) && nullableString(message.file)) {
-		return { v: CANVAS_PROTOCOL, type: 'inspect', stageId: message.stageId, version: message.version, file: message.file };
+	if (message.type === 'inspect' && typeof message.stageId === 'string' && nullableString(message.file)) {
+		return { v: CANVAS_PROTOCOL, type: 'inspect', stageId: message.stageId, file: message.file };
 	}
 	if (message.type === 'layout' && typeof message.episode === 'string' && isLayout(message.positions)) {
 		return { v: CANVAS_PROTOCOL, type: 'layout', episode: message.episode, positions: message.positions };

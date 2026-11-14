@@ -95,9 +95,12 @@ export function commitFilesFoundOnDisk(projectRoot: string, message: string): Pr
 	return runInProjectWriteQueue(projectRoot, () => commitPathsToHistory(projectRoot, 'client-found-changes-on-disk', 'all', message));
 }
 
-/** The trailers a turn's change is committed with (doc/protocol.md 4.4), by which it is found in history. */
+/** The two trailers a turn's change is committed with (doc/protocol.md 4.4), by which it is found in history. */
+const TURN_ID = 'Pine-Turn-Id';
+const CHANGE_NUMBER = 'Pine-Change-Number';
+
 export const turnChangeTrailers = (turnId: string, changeNumber: number): Readonly<Record<string, string>> =>
-	({ 'Pine-Turn-Id': turnId, 'Pine-Change-Number': String(changeNumber) });
+	({ [TURN_ID]: turnId, [CHANGE_NUMBER]: String(changeNumber) });
 
 /** Whether a commit of HEAD's history carries a turn's change's trailers: the change is resolved (doc/protocol.md 4.4). */
 export async function historyHasTurnChange(projectRoot: string, turnId: string, changeNumber: number): Promise<boolean> {
@@ -107,7 +110,7 @@ export async function historyHasTurnChange(projectRoot: string, turnId: string, 
 	const grep = Object.entries(turnChangeTrailers(turnId, changeNumber)).map(([key, value]) => `--grep=^${escapeRegex(key)}: ${escapeRegex(value)}$`);
 	// The grep finds the candidates; git's own trailer parsing decides, so text quoted in a message body is no trailer.
 	const found = await run(projectRoot, 'person', ['log', '-z', '--all-match', '-E', ...grep,
-		'--format=%(trailers:key=Pine-Turn-Id,valueonly,separator=%x2C)%x1f%(trailers:key=Pine-Change-Number,valueonly,separator=%x2C)']);
+		`--format=%(trailers:key=${TURN_ID},valueonly,separator=%x2C)%x1f%(trailers:key=${CHANGE_NUMBER},valueonly,separator=%x2C)`]);
 	return found.split('\0').some(entry => entry.trim() === `${turnId}\x1f${changeNumber}`);
 }
 
@@ -128,7 +131,7 @@ export interface FileHistoryEntry {
  */
 export async function listHistoryOfFile(projectRoot: string, path: string): Promise<FileHistoryEntry[]> {
 	if (!existsSync(join(projectRoot, '.git')) || !await hasHead(projectRoot)) { return []; }
-	const log = await run(projectRoot, 'person', ['log', '-z', '--format=%H%x1f%an%x1f%cI%x1f%(trailers:key=Pine-Turn-Id,valueonly)%x1f%(trailers:key=Pine-Change-Number,valueonly)', '--', path]);
+	const log = await run(projectRoot, 'person', ['log', '-z', `--format=%H%x1f%an%x1f%cI%x1f%(trailers:key=${TURN_ID},valueonly)%x1f%(trailers:key=${CHANGE_NUMBER},valueonly)`, '--', path]);
 	const commits = log.split('\0').filter(Boolean).map(entry => entry.split('\x1f').map(field => field.trim()));
 	if (!commits.length) { return []; }
 	const asked = commits.map(([commit]) => `${commit}:${path}`);

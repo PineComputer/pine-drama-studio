@@ -1,0 +1,11 @@
+{
+	"schema": 2,
+	"paid_call_id": "call-umbrella-0001",
+	"finished_at": "2026-11-12T10:07:00Z",
+	"inputs_sent_in_order": [],
+	"prompt_sent": "A black umbrella with a bent rib, studio light",
+	"cost": {
+		"usd": 0.04,
+		"reported_by": "pine"
+	}
+}

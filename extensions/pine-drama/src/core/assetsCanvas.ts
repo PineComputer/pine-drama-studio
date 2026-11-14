@@ -5,7 +5,7 @@
 // snapshot's (doc/protocol.md, section 5). Nothing is made up. No vscode import.
 import type { NodeName } from './canvasProtocol';
 import { assetsLineage, ASSETS_CANVAS, type Lineage } from './lineage';
-import type { Drama } from './project';
+import type { ProjectReadModel } from './project';
 import { episodeIn, variantRoot } from './project';
 
 export interface AssetsBoard extends Lineage {
@@ -26,7 +26,7 @@ export function cardLabel(name: NodeName, root: boolean, titled: boolean): strin
 	return titled ? name.node : root ? name.asset : `${name.asset} · ${name.node}`;
 }
 
-export function assetsBoard(drama: Drama): AssetsBoard {
+export function assetsBoard(drama: ProjectReadModel): AssetsBoard {
 	const lineage = assetsLineage(drama);
 	const nameOf = (id: string) => drama.objects.get(id)?.name ?? id;
 	const outside = (asset: string) => drama.edges.find(e => e.kind === 'inside_of' && e.from === asset)?.to;

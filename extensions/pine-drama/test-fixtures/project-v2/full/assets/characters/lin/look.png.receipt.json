@@ -1,0 +1,11 @@
+{
+	"schema": 2,
+	"paid_call_id": "call-lin-look-0002",
+	"finished_at": "2026-11-12T10:05:00Z",
+	"inputs_sent_in_order": [],
+	"prompt_sent": "Lin, 30, grey wool coat",
+	"cost": {
+		"usd": 0.04,
+		"reported_by": "pine"
+	}
+}

@@ -5,7 +5,7 @@ import { registerPineConnection, CONNECTION_COMMAND } from './pineConnection';
 import { mkdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { ChatService, stopAllSummary } from './core/chats';
-import { dramaRecordOf, installedSnapshots, previewVersions, publishKeptTurns, tasksOf } from './core/taskRun';
+import { publishKeptTurns } from './core/taskRun';
 import { commitFilesFoundOnDisk } from './core/projectHistory';
 import type { SecretVault } from './core/pinePort';
 import { setAsideNotice, Store } from './core/store';
@@ -71,26 +71,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	let opened: { views: ProjectViews; canvas: { refresh(): void }; galleries: ReturnType<typeof registerGalleries> } | undefined;
 	let projectOpened: (() => void) | undefined;
 	let protocolStorage: string | undefined;
-	// The downloaded versions (protocol 4.6) are extracted in the drama's record, outside its folder: a watcher on the
-	// record's previews refreshes the views as each arrives or goes, once both the project and the storage are known.
-	let previewsWatched = false;
-	const watchPreviews = () => {
-		if (previewsWatched || !opened || !protocolStorage) {
-			return;
-		}
-		previewsWatched = true;
-		const shown = opened;
-		let timer: NodeJS.Timeout | undefined;
-		const changed = () => {
-			clearTimeout(timer);
-			timer = setTimeout(() => { shown.views.refresh(); shown.galleries.refresh(); shown.canvas.refresh(); }, 300);
-		};
-		const dir = join(dramaRecordOf(protocolStorage, shown.views.project.root).dir, 'previews');
-		const watcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(vscode.Uri.file(dir), '*.json'));
-		context.subscriptions.push(watcher, watcher.onDidCreate(changed), watcher.onDidDelete(changed), { dispose: () => clearTimeout(timer) });
-	};
-	// A Chat's title for the cards' marks, known once the sessions are read below.
-	let chatTitleOf: (key: string) => string | undefined = () => undefined;
 	const projects = await registerProjectViews(context, output, views => {
 		const root = views.project.root;
 		// Every view reads the folder's files, so a change of them refreshes the tree, the galleries and the canvases a
@@ -106,10 +86,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 			views,
 			// An episode's two views of one model: its seg editor and its canvas, refreshed together.
 			// The record panel on the canvas runs the grid's card actions (cardActions.ts).
-			canvas: both(registerEpisodeCanvas(context, views, output, cardActions(context, root), key => chatTitleOf(key)), registerSegEditor(context, views, output)),
-			galleries: registerGalleries(context, views, output, key => chatTitleOf(key)),
+			canvas: both(registerEpisodeCanvas(context, views, output, cardActions(context, root)), registerSegEditor(context, views, output)),
+			galleries: registerGalleries(context, views, output),
 		};
-		watchPreviews();
 		projectOpened?.();
 		// Turns this profile dealt with before they travelled with the folder go into it once (core/taskRun.ts,
 		// publishKeptTurns), under this window's project lock; the folder's watcher then refreshes the views.
@@ -120,15 +99,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 			.catch(error => log(`project: writing this profile's turns into ${root}/turns: ${(error as Error).stack ?? error}`))
 			.then(() => commitFilesFoundOnDisk(root, 'Changes found on disk when the project opened'))
 			.catch(error => log(`project: committing the changes found on disk in ${root}: ${(error as Error).message}`));
-	},
-	// The project is the folder's (core/taskRun.ts, turnsOf): the installed returns' snapshots and the turns, for the
-	// cards' marks, read the same in any Studio. Only the downloaded versions not installed yet, and this Studio's requests
-	// not dealt with yet, are under the connection's protocol storage, known once the Pine connection is read below.
-	root => () => installedSnapshots(root),
-	root => () => protocolStorage ? previewVersions(protocolStorage, root) : [],
-	root => {
-		const tasks = () => tasksOf(protocolStorage ? dramaRecordOf(protocolStorage, root) : undefined, root);
-		return { requests: () => tasks().requests(), returns: () => tasks().returns() };
 	});
 
 	registerProjectCommands(context, output);
@@ -151,7 +121,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	// The protocol client's storage (doc/protocol.md): kept archives and each drama's record, outside the drama's folder.
 	protocolStorage = join(connectionRoot, 'protocol');
 	opened?.views.refresh();
-	watchPreviews();
 	const dbPath = join(connectionRoot, 'studio.sqlite');
 	try {
 		store = new Store(dbPath);
@@ -202,7 +171,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	log(`conversation store ${dbPath}`);
 	// One title per session wherever it is named: the sessions list, the pickers, Review, the status bar: its first message.
 	const titleOf = (key: string) => service.chat(key)?.label;
-	chatTitleOf = titleOf;
 	// The open reviews with each item's verdict so far: a session's project window shows its own Chat's. Registered
 	// before the sessions, whose Chat cards submit through it.
 	reviews = registerReviewView(context, output, service, titleOf);

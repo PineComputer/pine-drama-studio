@@ -28,13 +28,12 @@ function Outcome({ at }: { at: string }) {
 		: outcome?.unchanged ? <div className="action-line muted">{outcome.unchanged}</div> : null;
 }
 
-/** The key a card's actions report their outcome under: its object's, or its add's. */
-const cardKey = (tile: PageTile) => `card:${tile.stagePath ?? tile.add}`;
+/** The key a card's actions report their outcome under: its object's. */
+const cardKey = (tile: PageTile) => `card:${tile.stagePath}`;
 
 /**
  * A grid card's actions behind its ⋯ button, as Pippit's card menu: Import of the person's own picture, which a
- * file dropped on the card does too, Change description and Delete. An add no task has made
- * yet can only be deleted.
+ * file dropped on the card does too, Change description and Delete.
  */
 function CardMenu({ tile }: { tile: PageTile }) {
 	const { outcomes, run } = useContext(Actions);
@@ -48,12 +47,12 @@ function CardMenu({ tile }: { tile: PageTile }) {
 			<button className="more" disabled={busy} aria-haspopup="menu" aria-expanded={open} title="Actions" onClick={() => setOpen(!open)}><span className="codicon codicon-ellipsis" /></button>
 			{open && (
 				<div className="menu" role="menu">
-					{object && <button role="menuitem" title="Import your picture; or drop it on the card"
-						onClick={() => act({ key, request: { action: 'import', object, file: null } })}>Import</button>}
-					{object && <button role="menuitem" title={`Change the description of ${tile.name}`}
-						onClick={() => act({ key, request: { action: 'describe', object, description: tile.description } })}>Change description</button>}
+					<button role="menuitem" title="Import your picture; or drop it on the card"
+						onClick={() => act({ key, request: { action: 'import', object, file: null } })}>Import</button>
+					<button role="menuitem" title={`Change the description of ${tile.name}`}
+						onClick={() => act({ key, request: { action: 'describe', object, description: tile.description } })}>Change description</button>
 					<button role="menuitem" title={`Delete ${tile.name} from the project's assets`}
-						onClick={() => act({ key, request: object ? { action: 'remove', object } : { action: 'removeAdd', id: tile.add! } })}>Delete</button>
+						onClick={() => act({ key, request: { action: 'remove', object } })}>Delete</button>
 				</div>
 			)}
 		</div>
@@ -65,9 +64,6 @@ function useDrop(tile: PageTile) {
 	const { outcomes, run } = useContext(Actions);
 	const [over, setOver] = useState(false);
 	const object = tile.stagePath;
-	if (!object) {
-		return { over: false, handlers: {} };
-	}
 	const key = cardKey(tile);
 	return {
 		over,
@@ -157,20 +153,6 @@ function CreateNew({ kind, type }: { kind: string; type: AddType }) {
 	);
 }
 
-/**
- * A card's marks of the person's choices: the outgoing arrow while the Computer has not seen the
- * choice, the spinner and its line while a task creates an add, and the last return's problem for it.
- */
-function Marks({ tile }: { tile: PageTile }) {
-	return (
-		<>
-			{tile.outgoing && <span className="mark codicon codicon-arrow-up" title={tile.outgoing} aria-label={tile.outgoing} />}
-			{tile.inFlight && <div className="action-line muted"><span className="codicon codicon-loading codicon-modifier-spin" /> {tile.inFlight}</div>}
-			{tile.problem && <div className="action-line error">{[tile.problem.message, tile.problem.action].filter(Boolean).join(' ')}</div>}
-		</>
-	);
-}
-
 const KIND_ICON: Record<string, string> = { characters: 'person', scenes: 'location', props: 'package' };
 
 /**
@@ -180,14 +162,13 @@ const KIND_ICON: Record<string, string> = { characters: 'person', scenes: 'locat
 function GridCard({ tile, kind }: { tile: PageTile; kind: string }) {
 	// Every click on an asset goes one way, as in Pippit: the assets canvas, with the asset's root selected and its box open
 	// (galleries.ts; AC1; the person's 751.png). A picture opens from its canvas card, never from here.
-	const clickable = tile.stagePath !== null;
-	const open = () => clickable && post({ v: GALLERY_PROTOCOL, type: 'open', stagePath: tile.stagePath! });
+	const open = () => post({ v: GALLERY_PROTOCOL, type: 'open', stagePath: tile.stagePath });
 	const src = tile.src;
 	const line = tile.visuals && visualsLine(tile.visuals);
 	const drop = useDrop(tile);
 	return (
 		<div className={drop.over ? 'card dropping' : 'card'} {...drop.handlers}>
-			<button className="tile" disabled={!clickable} onClick={open} title={tile.description || tile.name}>
+			<button className="tile" onClick={open} title={tile.description || tile.name}>
 				<div className="thumb">
 					{src ? <img src={src} draggable={false} loading="lazy" /> : <span className={`codicon codicon-${KIND_ICON[kind] ?? 'circle-large'} kind`} />}
 				</div>
@@ -195,8 +176,7 @@ function GridCard({ tile, kind }: { tile: PageTile; kind: string }) {
 				{/* One kind of caption on every card (751.png): its count, or nothing; a live picture's words are in the tooltip. */}
 				{line && <div className={tile.visuals!.needed ? 'visuals needed' : 'visuals'}>{line}</div>}
 			</button>
-			<Marks tile={tile} />
-			{!tile.inFlight && <CardMenu tile={tile} />}
+			<CardMenu tile={tile} />
 			<Outcome at={cardKey(tile)} />
 		</div>
 	);
@@ -244,7 +224,7 @@ function App() {
 		<div className="page">
 			{page.note && <p className="muted">{page.note}</p>}
 			<div className={`grid assets ${kind}`}>
-				{grid?.tiles.map(tile => <GridCard key={tile.stagePath ?? tile.add} tile={tile} kind={kind} />)}
+				{grid?.tiles.map(tile => <GridCard key={tile.stagePath} tile={tile} kind={kind} />)}
 				{grid?.add && <CreateNew kind={kind} type={grid.add} />}
 			</div>
 		</div>

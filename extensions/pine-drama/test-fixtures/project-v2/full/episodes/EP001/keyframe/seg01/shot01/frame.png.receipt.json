@@ -1,0 +1,20 @@
+{
+	"schema": 2,
+	"paid_call_id": "call-kf-seg01-0001",
+	"finished_at": "2026-11-12T11:05:00Z",
+	"inputs_sent_in_order": [
+		{
+			"path": "assets/characters/lin/look.png",
+			"sha256": "6b7fa434f92a8b80aab02d9bf1a12e49ffcae424e4013a1c4f68b67e3d2bbcd0"
+		},
+		{
+			"path": "assets/scenes/office/picture.png",
+			"sha256": "6b7fa434f92a8b80aab02d9bf1a12e49ffcae424e4013a1c4f68b67e3d2bbcd0"
+		}
+	],
+	"prompt_sent": "Lin at the window of the newsroom, night.",
+	"cost": {
+		"usd": 0.05,
+		"reported_by": "pine"
+	}
+}

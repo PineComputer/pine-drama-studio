@@ -1,0 +1,12 @@
+{
+	"schema": 2,
+	"type": "take",
+	"name": "seg02",
+	"shown_file": null,
+	"segment": "seg02",
+	"objects_sent_by_draw_request": [
+		"assets/characters/lin",
+		"assets/props/umbrella",
+		"assets/scenes/street"
+	]
+}

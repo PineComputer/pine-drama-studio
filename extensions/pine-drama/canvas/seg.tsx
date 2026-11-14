@@ -1,7 +1,6 @@
-// The seg editor's webview: a strip of the episode's segs at
-// the bottom, "seg01 · 14s", and in the centre the chosen seg's take playing, its takes to switch between, and what the
-// take was made with (or, before any take, its planned prompt); Full episode plays the accepted cut. Generate and
-// Regenerate put the request in the Chat's input for the person to send. The toggle opens the episode's canvas.
+// The seg editor's webview: a strip of the episode's segs at the bottom, and in the centre the chosen seg's take
+// playing and what it was made with (its receipt), or before any take its prompt; Full episode plays the cut. Generate
+// and Regenerate put the request in the Chat's input for the person to send. The toggle opens the episode's canvas.
 import { createRoot } from 'react-dom/client';
 import { useEffect, useRef, useState } from 'react';
 import '@vscode/codicons/dist/codicon.css';
@@ -23,9 +22,6 @@ const FULL = '#full';
 function Editor({ model, chosen, choose }: { model: SegEditorModel; chosen: string | undefined; choose: (id: string) => void }) {
 	const full = chosen === FULL;
 	const seg = full ? undefined : model.segs.find(s => s.id === chosen) ?? model.segs[0];
-	// The take the person switched to, per seg; a seg not switched, or whose switched take is gone, plays its shown take.
-	const [picked, setPicked] = useState<Record<string, string>>({});
-	const take = seg && (seg.takes.find(t => t.version === picked[seg.id]) ?? seg.takes.find(t => t.version === seg.shown));
 	const strip = useRef<HTMLElement>(null);
 	// The chosen tile is scrolled into view, at opening too (a seg chosen before a reload).
 	useEffect(() => {
@@ -35,16 +31,10 @@ function Editor({ model, chosen, choose }: { model: SegEditorModel; chosen: stri
 		<div className="editor">
 			<header>
 				<h1>{model.episode}{full ? ' · Full episode' : seg ? ` · ${seg.id}` : ''}</h1>
-				<span className="muted" title="Versions and your choices are current; the badges are as of the last return">{model.observedAt ? `As of ${new Date(model.observedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : 'No return yet'}</span>
 				<span className="actions">
-					{seg && seg.takes.length > 0 && (
-						<select value={take?.version ?? ''} onChange={event => setPicked({ ...picked, [seg.id]: event.target.value })} title="The take that plays">
-							{seg.takes.map(t => <option key={t.version} value={t.version}>{`${t.version} · ${t.label}`}</option>)}
-						</select>
-					)}
 					{seg && (
-						<button onClick={() => post({ v: SEG_PROTOCOL, type: 'generate', seg: seg.id, again: seg.takes.length > 0 })} title="Put the request in the Chat for you to send">
-							<span className="codicon codicon-device-camera-video" /> {seg.takes.length > 0 ? 'Regenerate' : 'Generate'}
+						<button onClick={() => post({ v: SEG_PROTOCOL, type: 'generate', seg: seg.id, again: seg.src !== null })} title="Put the request in the Chat for you to send">
+							<span className="codicon codicon-device-camera-video" /> {seg.src !== null ? 'Regenerate' : 'Generate'}
 						</button>
 					)}
 					<button onClick={() => post({ v: SEG_PROTOCOL, type: 'canvas' })} title="Open this episode's canvas">
@@ -53,12 +43,12 @@ function Editor({ model, chosen, choose }: { model: SegEditorModel; chosen: stri
 				</span>
 			</header>
 			<main>
-				{full ? (model.cut ? <Player src={model.cut.src} missing={`${model.cut.version} shows no file.`} />
-					: <p className="muted">No cut is approved yet: it is made once the takes are approved.</p>)
+				{full ? (model.cut ? <Player src={model.cut.src} />
+					: <p className="muted">No cut yet: it is made once the takes are shot.</p>)
 					: !seg ? <p className="muted">No segs yet: they appear once this episode's breakdown is made.</p>
 						: <>
-							{take && <Player src={take.src} missing={`${take.version} shows no file.`} />}
-							<Prompt seg={seg} take={take} />
+							{seg.src && <Player src={seg.src} />}
+							<Prompt seg={seg} />
 						</>}
 			</main>
 			<nav className="strip" ref={strip} onWheel={event => {
@@ -70,13 +60,13 @@ function Editor({ model, chosen, choose }: { model: SegEditorModel; chosen: stri
 				<button className={full ? 'seg chosen' : 'seg'} onClick={() => choose(FULL)}>
 					<Thumb poster={model.cut?.src ? { media: 'video', src: model.cut.src } : null} icon="film" />
 					<span className="name">Full episode</span>
-					<span className={model.cut ? 'badge accepted' : 'badge'}>{model.cut ? `Cut ${model.cut.version}` : 'No cut yet'}</span>
+					{!model.cut && <span className="badge">No cut yet</span>}
 				</button>
 				{model.segs.map(s => (
 					<button key={s.id} className={s.id === seg?.id ? 'seg chosen' : 'seg'} onClick={() => choose(s.id)}>
 						<Thumb poster={s.poster} icon="device-camera-video" />
 						<span className="name">{s.id}</span>
-						<span className={`badge ${s.badge === 'Approved' ? 'accepted' : s.badge === 'Waiting for review' ? 'review' : ''}`}>{s.badge}</span>
+						{s.badge && <span className="badge">{s.badge}</span>}
 					</button>
 				))}
 			</nav>
@@ -85,8 +75,8 @@ function Editor({ model, chosen, choose }: { model: SegEditorModel; chosen: stri
 }
 
 /** The take or the cut, playing: the local file in its version folder. */
-function Player({ src, missing }: { src: string | null; missing: string }) {
-	return src ? <video key={src} className="player" src={src} controls playsInline /> : <p className="muted">{missing}</p>;
+function Player({ src }: { src: string }) {
+	return <video key={src} className="player" src={src} controls playsInline />;
 }
 
 /** A tile's picture: the take's frame at 0.5 s (a take's first frame is often black), a keyframe, or the icon. */
@@ -100,22 +90,28 @@ function Thumb({ poster, icon }: { poster: Poster | null; icon: string }) {
 	);
 }
 
-/** A seg's planned prompt, before its take (section 12c; Pippit's clip view; 760.png). Read-only. */
-function PlannedView({ planned }: { planned: NonNullable<Seg['planned']> }) {
+/** A seg's prompt (section 12c; Pippit's clip view; 760.png). Read-only. */
+function PlannedView({ text }: { text: string }) {
 	return (
 		<div className="planned">
-			<div className="planned-head">{planned.by === 'person' ? 'Edited by you' : 'Planned'}</div>
-			<pre className="planned-text">{planned.text}</pre>
+			<div className="planned-head">Prompt</div>
+			<pre className="planned-text">{text}</pre>
 		</div>
 	);
 }
 
-function Prompt({ seg, take }: { seg: Seg; take: Seg['takes'][number] | undefined }) {
+/** The take's prompt as its next draw sends it (prompt.md), and what the shown take was made with behind its disclosure. */
+function Prompt({ seg }: { seg: Seg }) {
 	return (
 		<section className="request">
-			{take?.request ? <RequestView detail={take.request} onGo={stageId => post({ v: SEG_PROTOCOL, type: 'go', stageId })} />
-				: seg.planned ? <PlannedView planned={seg.planned} />
-				: <p className="muted">No prompt yet: it is written when the take is planned, and shows here before any take.</p>}
+			{seg.prompt !== null ? <PlannedView text={seg.prompt} />
+				: <p className="muted">No prompt yet: it is written when the take is planned.</p>}
+			{seg.request && (
+				<details className="made">
+					<summary>How it was made</summary>
+					<RequestView detail={seg.request} onGo={stageId => post({ v: SEG_PROTOCOL, type: 'go', stageId })} />
+				</details>
+			)}
 		</section>
 	);
 }

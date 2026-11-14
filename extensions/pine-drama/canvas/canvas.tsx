@@ -15,7 +15,7 @@ import '@xyflow/react/dist/style.css';
 import '@vscode/codicons/dist/codicon.css';
 import './canvas.css';
 import { NAME_MAX, TEXT_MAX, type EntryAction } from '../src/core/galleryProtocol';
-import { ASSETS_CANVAS, CANVAS_PROTOCOL, type CanvasCard, type CanvasPicture, type CanvasCommand, type CanvasViewport, type FromCanvas, type Point, type Size, type ToCanvas } from '../src/core/canvasProtocol';
+import { ASSETS_CANVAS, CANVAS_PROTOCOL, notMadeText, type CanvasCard, type CanvasCommand, type CanvasViewport, type FromCanvas, type Point, type Size, type ToCanvas } from '../src/core/canvasProtocol';
 import { CANVAS_WAIT_LIMIT_S, waitingText } from '../src/core/canvasWait';
 import { PictureRef, RequestView } from './requestView';
 import { cardSize, layoutAssets, layoutEpisode, layoutOf, onBoard, openingViewport, positionsFor } from '../src/core/canvasLayout';
@@ -81,21 +81,17 @@ function measure(card: CanvasCard): Promise<Loaded> {
 	});
 }
 
-/**
- * A card's state in words, the same on both canvases: made and approved, made and not approved yet, or not made yet;
- * the parts it is written in; the episodes an asset is used in. No version numbers: those are the Versions view's.
- */
+/** A card's state in words, the same on both canvases: not made yet where it shows nothing; the episodes an asset is used in. */
 function statusOf(card: CanvasCard): string {
-	const made = !!card.version && !card.planned;
-	const state = !made ? (card.kind === 'take' || card.kind === 'cut' ? 'Not shot yet' : 'Not drawn yet') : card.accepted === card.version ? 'Approved' : 'Not approved yet';
-	return [state, card.parts ? `written in ${card.parts} parts` : '', card.appearsIn?.length ? `used in ${card.appearsIn.join(', ')}` : ''].filter(Boolean).join(' · ');
+	return [card.file ? '' : notMadeText(card.kind, card.makingNow), card.appearsIn?.length ? `used in ${card.appearsIn.join(', ')}` : ''].filter(Boolean).join(' · ');
 }
 
 /** What stands where the picture would: each state says what is actually known (review, finding 4). */
 function Placeholder({ card, loaded }: CardData) {
-	const text = card.planned || !card.version ? 'Not drawn yet'
-		: !card.file ? `${card.version} names no picture`
+	const text = !card.file ? notMadeText(card.kind, card.makingNow)
 		: card.missing ? `File missing: ${card.file}`
+		// A file the canvas does not draw (an object of a type it does not know, a sound): its name, as a plain card.
+		: card.media !== 'image' && card.media !== 'video' ? card.file.split('/').at(-1)!
 		: loaded && 'error' in loaded ? `Could not load ${card.file}: ${loaded.error}`
 		: 'Loading…';
 	return <div className="placeholder" title={text}>{text}</div>;
@@ -111,17 +107,6 @@ const fullName = (card: CanvasCard) => (card.name ? `${card.name.asset} · ${car
 type Tool = 'select' | 'hand';
 const TOOL_KEYS: Readonly<Record<string, Tool>> = { v: 'select', h: 'hand' };
 
-/** A card's marks of the person's choices: the outgoing arrow, an add in flight, the last problem. */
-function CardMarks({ card }: { card: CanvasCard }) {
-	return (
-		<>
-			{card.outgoing && <span className="mark codicon codicon-arrow-up" title={card.outgoing} aria-label={card.outgoing} />}
-			{card.inFlight && <div className="mark-line"><span className="codicon codicon-loading codicon-modifier-spin" /> {card.inFlight}</div>}
-			{card.problem && <div className="mark-line warn">{[card.problem.message, card.problem.action].filter(Boolean).join(' ')}</div>}
-		</>
-	);
-}
-
 /**
  * A card, the same on both canvases (the person's design): the picture (a take plays on hover), its name, and its state
  * (statusOf). No version numbers, prompt or record labels: those are the composer's and the Versions view's.
@@ -133,8 +118,8 @@ const CardView = memo(({ data, selected, width, height }: NodeProps<CardNode>) =
 	const shows = card.src && size;
 	const status = statusOf(card);
 	return (
-		<div className={`card${card.notUsable ? ' stale' : ''}${selected ? ' selected' : ''}`} style={{ width, height }}
-			title={`${fullName(card)}\n${status}${card.notUsable ? `\n${card.notUsable}` : ''}\nWith Select: click for its composer, double-click to fill the view with it`}>
+		<div className={`card${selected ? ' selected' : ''}`} style={{ width, height }}
+			title={`${fullName(card)}${status ? `\n${status}` : ''}\nWith Select: click for its composer, double-click to fill the view with it`}>
 			<Handle type="target" position={Position.Left} isConnectable={false} style={hiddenHandle} />
 			<div className="media"
 				onMouseEnter={() => void video.current?.play().catch(() => undefined)}
@@ -144,10 +129,9 @@ const CardView = memo(({ data, selected, width, height }: NodeProps<CardNode>) =
 				{shows && card.media === 'video' && <><video ref={video} src={`${card.src}#t=0.5`} preload="metadata" muted playsInline loop /><span className="play codicon codicon-play" /></>}
 				{!shows && <Placeholder card={card} loaded={loaded} />}
 			</div>
-			<CardMarks card={card} />
 			<div className="card-foot">
 				<div className="card-name">{card.label}</div>
-				<div className={`card-status${card.version && !card.planned ? '' : ' warn'}`}>{status}</div>
+				<div className={`card-status${card.file ? '' : ' warn'}`}>{status}</div>
 			</div>
 			<Handle type="source" position={Position.Right} isConnectable={false} style={hiddenHandle} />
 		</div>
@@ -215,49 +199,6 @@ function defaults(message: Lineage, loaded: Record<string, Loaded>): Layout {
 }
 
 /**
- * An asset picture's standing and its versions as Pippit's strip ("The record panel's picture versions"):
- * status's own words for why it is not usable; one thumbnail per version the person has not discarded, the accepted one
- * marked Main; a click on another offers Approve, and Delete on hover discards one (it deletes no
- * file). An import is Main at once: drama-cli accepts it itself.
- */
-function PictureState({ picture, busy, act }: { picture: CanvasPicture; busy: boolean; act: (action: EntryAction) => void }) {
-	const [chosen, setChosen] = useState<string | null>(null);
-	const shown = picture.versions.find(v => v.version === picture.current);
-	const by = (v: { own: boolean }) => v.own ? 'imported by you' : 'drawn';
-	const pick = chosen && picture.versions.find(v => v.version === chosen && !v.accepted);
-	return (
-		<div className="picture-state">
-			<span>{[picture.current, shown ? by(shown) : null, picture.accepted === picture.current ? 'Main' : null].filter(Boolean).join(' · ')}</span>
-			{picture.why && <div className="detail-note">{picture.why}</div>}
-			{picture.versions.length > 0 && (
-				<div className="strip" role="list">
-					{picture.versions.map(v => (
-						<div key={v.version} role="listitem" className={`version${v.version === chosen ? ' chosen' : ''}`} title={`${v.version} · ${by(v)}${v.accepted ? ' · Main' : ''}`}>
-							<button className="thumb" onClick={() => setChosen(v.version === chosen ? null : v.version)} aria-label={`${v.version}${v.accepted ? ', Main' : ''}`}>
-								{v.media === 'image' && <img src={v.src!} draggable={false} />}
-								{/* #t=0.5, as the card: frame 0 of a take is often black. */}
-								{v.media === 'video' && <video src={`${v.src}#t=0.5`} preload="metadata" muted playsInline />}
-								{!v.media && <span className="codicon codicon-file-media" />}
-								{v.accepted && <span className="main">Main</span>}
-							</button>
-							<button className="delete" disabled={busy} title={`Delete ${v.version}: it leaves the strip, its files are kept`} aria-label={`Delete ${v.version}`}
-								onClick={() => act({ key: `discard:${picture.object}`, request: { action: 'discard', object: picture.object, version: v.version } })}><span className="codicon codicon-trash" /></button>
-							<span className="label">{v.version}</span>
-						</div>
-					))}
-				</div>
-			)}
-			{pick && (
-				<div className="composer-row">
-					<button className="labeled" disabled={busy} onClick={() => { act({ key: `choose:${picture.object}`, request: { action: 'choose', object: picture.object, version: pick.version } }); setChosen(null); }}
-						title={`Approve ${pick.version}`}>Approve</button>
-				</div>
-			)}
-		</div>
-	);
-}
-
-/**
  * A text the composer edits in place, flat on the composer's surface: what is shown (the person's edit, else the
  * current text), whether it changed or was emptied, and its save, a card action under `key`.
  */
@@ -306,17 +247,12 @@ const notYet = 'Not available yet';
  * (Upload, + Variant, Reference, Style, Full prompt), the references, the text specific to this picture, and a bottom
  * bar (model, settings, Generate). An asset's text is its description, its full prompt one click away; an episode
  * card's is its prompt, the only text it has; a storyboard has none. The text is for the next draw, so a picture the
- * person uploaded keeps it; how the picture on the card was made (no prompt, for an upload) is behind "How it was made".
- * The picture's versions sit above the text. The model and settings are greyed, as the Computer cannot take a choice
- * yet, and show the shown version's own (madeWith), the planned ones before it is drawn (plannedWith), or their
- * names when unknown.
+ * person uploaded keeps it; how the picture on the card was made (its receipt; none for an upload) is behind "How it
+ * was made". The model and settings are greyed, as the Computer cannot take a choice yet.
  */
-function Composer({ card, cards, reply, onGo, onClose }: { card: CanvasCard; cards: readonly CanvasCard[]; reply: DetailMessage | undefined; onGo: (stageId: string) => void; onClose: () => void }) {
+function Composer({ card, reply, onGo, onClose }: { card: CanvasCard; reply: DetailMessage | undefined; onGo: (stageId: string) => void; onClose: () => void }) {
 	const record = reply?.record ?? null;
 	const prompt = reply?.prompt ?? null;
-	// What the shown version was made with, or what is planned for a card not drawn yet, read for display only.
-	const made = reply?.made ?? null;
-	const picture = reply?.picture ?? null;
 	const [draft, setDraft] = useState<{ name: string; text: string } | null>(null);
 	const [full, setFull] = useState(false);
 	const [outcome, setOutcome] = useState<{ key: string; busy: boolean; error: string | null; unchanged: string | null } | null>(null);
@@ -341,9 +277,8 @@ function Composer({ card, cards, reply, onGo, onClose }: { card: CanvasCard; car
 	// An asset's own text is its description, its full prompt behind Full prompt; an episode card's is its prompt, the only
 	// text it has (the person's decision). One text is edited at a time, so Save and Generate act on the one shown.
 	const main = record ? (full ? promptEdit : description) : prompt?.text != null ? promptEdit : null;
-	const references = record?.from
-		? cards.filter(c => c.id === record.from).map(c => ({ label: c.label, src: c.src, stageId: c.id }))
-		: reply?.detail?.pictures ?? [];
+	// What its next draw sends, Image 1..N: the one list the draw builds its request from (objects_sent_by_draw_request).
+	const references = reply?.nextDraw ?? [];
 	const generate = () => {
 		if (!main || main.blank) { return; }
 		if (main.save()) { generateOnceSaved.set(main.key, card.id); } else { post({ v: CANVAS_PROTOCOL, type: 'generate', stageId: card.id }); }
@@ -371,10 +306,8 @@ function Composer({ card, cards, reply, onGo, onClose }: { card: CanvasCard; car
 			{references.length > 0 && (
 				<div className="composer-refs">
 					{references.map((r, i) => <PictureRef key={i} r={r} onGo={onGo} />)}
-					{record?.from && <span className="muted">Base, sent with it</span>}
 				</div>
 			)}
-			{picture && <PictureState picture={picture} busy={busy} act={act} />}
 			{!reply && <div className="detail-note">Reading its record…</div>}
 			{reply?.error && <div className="detail-note">{reply.error}</div>}
 			{main && <FlatText key={main.key} edit={main} busy={busy} label={!record ? 'Prompt' : full ? 'Full prompt' : 'Description'} />}
@@ -387,7 +320,7 @@ function Composer({ card, cards, reply, onGo, onClose }: { card: CanvasCard; car
 				</div>
 			)}
 			{reply?.detail && (
-				// How the version on the card was made: what it was made from and the prompt it was made with (versionDetail.ts).
+				// How the file on the card was made: what it was sent and the prompt it was sent with (its receipt, versionDetail.ts).
 				<details className="made">
 					<summary>How it was made</summary>
 					<RequestView detail={reply.detail} onGo={onGo} />
@@ -411,9 +344,9 @@ function Composer({ card, cards, reply, onGo, onClose }: { card: CanvasCard; car
 			{outcome?.error && <div className="detail-note error-text">{outcome.error}</div>}
 			{outcome?.unchanged && <div className="detail-note">{outcome.unchanged}</div>}
 			<div className="composer-bar">
-				<button className="quiet" disabled title={notYet}>{made?.model ?? 'Model'} ▾</button>
+				<button className="quiet" disabled title={notYet}>Model ▾</button>
 				<span className="bar-sep" />
-				<button className="chip-button" disabled title={notYet}>{made?.settings.length ? made.settings.join(' · ') : 'Ratio · Quality · Resolution · Count'} ▾</button>
+				<button className="chip-button" disabled title={notYet}>Ratio · Quality · Resolution · Count ▾</button>
 				<span className="spacer" />
 				{/* Generate draws from the text shown, so a card with none (a storyboard, a cut) offers none. */}
 				{main && (
@@ -465,14 +398,14 @@ function Canvas({ message, loaded }: { message: Lineage; loaded: Record<string, 
 	const pick = (card: CanvasCard | undefined) => {
 		setPicked(card?.id ?? null);
 		setDetail(undefined);
-		post(card ? { v: CANVAS_PROTOCOL, type: 'inspect', stageId: card.id, version: card.version, file: card.file } : { v: CANVAS_PROTOCOL, type: 'unpick' });
+		post(card ? { v: CANVAS_PROTOCOL, type: 'inspect', stageId: card.id, file: card.file } : { v: CANVAS_PROTOCOL, type: 'unpick' });
 	};
-	// The picked card's version changed on a refresh: its detail is read again, for the version now on the card.
+	// The project was read again: the picked card's detail is read again too, for what its folder holds now.
 	useEffect(() => {
-		if (pickedCard && detail && detail.stageId === pickedCard.id && detail.version !== pickedCard.version) {
+		if (pickedCard && detail && detail.stageId === pickedCard.id) {
 			pick(pickedCard);
 		}
-	}, [pickedCard?.version]);
+	}, [message]);
 	// A card's id: an object's, or what a variant derives from (`from`).
 	const goTo = (target: string) => {
 		const node = flow.getInternalNode(target);
@@ -690,7 +623,7 @@ function Canvas({ message, loaded }: { message: Lineage; loaded: Record<string, 
 			{minimap && <MiniMap pannable zoomable nodeClassName={node => `mini-${node.type}`} nodeStrokeWidth={0} />}
 			{pickedCard && (
 				<NodeToolbar nodeId={pickedCard.id} isVisible position={Position.Bottom} align="center" offset={14}>
-					<Composer key={pickedCard.id} card={pickedCard} cards={message.cards} reply={detail?.stageId === pickedCard.id ? detail : undefined} onGo={goTo}
+					<Composer key={pickedCard.id} card={pickedCard} reply={detail?.stageId === pickedCard.id ? detail : undefined} onGo={goTo}
 						onClose={() => { pick(undefined); setNodes(current => current.map(n => ({ ...n, selected: false }))); }} />
 				</NodeToolbar>
 			)}
@@ -788,13 +721,6 @@ function App() {
 	}
 	return (
 		<div className="shell">
-			{message?.type === 'lineage' && (
-				<div className="origin live" title={message.origin.observedAt
-					? `Versions and your choices are current; readiness and links are as of the last return, ${new Date(message.origin.observedAt).toLocaleString()}`
-					: 'No return yet: readiness and links come with the first'}>
-					<span className="dot" />{message.origin.observedAt ? `As of ${new Date(message.origin.observedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : 'No return yet'}
-				</div>
-			)}
 			{/* The episode's other view, as the seg editor's own "Canvas" button opens this one (production-assets.md, section 12c).
 			    The assets canvas belongs to no episode, so it has none. */}
 			{document.body.dataset.episode !== ASSETS_CANVAS && (

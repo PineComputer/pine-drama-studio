@@ -3,6 +3,7 @@
 
 import { createHash } from 'node:crypto';
 import { closeSync, openSync, readSync } from 'node:fs';
+import { noFileThere } from './placement';
 
 /** The lowercase hex SHA-256 of `bytes`. */
 export const sha256 = (bytes: Buffer | Uint8Array | string): string => createHash('sha256').update(bytes).digest('hex');
@@ -13,7 +14,7 @@ export function sha256OfFileOnDisk(file: string): string | null {
 	try {
 		fd = openSync(file, 'r');
 	} catch (error) {
-		if (['ENOENT', 'ENOTDIR'].includes((error as NodeJS.ErrnoException).code ?? '')) { return null; }
+		if (noFileThere(error)) { return null; }
 		throw error;
 	}
 	try {

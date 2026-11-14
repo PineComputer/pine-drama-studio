@@ -8,35 +8,18 @@ export const SEG_PROTOCOL = 7;
 /** One seg of the episode. */
 export interface Seg {
 	readonly id: string;
-	/** Its take object's id, or null when the episode lists none for the seg. */
+	/** Its take object's id, or null when the episode holds none for the seg. */
 	readonly take: string | null;
-	/** Its take's versions the person has not discarded, in version order: the editor plays the chosen one. */
-	readonly takes: readonly SegTake[];
-	/** The version the editor plays first: the accepted take, else the current one (segTakes.ts `shownTake`); null with none. */
-	readonly shown: string | null;
-	/** Before a take is made, its planned prompt, or null when none is. */
-	readonly planned: PlannedPrompt | null;
-	/** Its badge in the strip (segTakes.ts `takeBadge`). */
-	readonly badge: string;
-	/** Its tile's picture: the shown take's video, else its first keyframe's picture (webview addresses), else null. */
-	readonly poster: Poster | null;
-}
-
-/** One take of a seg. */
-export interface SegTake {
-	readonly version: string;
-	/** Its standing (doc/protocol.md, section 3.2): Accepted, Waiting for review, or Earlier take. */
-	readonly label: string;
-	/** Its video's webview address, or null when the version shows no file. */
+	/** Its take's video (a webview address), or null before one is shot. */
 	readonly src: string | null;
-	/** What it was made with (versionDetail.ts). */
+	/** What the take was made with (its receipt, versionDetail.ts), or null. */
 	readonly request: CanvasDetail | null;
-}
-
-/** An object's prompt for its next version (doc/protocol.md, section 5.1): the person's where set, else the agent's. */
-export interface PlannedPrompt {
-	readonly by: 'agent' | 'person';
-	readonly text: string;
+	/** The take's prompt.md, which the person and the agent edit, or null without one. */
+	readonly prompt: string | null;
+	/** Its badge in the strip: what a take not shot yet says (canvasProtocol.ts notMadeText), empty once shot. */
+	readonly badge: string;
+	/** Its tile's picture: the take's video, else its first keyframe's picture (webview addresses), else null. */
+	readonly poster: Poster | null;
 }
 
 export interface Poster {
@@ -47,10 +30,8 @@ export interface Poster {
 export interface SegEditorModel {
 	readonly episode: string;
 	readonly segs: readonly Seg[];
-	/** The accepted cut's version and its video (a webview address, null when the file is missing), or null when none is accepted. */
-	readonly cut: { readonly version: string; readonly src: string | null } | null;
-	/** When the episode's snapshot was observed, or null before its first return: the badges are as of then. */
-	readonly observedAt: string | null;
+	/** The episode's cut, its video (a webview address), or null before one is made. */
+	readonly cut: { readonly src: string } | null;
 }
 
 export type ToSegEditor =

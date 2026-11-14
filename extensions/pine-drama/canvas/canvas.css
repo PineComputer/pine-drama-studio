@@ -13,10 +13,6 @@ button { font: inherit; color: inherit; }
 .error .detail { color: var(--vscode-descriptionForeground); }
 
 /* Where the data came from: a quiet chip, full source in its tooltip. */
-.origin { position: absolute; top: var(--origin-top); left: 12px; z-index: 6; box-sizing: border-box; height: var(--origin-height); display: flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; font-size: 11px; color: var(--vscode-descriptionForeground); background: color-mix(in srgb, var(--vscode-editorWidget-background) 85%, transparent); border: 1px solid var(--vscode-widget-border, var(--vscode-panel-border)); user-select: none; }
-.origin .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--vscode-editorWarning-foreground); }
-.origin.live .dot { background: var(--vscode-testing-iconPassed, var(--vscode-charts-green)); }
-.origin.stale .newer { color: var(--vscode-editorWarning-foreground); }
 /* drama-cli status not read: below the source label, never over it, in the warning colour. */
 
 /* React Flow on the workbench's colours (its documented --xy-* variables, @xyflow/react dist/style.css). */
@@ -52,7 +48,6 @@ button { font: inherit; color: inherit; }
 .card .media { position: relative; flex: 1; border-radius: 8px; overflow: hidden; background: var(--vscode-editorWidget-background); outline: 1px solid color-mix(in srgb, var(--vscode-panel-border) 80%, transparent); outline-offset: -1px; display: flex; align-items: center; justify-content: center; transition: outline-color 120ms ease, box-shadow 120ms ease; }
 .card:hover .media { outline-color: color-mix(in srgb, var(--vscode-focusBorder) 50%, transparent); }
 .card.selected .media { outline: 2px solid var(--vscode-focusBorder); outline-offset: -2px; box-shadow: 0 0 0 4px color-mix(in srgb, var(--vscode-focusBorder) 18%, transparent); }
-.card.stale .media { outline: 1.5px solid var(--vscode-errorForeground); outline-offset: -1.5px; }
 .card .media img, .card .media video { width: 100%; height: 100%; object-fit: contain; pointer-events: none; display: block; }
 .card .media .play { position: absolute; width: 34px; height: 34px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: color-mix(in srgb, var(--vscode-editor-background) 65%, transparent); color: var(--vscode-foreground); pointer-events: none; backdrop-filter: blur(4px); }
 .card .media:hover .play { display: none; }
@@ -88,17 +83,6 @@ button.icon .codicon { font-size: 16px; }
 .detail-note { color: var(--vscode-descriptionForeground); }
 .variant-draft { display: flex; flex-direction: column; gap: 6px; }
 .error-text { color: var(--vscode-errorForeground); }
-.picture-state { display: flex; flex-direction: column; gap: 6px; font-size: 12px; }
-/* The picture's versions as Pippit's strip: Main on the one in use, Delete on hover (design.md, record panel versions). */
-.strip { display: flex; flex-wrap: wrap; gap: 8px; padding-bottom: 2px; }
-.strip .version { position: relative; display: flex; flex-direction: column; gap: 2px; flex: 0 0 auto; }
-.strip .thumb { position: relative; width: 84px; height: 84px; padding: 0; border: 1px solid var(--vscode-widget-border, transparent); border-radius: 6px; overflow: hidden; cursor: pointer; background: var(--vscode-editor-background); display: flex; align-items: center; justify-content: center; }
-.strip .thumb img, .strip .thumb video { width: 100%; height: 100%; object-fit: cover; display: block; }
-.strip .version.chosen .thumb { outline: 2px solid var(--vscode-focusBorder); outline-offset: -2px; }
-.strip .main { position: absolute; top: 4px; left: 4px; font-size: 10px; padding: 0 6px; border-radius: 999px; color: var(--vscode-badge-foreground); background: var(--vscode-badge-background); }
-.strip .delete { position: absolute; top: 4px; right: 4px; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 50%; cursor: pointer; opacity: 0; color: var(--vscode-foreground); background: var(--vscode-editorWidget-background); }
-.strip .version:hover .delete, .strip .delete:focus-visible { opacity: 1; }
-.strip .label { font-size: 11px; color: var(--vscode-descriptionForeground); }
 /* The assets canvas's region headings: characters, scenes, props (the person, 652). */
 .region-heading { font-size: 28px; font-weight: 600; color: var(--vscode-foreground); white-space: nowrap; pointer-events: none; }
 /* The canvas's dot grid (the person, 658): the editor's whitespace colour, visible in light and dark themes. */
@@ -115,7 +99,6 @@ button.labeled:disabled { opacity: 0.5; cursor: default; }
 .react-flow:has(.react-flow__pane.dragging) :is(.react-flow__pane, .react-flow__node) { cursor: grabbing; }
 
 /* A card's marks of the person's choices (design.md, section 15). */
-.card .mark { position: absolute; top: 6px; right: 6px; z-index: 2; padding: 2px; border-radius: 4px; background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); }
 .card .mark-line { padding: 2px 8px; font-size: 11px; color: var(--vscode-descriptionForeground); }
 .card .mark-line.warn { color: var(--vscode-editorWarning-foreground); }
 

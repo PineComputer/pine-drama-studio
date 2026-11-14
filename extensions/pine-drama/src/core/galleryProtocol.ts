@@ -15,28 +15,17 @@ export type Collection = 'characters' | 'scenes' | 'props';
 /** A scene's setting (doc/protocol.md, section 3.1: an add's `setting`). */
 export type Setting = 'interior' | 'exterior';
 
-/** One tile: an object and the version it shows (doc/protocol.md, section 3.2). */
+/** One tile: an object and the picture it shows (doc/protocol.md 2.2). */
 export interface GalleryTile {
-	/** The object's id, or null for an add the Computer has not made an object yet (`add` names it). */
-	readonly stagePath: string | null;
+	/** The object's id: its folder. */
+	readonly stagePath: string;
 	readonly name: string;
 	readonly note: string | null;
-	/** The version the tile shows: the current one. */
-	readonly version: string | null;
-	readonly accepted: string | null;
-	/** The picture of the shown version, project-relative, or null. */
+	/** Its shown file when it is a picture, project-relative, or null. */
 	readonly file: string | null;
-	/** The text the card's actions change: the person's description where set, else the agent's. */
+	/** Its description.md, which the card's actions change. */
 	readonly description: string;
-	/** An add of the person's no task has made an object yet: its client id. */
-	readonly add?: string;
-	/** The person's choice the Computer has not seen yet: the mark's tooltip, or null. */
-	readonly outgoing: string | null;
-	/** An add a running task carries: its line, or null; its edit and remove wait. */
-	readonly inFlight: string | null;
-	/** The problem the scope's last return named for it, or null. */
-	readonly problem: { readonly message: string; readonly action: string | null } | null;
-	/** The asset grid: how many of the asset's objects have a version, and how many are still to be made or used (assetStatus.ts). */
+	/** The asset grid: how many of the asset's objects show a file, and how many are still to be made (assetStatus.ts). */
 	readonly visuals?: { readonly made: number; readonly needed: number };
 }
 

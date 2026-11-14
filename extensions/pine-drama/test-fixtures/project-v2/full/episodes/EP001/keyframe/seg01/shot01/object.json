@@ -1,0 +1,11 @@
+{
+	"schema": 2,
+	"type": "keyframe",
+	"name": "seg01 shot01",
+	"shown_file": "frame.png",
+	"segment": "seg01",
+	"objects_sent_by_draw_request": [
+		"assets/characters/lin",
+		"assets/scenes/office"
+	]
+}

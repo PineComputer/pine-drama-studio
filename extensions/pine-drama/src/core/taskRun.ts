@@ -269,12 +269,6 @@ export function scopedSnapshots(returns: readonly Pick<Turn, 'task' | 'scope' | 
 		.flatMap(r => r.snapshot ? [{ scope: r.scope === 'project' ? 'project' as const : 'episodes' as const, snapshot: r.snapshot, task: r.task, sent: r.sent, installed: r.installed }] : []);
 }
 
-/** The versions running tasks have announced and not returned yet, for the views to show beside the installed ones. */
-export function previewVersions(storage: string, root: string): { readonly object: string; readonly version: string; readonly hash: string; readonly task: string; readonly dir: string }[] {
-	// The folder in versionFolder's form, so a preview whose progress named no object or version is a folder that is not here.
-	return dramaRecordOf(storage, root).previews().filter(p => !existsSync(join(root, `${p.object}/${p.version}`)));
-}
-
 /** The folders of the client files (doc/protocol.md, 3.3): the person's pictures and their inputs. */
 export const CLIENT_FOLDERS = ['imports', 'inputs'] as const;
 

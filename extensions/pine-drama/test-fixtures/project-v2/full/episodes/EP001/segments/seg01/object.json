@@ -1,0 +1,11 @@
+{
+	"schema": 2,
+	"type": "take",
+	"name": "seg01",
+	"shown_file": "take.mp4",
+	"segment": "seg01",
+	"objects_sent_by_draw_request": [
+		"episodes/EP001/keyframe/seg01/shot01",
+		"assets/characters/lin"
+	]
+}

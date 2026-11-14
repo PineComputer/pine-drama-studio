@@ -11,6 +11,9 @@ export interface ProjectPlace {
 	readonly boundary: string;
 }
 
+/** Whether a file system error says there is no file at the path: none there, or a file where a folder of it would be. */
+export const noFileThere = (error: unknown): boolean => ['ENOENT', 'ENOTDIR'].includes((error as NodeJS.ErrnoException).code ?? '');
+
 /** The real path `path` has or would have once created; undefined when it passes through a link that leads nowhere. */
 function realTarget(path: string): string | undefined {
 	const rest: string[] = [];

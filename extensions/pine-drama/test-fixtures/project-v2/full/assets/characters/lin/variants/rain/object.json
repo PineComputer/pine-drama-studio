@@ -1,0 +1,10 @@
+{
+	"schema": 2,
+	"type": "variant",
+	"name": "In the rain",
+	"shown_file": "look.png",
+	"variant_of": "assets/characters/lin",
+	"objects_sent_by_draw_request": [
+		"assets/characters/lin"
+	]
+}

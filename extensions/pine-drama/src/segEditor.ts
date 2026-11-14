@@ -3,9 +3,8 @@
 // episode's two views of one model. Its takes play inside it. Generate and Regenerate put the request in its episode's session's
 // input for the person to send: sending it is their go, and BUDGET (core/instructions.ts) covers the
 // cost. Nothing here starts a paid call.
-import { isAbsolute } from 'node:path';
 import * as vscode from 'vscode';
-import { episodeIn, episodeOfNode, type OutlineNode } from './core/project';
+import { episodeIn, episodeOfNode, fileAddressByVersion, type OutlineNode } from './core/project';
 import { segEditorModel, shootRequest } from './core/segEditor';
 import { readFromSegEditor, SEG_PROTOCOL, type ToSegEditor } from './core/segEditorProtocol';
 import type { ProjectViews } from './projectViews';
@@ -16,7 +15,7 @@ const titleOf = (episode: string) => `${episode} · Segs`;
 
 export function registerSegEditor(context: vscode.ExtensionContext, views: ProjectViews, output: vscode.OutputChannel): { refresh(): void } {
 	const { project } = views;
-	const fileUri = (path: string) => isAbsolute(path) ? vscode.Uri.file(path) : vscode.Uri.joinPath(vscode.Uri.file(project.root), ...path.split('/'));
+	const fileUri = (path: string) => vscode.Uri.joinPath(vscode.Uri.file(project.root), ...path.split('/'));
 	const media = vscode.Uri.joinPath(context.extensionUri, 'media', 'canvas');
 	const panels = new Map<string, vscode.WebviewPanel>();
 
@@ -32,7 +31,7 @@ export function registerSegEditor(context: vscode.ExtensionContext, views: Proje
 	const send = async (panel: vscode.WebviewPanel, episode: string) => {
 		let message: ToSegEditor;
 		try {
-			message = { v: SEG_PROTOCOL, type: 'model', model: segEditorModel(await project.drama(), episode, rel => panel.webview.asWebviewUri(fileUri(rel)).toString()) };
+			message = { v: SEG_PROTOCOL, type: 'model', model: segEditorModel(project.root, await project.drama(), episode, fileAddressByVersion(project.root, rel => panel.webview.asWebviewUri(fileUri(rel)).toString())) };
 		} catch (error) {
 			output.appendLine(`seg editor ${episode}: ${(error as Error).message} (project ${project.root})`);
 			message = { v: SEG_PROTOCOL, type: 'error', episode, message: (error as Error).message };

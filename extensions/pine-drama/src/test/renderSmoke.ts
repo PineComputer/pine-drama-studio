@@ -1,6 +1,6 @@
 // The render smoke test: each webview page (the canvas, the asset grid, the seg editor) loaded in headless Chromium with
-// the very message the extension posts, built by the same core builders from the protocol fixture (a drama folder and
-// its snapshots, test-fixtures/protocol), and failed on a page error, a console error, a `failed` message from the page,
+// the very message the extension posts, built by the same core builders from the major-2 fixture's two projects
+// (test-fixtures/project-v2: one drawn, one right after the bible), and failed on a page error, a console error, a `failed` message from the page,
 // or fewer cards than the message holds. Unit tests never render the pages, and the assets canvas once went blank while
 // every one of them passed. Run by scripts/pine-dev-test-remote.sh; not part of `npm test`.
 //
@@ -14,21 +14,21 @@
 import { mkdirSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { extname, join } from 'node:path';
-import { pictureOf, recordOf } from '../core/assetStatus';
+import { recordOf } from '../core/assetStatus';
 import { lineageMessage } from '../core/canvasMessage';
 import { onBoard } from '../core/canvasLayout';
 import { ASSETS_CANVAS, CANVAS_PROTOCOL, type CanvasCard, type CanvasPrompt } from '../core/canvasProtocol';
 import { galleryPageMessage } from '../core/galleryMessage';
 import { NAME_MAX, TEXT_MAX, type Collection } from '../core/galleryProtocol';
-import { readDrama, type Drama } from '../core/project';
-import type { Snapshot } from '../core/protocol';
-import { plannedPrompt, segEditorModel } from '../core/segEditor';
+import { readProjectFromFolder, type ProjectReadModel } from '../core/project';
+import { segEditorModel } from '../core/segEditor';
+import { nextDrawRequest } from '../core/versionDetail';
 import { SEG_PROTOCOL } from '../core/segEditorProtocol';
 import { webviewPageHtml, type WebviewPage } from '../core/webviewPage';
 
 const EXTENSION = join(__dirname, '..', '..');
 const MEDIA = join(EXTENSION, 'media', 'canvas');
-const FIXTURES = join(EXTENSION, 'test-fixtures', 'protocol');
+const FIXTURES = join(EXTENSION, 'test-fixtures', 'project-v2');
 /** The pages' origin: every request to it is answered from media/canvas or the case's project, nothing from the network. */
 const ORIGIN = 'https://render-smoke.invalid';
 const WAIT_MS = 10_000;
@@ -47,11 +47,14 @@ interface Case {
 	readonly mac?: boolean;
 	/** The page's size, when the case needs one (Playwright's default is 1280 x 720). */
 	readonly pane?: { readonly width: number; readonly height: number };
-	readonly interact?: { readonly answer: (message: { type?: string; stageId?: string; version?: string | null }) => unknown; readonly check: (page: Page, posted: readonly unknown[]) => Promise<string[]> };
+	readonly interact?: { readonly answer: (message: { type?: string; stageId?: string }) => unknown; readonly check: (page: Page, posted: readonly unknown[]) => Promise<string[]> };
 }
 
-/** A drama to render: its folder and the drama read from it, as the extension reads it (core/project.ts). */
-interface Source { readonly name: string; readonly root: string; readonly drama: Drama }
+/**
+ * A project to render: its folder and the project read from it, as the extension reads it (core/project.ts); `drawn`
+ * when it has drawn objects, whose canvases have lines to draw.
+ */
+interface Source { readonly name: string; readonly root: string; readonly drama: ProjectReadModel; readonly drawn: boolean }
 
 const fileSrc = (rel: string) => `${ORIGIN}/project/${rel.split('/').map(encodeURIComponent).join('/')}`;
 
@@ -65,7 +68,7 @@ async function canvasCase(source: Source, episode: string): Promise<Case> {
 		const edges = page.locator('.react-flow__edge');
 		for (const until = Date.now() + WAIT_MS; Date.now() < until && await edges.count() < lines;) { await new Promise(resolve => setTimeout(resolve, 100)); }
 		const drawn = await edges.count();
-		if (lines === 0 || drawn !== lines) { return [lines === 0 ? `the fixture's ${episode} canvas has no link to draw` : `${drawn} lines drawn of ${lines} links`]; }
+		if ((source.drawn && lines === 0) || drawn !== lines) { return [lines === 0 ? `the fixture's ${episode} canvas has no link to draw` : `${drawn} lines drawn of ${lines} links`]; }
 		// Each line leaves what was used from its right side (its output) and enters what was made from it on its left
 		// side (its input), in screen space.
 		type Point = { x: number; matrixTransform(matrix: unknown): Point };
@@ -91,16 +94,15 @@ async function canvasCase(source: Source, episode: string): Promise<Case> {
 }
 
 /**
- * A take as drama-cli records it lists every version it was made from, its keyframe's pictures and the breakdown too
- * (doc/protocol.md 2.1). Each one on the board has its line into the take; the breakdown, not on the board, has none:
- * the person once saw a take with no line from the pictures it was made from. `source`'s drama is changed: give it a
- * fresh one.
+ * A take's draw request sends its keyframe's pictures and the breakdown too (object.json objects_sent_by_draw_request,
+ * doc/protocol.md 2.2). Each one on the board has its line into the take; the breakdown, not on the board, has none: the
+ * person once saw a take with no line from the pictures it was made from. `source`'s project is changed: give it a fresh one.
  */
 async function takeLinesCase(source: Source): Promise<Case> {
 	const take = 'episodes/EP001/segments/seg01';
 	const pictures = ['assets/characters/lin', 'assets/scenes/office', 'episodes/EP001/keyframe/seg01/shot01'];
 	const listed = [...pictures, 'episodes/EP001/breakdown'];
-	Object.assign(source.drama.objects.get(take)!.versions.find(v => v.id === 'v1')!.record, { inputs: listed.map(object => ({ object, version: 'v1' })) });
+	Object.assign(source.drama.objects.get(take)!, { objectsSentByDrawRequest: listed });
 	const c = await canvasCase(source, 'EP001');
 	const check = async (page: Page, posted: readonly unknown[]): Promise<string[]> => {
 		const problems = await c.interact!.check(page, posted);
@@ -112,22 +114,19 @@ async function takeLinesCase(source: Source): Promise<Case> {
 	return { ...c, name: `${source.name}: a take's lines come from every picture it lists on the board`, interact: { answer: () => null, check } };
 }
 
-/** The prompt the box shows for an object (episodeCanvas.ts detailReply). */
+/** The prompt the box shows for an object (episodeCanvas.ts detailReply): its prompt.md. */
 function promptOf(source: Source, id: string): CanvasPrompt | null {
-	const object = source.drama.objects.get(id);
-	const planned = object && plannedPrompt(source.drama, object);
-	return object && planned ? { object: id, text: planned.text } : null;
+	const text = source.drama.objects.get(id)?.prompt ?? null;
+	return text !== null ? { object: id, text } : null;
 }
 
-/** What the shown version was made with, as madeWith reads it from a saved OpenAI image request. */
-const MADE = { model: 'gpt-image-2.5-sunburst', settings: ['1152×2048', 'high', '1 image'] };
-
-/** What the extension answers a click on a card with (episodeCanvas.ts detailReply): its record, picture strip, prompt and what it was made with. */
+/** What the extension answers a click on a card with (episodeCanvas.ts detailReply): its record and prompt. */
 function recordAnswer(source: Source) {
-	return (m: { type?: string; stageId?: string; version?: string | null }) => {
+	return (m: { type?: string; stageId?: string }) => {
 		if (m.type !== 'inspect' || !m.stageId) { return null; }
-		return { v: CANVAS_PROTOCOL, type: 'detail', stageId: m.stageId, version: m.version ?? null, detail: null, record: recordOf(source.drama, m.stageId),
-			picture: pictureOf(source.drama, m.stageId, fileSrc), prompt: promptOf(source, m.stageId), made: MADE, error: null };
+		const object = source.drama.objects.get(m.stageId);
+		return { v: CANVAS_PROTOCOL, type: 'detail', stageId: m.stageId, detail: null, record: recordOf(source.drama, m.stageId),
+			prompt: promptOf(source, m.stageId), nextDraw: object ? nextDrawRequest(source.drama, object, fileSrc) : [], error: null };
 	};
 }
 
@@ -143,7 +142,7 @@ async function boxCase(source: Source): Promise<Case> {
 	let hold = false;
 	let held: unknown = null;
 	const record = recordAnswer(source);
-	const answer = (m: { type?: string; stageId?: string; version?: string | null }) => {
+	const answer = (m: { type?: string; stageId?: string }) => {
 		const e = m as Posted;
 		if (e.type !== 'entry' || e.request?.action !== 'describe') { return record(m); }
 		const ended = { v: CANVAS_PROTOCOL, type: 'actionEnded', key: e.key, error: ++saves === 1 ? 'The description changed since the composer showed it; nothing was saved.' : null, unchanged: null };
@@ -166,8 +165,8 @@ async function boxCase(source: Source): Promise<Case> {
 		if (!description) { return [...problems, `${pickedId} has no description in this fixture`]; }
 		if (await text.inputValue() !== description) { problems.push('the composer\'s text is not the description'); }
 		if (await text.getAttribute('aria-label') !== 'Description') { problems.push('the composer\'s text is not labelled Description'); }
-		// What the Computer cannot take yet is shown greyed; the model and settings are the shown version's own; no cost is shown.
-		for (const name of [`${MADE.model} ▾`, 'Reference', 'Style', `${MADE.settings.join(' · ')} ▾`]) {
+		// What the Computer cannot take yet is shown greyed; no cost is shown.
+		for (const name of ['Model ▾', 'Reference', 'Style', 'Ratio · Quality · Resolution · Count ▾']) {
 			const button = box.locator(`button:has-text("${name}")`);
 			if (await button.count() !== 1 || !await button.isDisabled() || await button.getAttribute('title') !== 'Not available yet') { problems.push(`${name} is not shown greyed as not available yet`); }
 		}
@@ -256,11 +255,11 @@ async function episodeBoxCase(source: Source): Promise<Case> {
 	// Answered as episodeCanvas.ts answers them (detailReply). A save's answer (actionEnded, written) is held, and sent by
 	// the check, so a request posted before the save is written shows.
 	let held: unknown = null;
-	const answer = (m: { type?: string; stageId?: string; version?: string | null }) => {
+	const answer = (m: { type?: string; stageId?: string }) => {
 		const e = m as Posted;
 		if (e.type === 'entry' && e.request?.action === 'prompt') { held = { v: CANVAS_PROTOCOL, type: 'actionEnded', key: e.key, error: null, unchanged: null }; return null; }
 		return m.type !== 'inspect' || !m.stageId ? null
-			: { v: CANVAS_PROTOCOL, type: 'detail', stageId: m.stageId, version: null, detail: null, error: null, prompt: promptOf(source, m.stageId) };
+			: { v: CANVAS_PROTOCOL, type: 'detail', stageId: m.stageId, detail: null, error: null, prompt: promptOf(source, m.stageId) };
 	};
 	const check = async (page: Page, posted: readonly unknown[]): Promise<string[]> => {
 		if (!target) { return ['no card of EP001 has a prompt, so no episode box is checked']; }
@@ -575,7 +574,7 @@ async function clickModelCase(source: Source, episode: string): Promise<Case> {
 	const id = episode === ASSETS_CANVAS ? ((c.message as { cards?: readonly CanvasCard[] }).cards ?? []).find(onBoard)?.id : 'episodes/EP001/segments/seg01';
 	const prompt = Array.from({ length: 27 }, (_, i) => `Line ${i + 1}: ${'the camera holds on the subject while the light shifts slowly across the room. '.repeat(3)}`).join('\n');
 	const answer = (m: { type?: string; stageId?: string }) => m.type !== 'inspect' || !m.stageId ? null
-		: { v: CANVAS_PROTOCOL, type: 'detail', stageId: m.stageId, version: null, detail: null, error: null, prompt: { object: m.stageId, text: prompt } };
+		: { v: CANVAS_PROTOCOL, type: 'detail', stageId: m.stageId, detail: null, error: null, prompt: { object: m.stageId, text: prompt } };
 	const check = async (page: Page, posted: readonly unknown[]): Promise<string[]> => {
 		if (!id) { return [`the ${episode} canvas has no card`]; }
 		const problems: string[] = [];
@@ -720,7 +719,7 @@ async function gridClickCase(source: Source): Promise<Case> {
 }
 
 async function segCase(source: Source, episode: string): Promise<Case> {
-	const model = segEditorModel(source.drama, episode, fileSrc);
+	const model = segEditorModel(source.root, source.drama, episode, fileSrc);
 	return { name: `${source.name}: seg editor ${episode}`, page: 'seg', data: { episode }, root: source.root, message: { v: SEG_PROTOCOL, type: 'model', model },
 		expect: { selector: '.strip .seg', count: model.segs.length + 1 } };
 }
@@ -786,7 +785,7 @@ async function render(browser: Browser, c: Case): Promise<string[]> {
 		// init script, so nothing is evaluated in the page: the page's policy allows no eval, and Playwright's evaluate trips it.
 		const posted: unknown[] = [];
 		await page.exposeFunction('renderSmokeFromPage', value => {
-			const m = value as { type?: string; message?: string; stageId?: string; version?: string | null };
+			const m = value as { type?: string; message?: string; stageId?: string };
 			posted.push(m);
 			if (m.type === 'failed') { problems.push(`the page said it failed: ${m.message}`); }
 			return m.type === 'ready' ? c.message : c.interact ? c.interact.answer(m) : null;
@@ -824,14 +823,12 @@ async function main(): Promise<number> {
 	const started = Date.now();
 	const require = createRequire(join(process.env.PDS_PLAYWRIGHT ?? '', 'node_modules', 'x.js'));
 	const { chromium } = require('playwright-core') as { chromium: { launch(options: { headless: boolean }): Promise<Browser> } };
-	// The protocol fixture (test-fixtures/protocol/README.md): the Project Chat's snapshot, then an episode session's.
-	const read = (name: string) => JSON.parse(readFileSync(join(FIXTURES, name), 'utf8')) as Snapshot;
-	const root = join(FIXTURES, 'drama');
-	const readFixture = () => readDrama(root, () => [
-		{ scope: 'project', snapshot: read('snapshot-project.json'), task: 'task-1', sent: '2026-11-12T13:00:00Z', installed: '2026-11-12T13:01:00Z' },
-		{ scope: 'episodes', snapshot: read('snapshot-episodes.json'), task: 'task-2', sent: '2026-11-12T13:02:00Z', installed: '2026-11-12T13:03:00Z' },
-	]);
-	const source: Source = { name: 'protocol fixture', root, drama: await readFixture() };
+	// The major-2 fixture (test-fixtures/project-v2/README.md): a drawn project, and one right after the bible, whose
+	// canvases and grids hold only planned cards (a blank canvas once slipped through when only drawn ones were tested).
+	const root = join(FIXTURES, 'full');
+	const readFixture = () => readProjectFromFolder(root);
+	const source: Source = { name: 'full', root, drama: await readFixture(), drawn: true };
+	const afterBible: Source = { name: 'after the bible', root: join(FIXTURES, 'after-bible'), drama: await readProjectFromFolder(join(FIXTURES, 'after-bible')), drawn: false };
 	const cases: Case[] = [
 		await canvasCase(source, ASSETS_CANVAS), await boxCase(source), await faceCase(source), await toolsCase(source), await clickModelCase(source, ASSETS_CANVAS), await variantBoxCase(source), await longNameCase(source),
 		await canvasCase(source, 'EP001'), await takeLinesCase({ ...source, drama: await readFixture() }), await openingCase(source, 'EP001'), await episodeBoxCase(source), await clickModelCase(source, 'EP001'),
@@ -839,6 +836,8 @@ async function main(): Promise<number> {
 		await assetsFloorCase(source), await savedViewportCase(source, ASSETS_CANVAS), await savedViewportCase(source, 'EP001'),
 		await galleryCase(source, 'characters'), await galleryCase(source, 'scenes'), await galleryCase(source, 'props'), await gridClickCase(source),
 		await segCase(source, 'EP001'),
+		await canvasCase(afterBible, ASSETS_CANVAS), await galleryCase(afterBible, 'characters'), await galleryCase(afterBible, 'scenes'), await galleryCase(afterBible, 'props'),
+		await segCase(afterBible, 'EP001'),
 	];
 	const browser = await chromium.launch({ headless: true });
 	let failed = 0;

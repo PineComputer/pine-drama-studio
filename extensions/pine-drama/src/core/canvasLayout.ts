@@ -17,8 +17,11 @@ const SHARED = ['Characters', 'Locations', 'Props'];
 /** A card's footer under its picture, the same on both canvases: its name, then its state, sized to be read zoomed out. */
 export const FOOT_H = 84;
 
-/** Sections on the board: drama-cli's text stages stay off it (canvas-scope #7). */
-export const onBoard = (card: CanvasCard) => card.media !== 'text' && card.section !== 'Text';
+/**
+ * Cards on the board: the text objects stay off it, by their section (lineage.ts TEXT; canvas-scope #7); any other
+ * object is a card, an object of a type the Studio does not know too, whatever its file (doc/protocol.md 2.2).
+ */
+export const onBoard = (card: CanvasCard) => card.section !== 'Text';
 
 /** A card's size, the same on both canvases: the fixed width, its picture's height at that width, and its footer. */
 export function cardSize(media: Size | undefined): Size {

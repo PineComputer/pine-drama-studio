@@ -1,0 +1,16 @@
+{
+	"schema": 2,
+	"paid_call_id": "call-lin-rain-0001",
+	"finished_at": "2026-11-12T10:06:00Z",
+	"inputs_sent_in_order": [
+		{
+			"path": "assets/characters/lin/look.png",
+			"sha256": "6b7fa434f92a8b80aab02d9bf1a12e49ffcae424e4013a1c4f68b67e3d2bbcd0"
+		}
+	],
+	"prompt_sent": "Lin, soaked, in the same grey coat",
+	"cost": {
+		"usd": 0.04,
+		"reported_by": "pine"
+	}
+}

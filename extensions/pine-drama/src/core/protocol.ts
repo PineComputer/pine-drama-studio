@@ -12,6 +12,9 @@ export const MAJOR = 1;
 /** The marker of a Pine Drama project of major 2, `{"schema": 2}` at its folder's root (doc/protocol.md 2.1, `$defs/projectMarker`). */
 export const PROJECT_MARKER_FILE = 'pine-drama-project.json';
 
+/** The suffix of a paid output's receipt beside it, `<file>.receipt.json` (doc/protocol.md 2.3). */
+export const RECEIPT_SUFFIX = '.receipt.json';
+
 export type Hash = string;
 /** Path → hash: version folders (of their archives), review files, client files. */
 export type Folders = Readonly<Record<string, Hash>>;

@@ -2,14 +2,13 @@
 // the next kind replaces, as Code-OSS reuses its preview editor (workbench.editor.enablePreview, workbench.contribution.ts:331
 // at 235ceeb5); a card opens the assets canvas on it. Restored after a reload. The grids are built in core
 // (assetStatus.ts) from the drama; the webview is canvas/gallery.tsx.
-import { isAbsolute } from 'node:path';
 import * as vscode from 'vscode';
 import { unchangedLine } from './core/entryActions';
 import { cardActions } from './cardActions';
 import { galleryPageMessage } from './core/galleryMessage';
+import { fileAddressByVersion } from './core/project';
 import { Throttled } from './core/throttled';
 import { GALLERY_PROTOCOL, readFromGallery, type Collection, type ToGallery } from './core/galleryProtocol';
-import type { ChatTitle } from './core/project';
 import type { ProjectViews } from './projectViews';
 import { closeUnrevived, globalStorageFolder, webviewHtml } from './webviewHtml';
 
@@ -20,7 +19,7 @@ const COLLECTIONS: readonly Collection[] = ['characters', 'scenes', 'props'];
 // One editor for the three grids (open, below).
 const keyOf = (_page: Page) => 'assets';
 
-export function registerGalleries(context: vscode.ExtensionContext, views: ProjectViews, output: vscode.OutputChannel, chatTitle: ChatTitle = () => undefined): { refresh(): void } {
+export function registerGalleries(context: vscode.ExtensionContext, views: ProjectViews, output: vscode.OutputChannel): { refresh(): void } {
 	const { project } = views;
 	const media = vscode.Uri.joinPath(context.extensionUri, 'media', 'canvas');
 	const root = vscode.Uri.file(project.root);
@@ -43,8 +42,8 @@ export function registerGalleries(context: vscode.ExtensionContext, views: Proje
 		let message: ToGallery;
 		try {
 			message = await galleryPageMessage({
-				root: project.root, drama: await project.drama(), kind: page.collection, chatTitle,
-				src: path => panel.webview.asWebviewUri(isAbsolute(path) ? vscode.Uri.file(path) : vscode.Uri.joinPath(root, ...path.split('/'))).toString(),
+				root: project.root, drama: await project.drama(), kind: page.collection,
+				src: fileAddressByVersion(project.root, path => panel.webview.asWebviewUri(vscode.Uri.joinPath(root, ...path.split('/'))).toString()),
 			});
 			if (pages.get(panel) === page) {
 				shown.set(panel, { message, at: new Date().toISOString() });
