@@ -19,14 +19,6 @@ export function decomposition(breakdown: DramaObject | undefined): Decomposition
 	return breakdown.usable ? { text: 'Shots planned', decomposed: true } : { text: breakdown.why ?? 'not usable yet', decomposed: false };
 }
 
-/** The action on a Script episode not broken down yet: a new session for it (B8; the skill names it too). */
-export const START_EPISODE = '▶ Start Episode';
-
-/** What Start Episode puts in the new session's input: the episode id is all an episode session needs to begin. */
-export function startEpisodeRequest(episode: string): string {
-	return `Make episode ${episode}.`;
-}
-
 /**
  * The lines, from 0, where the screenplay's top-level sections start: Fountain marks a section with `#` and a subsection
  * with `##` (https://fountain.io/syntax#sections-synopses), and ignores its boneyard, the commented-out text (#boneyard). The
@@ -67,7 +59,7 @@ export function lockOf(id: string, open: OpenSteps): Lock | null {
 		return { description: 'available after the bible', tooltip: 'Available after the bible: it lists every character, scene and prop' };
 	}
 	if (id === 'episodes' && !open.episodes) {
-		return { description: 'available after the episodes are broken down', tooltip: `Start an episode from its row under 1. Script (${START_EPISODE}); it opens here once its breakdown is approved, in its seg editor` };
+		return { description: 'available after the episodes are broken down', tooltip: 'Ask for an episode in a new session; it opens here once its breakdown is approved, in its seg editor' };
 	}
 	if (id === '#audio') {
 		// drama-cli has no voice stage: a voice is the bible's text.

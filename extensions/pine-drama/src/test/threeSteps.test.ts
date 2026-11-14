@@ -1,16 +1,12 @@
 import { strict as assert } from 'node:assert';
 import { test } from 'node:test';
-import { lockOf, sectionLines, START_EPISODE, startEpisodeRequest } from '../core/threeSteps';
+import { lockOf, sectionLines } from '../core/threeSteps';
 
 // B8: the locked 3. Episodes said only that it opens after a breakdown, and nothing showed where an episode starts.
-test('the locked 3. Episodes points to Start Episode on the episode rows under 1. Script', () => {
+test('the locked 3. Episodes says an episode is asked for in a new session', () => {
 	const lock = lockOf('episodes', { assets: true, episodes: false });
-	assert.ok(lock?.tooltip.includes(`under 1. Script (${START_EPISODE})`), lock?.tooltip);
+	assert.ok(lock?.tooltip.startsWith('Ask for an episode in a new session'), lock?.tooltip);
 	assert.equal(lockOf('episodes', { assets: true, episodes: true }), null);
-});
-
-test("Start Episode's request names the episode, which is all an episode session needs to begin", () => {
-	assert.equal(startEpisodeRequest('EP003'), 'Make episode EP003.');
 });
 
 // #73: an episode row under 1. Script opens the screenplay at its section. Fountain marks a section with `#` and a

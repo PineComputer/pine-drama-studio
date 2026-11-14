@@ -44,11 +44,11 @@ test('when the Chat view already shows the conversation, the second chat editor 
 	assert.deepEqual([...w.open], ['brief.md']);
 });
 
-// B8: after the assets, a beginner had no way to start an episode's session. Start Episode opens a new one in the Chat
-// view and leaves the request in its input: nothing is sent, so no Computer starts until the person sends it.
-test('Start Episode shows the new session in the Chat view, then puts the request in its input without sending it', async () => {
+// Generate opens the session that owns the item in the Chat view and leaves the request in its input: nothing is sent,
+// so no Computer starts until the person sends it.
+test('Generate shows the owner session in the Chat view, then puts the request in its input without sending it', async () => {
 	const w = workbench(false);
-	await startInChatView(w.execute, w.tabs, 'pine-computer:/session-1', 'Make episode EP003.');
+	await startInChatView(w.execute, w.tabs, 'pine-computer:/session-1', 'Draw EP003 seg01 shot 01 keyframe.');
 	assert.deepEqual(w.calls, [['vscode.open', 'pine-computer:/session-1'], ['workbench.action.chat.openInSidebar'],
-		[CHAT_OPEN, { query: 'Make episode EP003.', isPartialQuery: true }]]);
+		[CHAT_OPEN, { query: 'Draw EP003 seg01 shot 01 keyframe.', isPartialQuery: true }]]);
 });
