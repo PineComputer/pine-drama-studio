@@ -122,6 +122,7 @@ The rest of the receipt (the request and response as sent) belongs to the Comput
 
 - **The seed commit.** Before writing the request, the client commits whatever is uncommitted as `client-found-changes-on-disk`, so the seed is a commit and every input the turn may read is in history.
 - **Restore.** The Computer side writes exactly `seed_files` into its workspace, then restores the private state outside it: private state never holds a file of the drama, so it cannot overwrite the seed. A file of the tree the Computer side rewrites only for its own machine, such as a path in its configuration, is kept outside the workspace too, so it never comes back as a change.
+- **Only what changed moves.** The workspace MUST equal `seed_files` exactly. To get there, the Computer side MAY keep its workspace and a local cache of file bytes by hash between turns on the same Computer. It then fetches only the paths whose hash changed, links them in from the cache, and deletes the paths `seed_files` no longer has. This is the remote-execution model of Bazel's REAPI, where an executor materializes an input root from its content-addressed cache. A fresh Computer fetches the whole tree once.
 
 ### 4.3 Changes (Computer side → client)
 
