@@ -57,9 +57,9 @@ An object is a folder holding **`object.json`** (`$defs/object`):
 | `segment` | Its segment within the episode, or absent. |
 | `setting` | For a scene: `interior` or `exterior`. |
 | `relations` | Other relations, each `{kind, to}`: `inside_of` (a scene inside a scene), `appears_in` (an asset in an episode), `needs` (an episode needs an object before it can be shot). |
-| `inputs_planned_for_next_draw` | The object ids the next draw of this object will send, in the order it will send them (`Image 1`…`Image N`), or absent. Pine Computer writes it when it plans the object (a breakdown or a storyboard plans a keyframe, a take or a cut). The client draws a planned card's lines from it, and never reads Pine Computer's own planning files. Once the object is drawn, its receipt's `inputs_sent_in_order` is what that draw used. |
+| `objects_sent_by_draw_request` | The object ids this object's draw request sends, in the order it sends them (`Image 1`…`Image N`), or absent for an object that is not drawn from others. Pine Computer writes it when it plans the object (a breakdown or a storyboard plans a keyframe, a take or a cut), and the person may edit it. The draw builds its request from this list and nothing else, so what is drawn and what the canvas shows cannot differ. |
 
-- **One source per state.** A drawn object's lines come from its shown file's receipt, and an undrawn object's from `inputs_planned_for_next_draw`. `needs` is only an episode's, for what it needs before it can be shot.
+- **One source for lines.** Every line the client draws between objects comes from `objects_sent_by_draw_request` (plus `variant_of` and `relations`), for a drawn object and an undrawn one alike. A receipt's `inputs_sent_in_order` is the record of what a past draw sent, shown with that result; it is never read for lines. `needs` is only an episode's, for what it needs before it can be shot.
 - **Who creates objects.** Either side may create an object. The client creates one when the person adds it, with `object.json` and the person's `description.md`. drama-cli derives every name a model reads from `name`, never from the id.
 - **The person's text.** In an object's folder, `description.md` and `prompt.md`, when present, are the text the person and Pine Computer edit. Whoever writes last wins, and git keeps the earlier text.
 - **Removal.** Removing an object deletes its folder; a variant is a folder below its asset's, so it goes with it.
@@ -72,7 +72,7 @@ Each output of a paid call has a receipt beside it, **`<file>.receipt.json`** (`
 |---|---|
 | `paid_call_id` | The paid call that made it (4.5). |
 | `finished_at` | When the output was finished. |
-| `inputs_sent_in_order` | The files the call was sent, in the order it was given them (`Image 1`…`Image N`), each `{path, sha256}` as it was then. Their bytes are in the drama's history: the seed commits them (4.2), and a turn's own inputs land as its changes. |
+| `inputs_sent_in_order` | The record of what this call sent, for money and history (never for lines, 2.2): the files the call was sent, in the order it was given them (`Image 1`…`Image N`), each `{path, sha256}` as it was then. Their bytes are in the drama's history: the seed commits them (4.2), and a turn's own inputs land as its changes. |
 | `prompt_sent` | The prompt the call was sent, or `null`. |
 | `cost` | `{usd, reported_by}`, for example `"reported_by": "pine"`, or `null` when unknown. |
 

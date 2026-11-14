@@ -111,12 +111,12 @@
             }
           }
         },
-        "inputs_planned_for_next_draw": {
+        "objects_sent_by_draw_request": {
           "type": "array",
           "items": {
             "$ref": "#/$defs/path"
           },
-          "description": "Object ids the next draw will send, in order (Image 1..N); written by Pine Computer when it plans the object."
+          "description": "Object ids this object's draw request sends, in order (Image 1..N). The draw builds its request from it alone; the client draws every line from it."
         }
       },
       "allOf": [
