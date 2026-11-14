@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:pine-drama:protocol:v2",
   "title": "Pine Drama protocol, major version 2 (doc/protocol.md)",
-  "description": "Pine Drama protocol, major 2 (doc/protocol.md, which is normative). Each document is one entry of $defs: drama, object, receipt, request, running, change, job, return. Patterns are ECMA-262; validators must turn on format assertion.",
+  "description": "Pine Drama protocol, major 2 (doc/protocol.md, which is normative). Each document is one entry of $defs: projectMarker, object, receipt, request, turnStarted, change, paidCallState, return. Patterns are ECMA-262; validators must turn on format assertion.",
   "$defs": {
     "path": {
       "description": "Project-relative, '/'-separated, NFC; no empty segment, none starting with '.', no backslash, no C0, DEL or C1 control. NFC, Windows reserved names, trailing dots or spaces and case collisions are checked by implementations (doc/protocol.md, section 1).",
@@ -31,18 +31,6 @@
     "schema": {
       "const": 2
     },
-    "drama": {
-      "description": "drama.json at the folder's root (2.1): the folder is a drama of major 2.",
-      "type": "object",
-      "required": [
-        "schema"
-      ],
-      "properties": {
-        "schema": {
-          "$ref": "#/$defs/schema"
-        }
-      }
-    },
     "object": {
       "description": "object.json in an object's folder (2.2).",
       "type": "object",
@@ -50,7 +38,7 @@
         "schema",
         "type",
         "name",
-        "file"
+        "shown_file"
       ],
       "properties": {
         "schema": {
@@ -78,7 +66,16 @@
           "type": "string",
           "pattern": "\\S"
         },
-        "file": {
+        "segment": {
+          "$ref": "#/$defs/segment"
+        },
+        "setting": {
+          "enum": [
+            "interior",
+            "exterior"
+          ]
+        },
+        "shown_file": {
           "anyOf": [
             {
               "$ref": "#/$defs/path"
@@ -89,19 +86,10 @@
           ],
           "description": "The shown file, relative to the object's folder, or null for a planned object."
         },
-        "from": {
+        "variant_of": {
           "$ref": "#/$defs/path"
         },
-        "segment": {
-          "$ref": "#/$defs/segment"
-        },
-        "setting": {
-          "enum": [
-            "interior",
-            "exterior"
-          ]
-        },
-        "links": {
+        "relations": {
           "type": "array",
           "items": {
             "type": "object",
@@ -135,13 +123,13 @@
           },
           "then": {
             "required": [
-              "from"
+              "variant_of"
             ]
           },
           "else": {
             "not": {
               "required": [
-                "from"
+                "variant_of"
               ]
             }
           }
@@ -167,23 +155,47 @@
       "type": "object",
       "required": [
         "schema",
-        "job",
-        "made_at",
-        "inputs",
-        "prompt",
+        "paid_call_id",
+        "finished_at",
+        "inputs_sent_in_order",
+        "prompt_sent",
         "cost"
       ],
       "properties": {
         "schema": {
           "$ref": "#/$defs/schema"
         },
-        "job": {
+        "cost": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "required": [
+                "usd",
+                "reported_by"
+              ],
+              "properties": {
+                "usd": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "reported_by": {
+                  "type": "string",
+                  "pattern": "\\S"
+                }
+              }
+            }
+          ]
+        },
+        "paid_call_id": {
           "$ref": "#/$defs/clientId"
         },
-        "made_at": {
+        "finished_at": {
           "$ref": "#/$defs/time"
         },
-        "inputs": {
+        "inputs_sent_in_order": {
           "type": "array",
           "items": {
             "type": "object",
@@ -201,7 +213,7 @@
             }
           }
         },
-        "prompt": {
+        "prompt_sent": {
           "anyOf": [
             {
               "type": "string"
@@ -210,47 +222,27 @@
               "type": "null"
             }
           ]
-        },
-        "cost": {
-          "anyOf": [
-            {
-              "type": "null"
-            },
-            {
-              "type": "object",
-              "required": [
-                "usd",
-                "source"
-              ],
-              "properties": {
-                "usd": {
-                  "type": "number",
-                  "minimum": 0
-                },
-                "source": {
-                  "type": "string",
-                  "pattern": "\\S"
-                }
-              }
-            }
-          ]
         }
       }
     },
     "note": {
       "type": "object",
       "required": [
-        "object",
+        "object_id",
         "text"
       ],
       "properties": {
-        "object": {
-          "$ref": "#/$defs/path"
-        },
         "text": {
           "type": "string"
         },
-        "at": {
+        "object_id": {
+          "$ref": "#/$defs/path"
+        },
+        "attached_file": {
+          "$ref": "#/$defs/path",
+          "description": "A file of seed_files the note shows."
+        },
+        "position_in_shown_file": {
           "type": "object",
           "required": [
             "x",
@@ -270,34 +262,31 @@
           },
           "description": "Fractions 0-1 of the shown file's width and height."
         },
-        "time": {
+        "seconds_into_video": {
           "type": "number",
           "minimum": 0,
           "description": "Seconds into a video."
-        },
-        "file": {
-          "$ref": "#/$defs/path"
         }
       }
     },
     "request": {
-      "description": "turns/<turn>/request.json (4.2).",
+      "description": "turns/<turn id>/request.json (4.2).",
       "type": "object",
       "required": [
         "schema",
-        "turn",
-        "tree",
-        "private_state",
-        "notes"
+        "turn_id",
+        "seed_files",
+        "session_private_state",
+        "notes_for_pine_computer"
       ],
       "properties": {
         "schema": {
           "$ref": "#/$defs/schema"
         },
-        "turn": {
+        "turn_id": {
           "$ref": "#/$defs/clientId"
         },
-        "tree": {
+        "seed_files": {
           "type": "object",
           "propertyNames": {
             "$ref": "#/$defs/path"
@@ -306,7 +295,7 @@
             "$ref": "#/$defs/hash"
           }
         },
-        "private_state": {
+        "session_private_state": {
           "anyOf": [
             {
               "$ref": "#/$defs/hash"
@@ -316,35 +305,35 @@
             }
           ]
         },
-        "notes": {
+        "notes_for_pine_computer": {
           "type": "array",
           "items": {
             "$ref": "#/$defs/note"
           }
         },
-        "conflicts": {
+        "changes_studio_kept_aside_as_conflicts": {
           "type": "array",
           "items": {
             "type": "object",
             "required": [
-              "turn",
-              "seq",
+              "turn_id",
+              "change_number",
               "paths"
             ],
             "properties": {
-              "turn": {
-                "$ref": "#/$defs/clientId"
-              },
-              "seq": {
-                "type": "integer",
-                "minimum": 1
-              },
               "paths": {
                 "type": "array",
                 "minItems": 1,
                 "items": {
                   "$ref": "#/$defs/path"
                 }
+              },
+              "turn_id": {
+                "$ref": "#/$defs/clientId"
+              },
+              "change_number": {
+                "type": "integer",
+                "minimum": 1
               }
             }
           }
@@ -352,35 +341,18 @@
       }
     },
     "change": {
-      "description": "turns/<turn>/changes/<seq>.json (4.3): one finished result.",
+      "description": "turns/<turn id>/changes/<change number>.json (4.3): one finished result.",
       "type": "object",
       "required": [
         "schema",
-        "turn",
-        "seq",
-        "prev",
+        "turn_id",
+        "change_number",
+        "previous_change_sha256",
         "files"
       ],
       "properties": {
         "schema": {
           "$ref": "#/$defs/schema"
-        },
-        "turn": {
-          "$ref": "#/$defs/clientId"
-        },
-        "seq": {
-          "type": "integer",
-          "minimum": 1
-        },
-        "prev": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/hash"
-            },
-            {
-              "type": "null"
-            }
-          ]
         },
         "files": {
           "type": "object",
@@ -391,11 +363,11 @@
           "additionalProperties": {
             "type": "object",
             "required": [
-              "base",
-              "new"
+              "sha256_before",
+              "sha256_after"
             ],
             "properties": {
-              "base": {
+              "sha256_before": {
                 "anyOf": [
                   {
                     "$ref": "#/$defs/hash"
@@ -405,7 +377,7 @@
                   }
                 ]
               },
-              "new": {
+              "sha256_after": {
                 "anyOf": [
                   {
                     "$ref": "#/$defs/hash"
@@ -417,43 +389,23 @@
               }
             }
           }
-        }
-      }
-    },
-    "job": {
-      "description": "turns/<turn>/jobs/<job>/<state>.json (4.5): one state of one paid call, written once.",
-      "type": "object",
-      "required": [
-        "schema",
-        "job",
-        "object",
-        "state",
-        "at"
-      ],
-      "properties": {
-        "schema": {
-          "$ref": "#/$defs/schema"
         },
-        "job": {
+        "turn_id": {
           "$ref": "#/$defs/clientId"
         },
-        "object": {
-          "$ref": "#/$defs/path"
+        "change_number": {
+          "type": "integer",
+          "minimum": 1
         },
-        "state": {
-          "enum": [
-            "submitted",
-            "succeeded",
-            "failed",
-            "cancelled",
-            "unknown"
+        "previous_change_sha256": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/hash"
+            },
+            {
+              "type": "null"
+            }
           ]
-        },
-        "at": {
-          "$ref": "#/$defs/time"
-        },
-        "cost": {
-          "$ref": "#/$defs/receipt/properties/cost"
         }
       }
     },
@@ -466,11 +418,12 @@
       "properties": {
         "code": {
           "enum": [
-            "not_found",
-            "invalid",
-            "missing_input",
-            "failed",
-            "unsupported_schema"
+            "pine_computer_found_no_such_file_or_object",
+            "pine_computer_found_request_not_matching_protocol",
+            "pine_computer_found_file_missing_from_store",
+            "pine_computer_broke_off_the_work",
+            "pine_computer_refused_request_of_unsupported_protocol_major",
+            "studio_refused_document_of_unsupported_protocol_major"
           ]
         },
         "message": {
@@ -479,18 +432,18 @@
         "action": {
           "type": "string"
         },
-        "upgrade": {
+        "upgrade_needed": {
           "type": "object",
           "required": [
-            "studio",
-            "url"
+            "minimum_studio_version",
+            "download_url"
           ],
           "properties": {
-            "studio": {
+            "minimum_studio_version": {
               "type": "string",
               "pattern": "^\\d+\\.\\d+\\.\\d+(?![\\s\\S])"
             },
-            "url": {
+            "download_url": {
               "type": "string",
               "format": "uri"
             }
@@ -499,29 +452,32 @@
       }
     },
     "return": {
-      "description": "turns/<turn>/return.json (4.6), written last.",
+      "description": "turns/<turn id>/return.json (4.6), written last.",
       "type": "object",
       "required": [
         "schema",
-        "turn",
+        "turn_id",
         "state"
       ],
       "properties": {
         "schema": {
           "$ref": "#/$defs/schema"
         },
-        "turn": {
-          "$ref": "#/$defs/clientId"
-        },
         "state": {
           "enum": [
-            "stopped",
-            "ended",
-            "failed",
-            "refused"
+            "pine_computer_is_waiting_for_person_answer",
+            "pine_computer_finished_the_work",
+            "pine_computer_broke_off_the_turn_partway",
+            "pine_computer_refused_the_turn_before_running"
           ]
         },
-        "last": {
+        "error": {
+          "$ref": "#/$defs/error"
+        },
+        "turn_id": {
+          "$ref": "#/$defs/clientId"
+        },
+        "last_change": {
           "anyOf": [
             {
               "type": "null"
@@ -529,22 +485,22 @@
             {
               "type": "object",
               "required": [
-                "seq",
-                "hash"
+                "change_number",
+                "sha256"
               ],
               "properties": {
-                "seq": {
+                "change_number": {
                   "type": "integer",
                   "minimum": 1
                 },
-                "hash": {
+                "sha256": {
                   "$ref": "#/$defs/hash"
                 }
               }
             }
           ]
         },
-        "private_state": {
+        "session_private_state": {
           "anyOf": [
             {
               "$ref": "#/$defs/hash"
@@ -554,29 +510,26 @@
             }
           ]
         },
-        "problems": {
+        "question_for_person": {
+          "type": "string"
+        },
+        "pine_computer_could_not_do": {
           "type": "array",
           "items": {
             "type": "object",
             "required": [
-              "ref",
+              "object_or_file",
               "error"
             ],
             "properties": {
-              "ref": {
-                "type": "string"
-              },
               "error": {
                 "$ref": "#/$defs/error"
+              },
+              "object_or_file": {
+                "type": "string"
               }
             }
           }
-        },
-        "question": {
-          "type": "string"
-        },
-        "error": {
-          "$ref": "#/$defs/error"
         }
       },
       "allOf": [
@@ -584,7 +537,7 @@
           "if": {
             "properties": {
               "state": {
-                "const": "refused"
+                "const": "pine_computer_refused_the_turn_before_running"
               }
             }
           },
@@ -595,9 +548,9 @@
           },
           "else": {
             "required": [
-              "last",
-              "private_state",
-              "problems"
+              "last_change",
+              "session_private_state",
+              "pine_computer_could_not_do"
             ]
           }
         },
@@ -605,13 +558,13 @@
           "if": {
             "properties": {
               "state": {
-                "const": "stopped"
+                "const": "pine_computer_is_waiting_for_person_answer"
               }
             }
           },
           "then": {
             "required": [
-              "question"
+              "question_for_person"
             ]
           }
         },
@@ -619,7 +572,7 @@
           "if": {
             "properties": {
               "state": {
-                "const": "failed"
+                "const": "pine_computer_broke_off_the_turn_partway"
               }
             }
           },
@@ -631,26 +584,75 @@
         }
       ]
     },
-    "running": {
-      "description": "turns/<turn>/running.json (4.7): written once before any work.",
+    "projectMarker": {
+      "description": "pine-drama-project.json at the folder's root (2.1): the folder is a Pine Drama project of major 2.",
+      "type": "object",
+      "required": [
+        "schema"
+      ],
+      "properties": {
+        "schema": {
+          "$ref": "#/$defs/schema"
+        }
+      }
+    },
+    "turnStarted": {
+      "description": "turns/<turn id>/turn-started.json (4.7): written once before any work.",
       "type": "object",
       "required": [
         "schema",
-        "turn",
-        "request",
-        "at"
+        "turn_id",
+        "request_sha256",
+        "started_at"
       ],
       "properties": {
         "schema": {
           "$ref": "#/$defs/schema"
         },
-        "turn": {
+        "turn_id": {
           "$ref": "#/$defs/clientId"
         },
-        "request": {
+        "request_sha256": {
           "$ref": "#/$defs/hash"
         },
-        "at": {
+        "started_at": {
+          "$ref": "#/$defs/time"
+        }
+      }
+    },
+    "paidCallState": {
+      "description": "turns/<turn id>/paid-calls/<paid call id>/<state>.json (4.5): one state of one paid call, written once.",
+      "type": "object",
+      "required": [
+        "schema",
+        "paid_call_id",
+        "object_id",
+        "state",
+        "state_written_at"
+      ],
+      "properties": {
+        "schema": {
+          "$ref": "#/$defs/schema"
+        },
+        "state": {
+          "enum": [
+            "pine_computer_sent_request_to_provider",
+            "provider_returned_output_to_pine_computer",
+            "provider_reported_failure_to_pine_computer",
+            "pine_computer_cancelled_call_after_person_pressed_stop",
+            "pine_computer_cannot_learn_call_outcome"
+          ]
+        },
+        "cost": {
+          "$ref": "#/$defs/receipt/properties/cost"
+        },
+        "paid_call_id": {
+          "$ref": "#/$defs/clientId"
+        },
+        "object_id": {
+          "$ref": "#/$defs/path"
+        },
+        "state_written_at": {
           "$ref": "#/$defs/time"
         }
       }
