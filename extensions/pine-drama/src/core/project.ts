@@ -7,7 +7,8 @@ import { readFile, stat } from 'node:fs/promises';
 import { isAbsolute, join } from 'node:path';
 import { CHOICES_FILE, readChoices, readVersions, resolve, VERSION_FILE, versionRecordOf, type Resolved, type Version as ProtocolVersion } from './choices';
 import { projectIdentity } from './projectPlace';
-import type { Add, Choices, Edge, ObjectType, ProtocolError, Request, Snapshot } from './protocol';
+import type { CardActions } from './galleryProtocol';
+import type { Choices, Edge, ObjectType, ProtocolError, Request, Snapshot } from './protocol';
 
 /**
  * An installed return's snapshot, with the scope of the task it came from (doc/protocol.md, section 1), its task id, when
@@ -71,6 +72,10 @@ export interface DramaObject {
 	readonly outgoing: { readonly chat: string | null } | null;
 	/** The problem the scope's last return named for it, or null. */
 	readonly problem: ProtocolError | null;
+	/** The person's add no task has made an object yet (doc/protocol.md 3.1): its id is the add's, and it has no version. */
+	readonly added: boolean;
+	/** For an add: the Chat whose running task carries it, or null. */
+	readonly inFlight: string | null;
 	/** Oldest first, the downloaded versions not installed yet among them. */
 	readonly versions: readonly ProtocolVersion[];
 	/** Each downloaded version's folder, absolute, by version id; an installed version's folder is `<id>/<version>`. */
@@ -79,15 +84,10 @@ export interface DramaObject {
 }
 
 export interface Drama {
+	/** The snapshots' objects and the person's adds no task has made yet (`added`), one list for every view. */
 	readonly objects: ReadonlyMap<string, DramaObject>;
 	readonly edges: readonly Edge[];
-	/** The person's adds no snapshot object names yet: shown as cards until the Computer makes them objects. */
-	readonly adds: readonly Add[];
 	readonly choices: Choices | null;
-	/** Each add a running task carries, by its id: the Chat that sent it. */
-	readonly addsInFlight: ReadonlyMap<string, string>;
-	/** The problem the last return of its scope named for each add, by the add's id. */
-	readonly addProblems: ReadonlyMap<string, ProtocolError>;
 	/**
 	 * Each version listed as an input where no snapshot lists its object (a scene's floor plan), by `<object>/<version>`:
 	 * its folder (versionFolder's form) and the file its version.json shows, read for display only.
@@ -142,10 +142,15 @@ export async function readDrama(root: string, snapshotOf: SnapshotOf, previewsOf
 	const { listed, edges } = snapshotState(snapshotOf(), tasks);
 	const choices = await readChoices(root);
 	const removed = new Set(Object.entries(choices?.objects ?? {}).filter(([, c]) => c.removed).map(([id]) => id));
+	// An add some snapshot object names in `from_add` is made (doc/protocol.md 3.1); one not made yet is an object of its
+	// own with no version, its id the add's, and a variant add derives from its `from` as any variant does.
+	const made = new Set([...listed.values()].map(l => l.object.from_add));
+	const adds = (choices?.added ?? []).filter(a => !made.has(a.id));
+	const derived = [...edges, ...adds.flatMap(a => a.from ? [{ kind: 'variant_of' as const, from: a.id, to: a.from }] : [])];
 	// A variant of a removed object is removed with it, down its chain.
 	for (let grew = true; grew;) {
 		grew = false;
-		for (const e of edges) {
+		for (const e of derived) {
 			if (e.kind === 'variant_of' && removed.has(e.to) && !removed.has(e.from)) {
 				removed.add(e.from);
 				grew = true;
@@ -182,10 +187,20 @@ export async function readDrama(root: string, snapshotOf: SnapshotOf, previewsOf
 			id, type: object.type, name: object.name, segment: object.segment, usable: object.usable, why: object.why ?? null, making: object.making === true,
 			prompt: mine?.prompt ?? object.prompt ?? null, description: mine?.description ?? object.description ?? null,
 			plannedInputs: object.inputs ?? [], fromAdd: object.from_add, observedAt: at, versions, previews, resolved: resolve(versions, choices, id),
-			outgoing: outgoing(id), problem: problems.get(id) ?? null,
+			outgoing: outgoing(id), problem: problems.get(id) ?? null, added: false, inFlight: null,
 		});
 	}));
-	const made = new Set([...objects.values()].map(o => o.fromAdd).filter(Boolean));
+	// The Chat whose running task carries each add: it cannot be removed until that task's return (doc/protocol.md 3.1).
+	const carried = new Map(requests.filter(r => !returns.some(d => d.task === r.request.turn))
+		.flatMap(r => (r.request.choices?.added ?? []).map(a => [a.id, r.chat] as const)));
+	for (const add of adds.filter(a => !removed.has(a.id))) {
+		const inFlight = carried.get(add.id) ?? null;
+		objects.set(add.id, {
+			id: add.id, type: add.type, name: add.name, segment: null, usable: false, why: null, making: false, prompt: null, description: add.description,
+			plannedInputs: [], fromAdd: add.id, observedAt: '', versions: [], previews: new Map(), resolved: resolve([], choices, add.id),
+			outgoing: inFlight === null ? { chat: null } : null, problem: problems.get(add.id) ?? null, added: true, inFlight,
+		});
+	}
 	const unlistedInputs = new Set([...objects.values()].flatMap(o => o.versions.flatMap(v => v.record.inputs))
 		.filter(input => !objects.has(input.object)).map(input => `${input.object}/${input.version}`));
 	const unlisted = new Map((await Promise.all([...unlistedInputs].map(async key => {
@@ -198,12 +213,8 @@ export async function readDrama(root: string, snapshotOf: SnapshotOf, previewsOf
 	}))).flat());
 	return {
 		objects,
-		edges: edges.filter(e => objects.has(e.from) && objects.has(e.to)),
-		adds: (choices?.added ?? []).filter(a => !made.has(a.id)),
+		edges: derived.filter(e => objects.has(e.from) && objects.has(e.to)),
 		choices,
-		addsInFlight: new Map(requests.filter(r => !returns.some(d => d.task === r.request.turn))
-			.flatMap(r => (r.request.choices?.added ?? []).filter(a => !made.has(a.id)).map(a => [a.id, r.chat] as const))),
-		addProblems: new Map((choices?.added ?? []).filter(a => problems.has(a.id)).map(a => [a.id, problems.get(a.id)!])),
 		unlisted,
 	};
 }
@@ -391,17 +402,31 @@ export function versionFolder(object: DramaObject, version: string): string {
 /** A Chat's title by its key, as the sessions list shows it (its first message); undefined while unknown. */
 export type ChatTitle = (key: string) => string | undefined;
 
-/** The three marks a card shows of the person's choices, in the approved words. */
-export function marksOf(drama: Drama, chatTitle: ChatTitle, object: DramaObject | null, add: string | null): {
+/** The three marks a card shows of the person's choices, in the approved words: the same on every view. */
+export function marksOf(chatTitle: ChatTitle, object: DramaObject): {
 	outgoing: string | null; inFlight: string | null; problem: { message: string; action: string | null } | null;
 } {
 	const chat = (key: string | null) => (key && chatTitle(key)) ?? 'its Chat';
-	const flying = add ? drama.addsInFlight.get(add) : undefined;
-	const problem = object?.problem ?? (add ? drama.addProblems.get(add) : undefined) ?? null;
 	return {
-		outgoing: object?.outgoing ? `Saved. The agent sees it at ${chat(object.outgoing.chat)}'s next run.` : add && !flying ? 'Saved. The agent sees it at its Chat\'s next run.' : null,
-		inFlight: flying ? `Being created in ${chat(flying)}` : null,
-		problem: problem && { message: problem.message, action: problem.action ?? null },
+		outgoing: object.outgoing ? `Saved. The agent sees it at ${chat(object.outgoing.chat)}'s next run.` : null,
+		inFlight: object.inFlight ? `Being created in ${chat(object.inFlight)}` : null,
+		problem: object.problem && { message: object.problem.message, action: object.problem.action ?? null },
+	};
+}
+
+const ASSET_TYPES: ReadonlySet<ObjectType> = new Set(['character', 'scene', 'prop', 'variant']);
+
+/**
+ * What the person can do to an object, one rule for every card, tile and row (doc/protocol.md 3.1): an asset or a
+ * variant is edited and removed; an add no task has made yet is only withdrawn, and not while a task carries it; an
+ * object with no version has no folder to reveal.
+ */
+export function actionsOf(object: DramaObject): CardActions {
+	const asset = ASSET_TYPES.has(object.type);
+	return {
+		edit: asset && !object.added,
+		delete: !asset || object.inFlight ? null : object.added ? { action: 'removeAdd', id: object.id } : { action: 'remove', object: object.id },
+		reveal: object.versions.length > 0,
 	};
 }
 

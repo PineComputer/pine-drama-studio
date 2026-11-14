@@ -4,7 +4,7 @@ import * as vscode from 'vscode';
 import { Latest } from './core/latest';
 import { PROJECT_VIEW_ID, startOnProduction } from './productionStart';
 import { ProjectFinder, PROJECT_FILES } from './core/projectFinder';
-import { DramaProject, describeStage, NOTE_ATTACH, NOTE_INTAKE, reviewText, versionHolding, versionRows, type Drama, type OutlineNode, type PreviewsOf, type Role, type SnapshotOf, type TasksOf, type StageDetail, type Version } from './core/project';
+import { actionsOf, DramaProject, describeStage, NOTE_ATTACH, NOTE_INTAKE, reviewText, versionHolding, versionRows, type Drama, type OutlineNode, type PreviewsOf, type Role, type SnapshotOf, type TasksOf, type StageDetail, type Version } from './core/project';
 import { holdsNoProject } from './core/binding';
 import { decomposition, detachedStage, kindRow, lockOf, openSteps, sectionLines } from './core/threeSteps';
 
@@ -183,7 +183,9 @@ class ProjectProvider implements vscode.TreeDataProvider<OutlineNode> {
 		item.contextValue = node.kind === 'group' ? `group ${node.role}` : node.kind;
 		if (node.stagePath && this.project) {
 			const detail = await this.project.detail(node.stagePath);
-			item.contextValue = 'stage';
+			// Reveal in Files and Copy Path follow the object's actions (project.ts actionsOf): no version, no folder.
+			const object = (await this.project.drama()).objects.get(node.stagePath);
+			item.contextValue = object && actionsOf(object).reveal ? 'stage revealable' : 'stage';
 			item.description = describeStage(detail);
 			item.tooltip = `${node.stagePath}\n${item.description}`;
 		}

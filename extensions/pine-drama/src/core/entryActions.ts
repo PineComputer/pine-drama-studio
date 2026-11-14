@@ -64,9 +64,6 @@ export async function runCardAction(root: string, request: CardRequest, ask: Ent
 			await change(c => ({ ...c, added: [...c.added, add] }));
 			break;
 		}
-		case 'editAdd':
-			await change(c => ({ ...c, added: c.added.map(a => a.id === request.id ? { ...a, name: request.name, description: request.text } : a) }));
-			break;
 		case 'removeAdd':
 			await change(c => ({ ...c, added: c.added.filter(a => a.id !== request.id) }));
 			break;

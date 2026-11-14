@@ -6,7 +6,7 @@ import { isAbsolute, join } from 'node:path';
 import { assetsBoard, type AssetsBoard } from './assetsCanvas';
 import { CANVAS_PROTOCOL, type CanvasCard, type CanvasLayout, type CanvasViewport, type ToCanvas } from './canvasProtocol';
 import { ASSETS_CANVAS, assetFocus, episodeLineage, type LineageStage } from './lineage';
-import { marksOf, type ChatTitle, type Drama } from './project';
+import { actionsOf, marksOf, type ChatTitle, type Drama } from './project';
 import { mediaOf } from './versionDetail';
 
 export interface CanvasRead {
@@ -30,15 +30,16 @@ const exists = (root: string, rel: string) => stat(isAbsolute(rel) ? rel : join(
 async function card(read: CanvasRead, s: LineageStage, board: AssetsBoard | undefined): Promise<CanvasCard> {
 	const media = s.shows ? mediaOf(s.shows) : 'none';
 	const missing = s.shows !== null && !(await exists(read.root, s.shows));
-	const object = read.drama.objects.get(s.id);
+	// Every stage is one of the drama's objects (lineage.ts).
+	const object = read.drama.objects.get(s.id)!;
 	return {
 		id: s.id, kind: s.kind, label: s.label, section: s.section, column: s.column, version: s.version, accepted: s.accepted, segment: s.segment,
-		notUsable: object && !object.usable ? object.why ?? 'not usable yet' : null,
+		notUsable: object.usable ? null : object.why ?? 'not usable yet',
 		file: s.shows, media, missing,
 		src: s.shows && !missing && (media === 'image' || media === 'video') ? read.src(s.shows) : null,
 		appearsIn: board ? board.appearsIn[s.id] ?? [] : null,
 		name: board?.names[s.id] ?? null,
-		...marksOf(read.drama, read.chatTitle ?? (() => undefined), object ?? null, null),
+		...marksOf(read.chatTitle ?? (() => undefined), object), actions: actionsOf(object),
 		...(s.planned ? { planned: true } : {}),
 		...(s.parts ? { parts: s.parts } : {}),
 	};

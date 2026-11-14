@@ -1,7 +1,7 @@
 // The messages between the extension and the episode canvas webview: one typed, versioned protocol, defined once
 // here. No vscode import, no DOM.
 
-import { isPath, readEntryAction, type EntryAction } from './galleryProtocol';
+import { isPath, readEntryAction, type CardActions, type EntryAction } from './galleryProtocol';
 
 export const CANVAS_PROTOCOL = 1;
 
@@ -59,6 +59,8 @@ export interface CanvasCard {
 	readonly inFlight: string | null;
 	/** The problem the scope's last return named for it, or null. */
 	readonly problem: { readonly message: string; readonly action: string | null } | null;
+	/** What the person can do to its object (project.ts actionsOf), as the asset grid's tile says it: sent with every redraw. */
+	readonly actions: CardActions;
 	/** A stage its episode plans and has not made yet (lineage `planned`): its card stands in its final place, says Planned. */
 	readonly planned?: boolean;
 }

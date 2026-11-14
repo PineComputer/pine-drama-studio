@@ -140,6 +140,9 @@ function groupLayout(own: readonly CanvasCard[], size: (id: string) => Size): Gr
 	return gridLayout(sorted, Math.ceil(Math.sqrt(sorted.length)), size);
 }
 
+/** The assets canvas's region of each asset kind (doc/protocol.md 5.1, `type`). */
+const REGION: Readonly<Record<string, string>> = { character: 'characters', scene: 'scenes', prop: 'props' };
+
 /** The gap between two groups on the assets canvas. */
 const GROUP_GAP = 24;
 
@@ -154,8 +157,9 @@ export function layoutAssets(sections: readonly string[], cards: readonly Canvas
 	const size = (id: string) => sizes[id] ?? cardSize(undefined);
 	const groups = sections.map(key => {
 		const own = cards.filter(c => c.section === key && onBoard(c));
-		// A group holding a place sits with the scenes, the prop it is inside included (assetsCanvas.ts).
-		const region = own.some(c => c.id.startsWith('assets/scenes/')) ? 'scenes' : key.split('/')[1];
+		// A group's region is its asset's kind, read from its cards, never from an id: an add's id is no folder path. A group
+		// holding a place sits with the scenes, the prop it is inside included (assetsCanvas.ts).
+		const region = REGION[own.some(c => c.kind === 'scene') ? 'scene' : own.find(c => c.id === key)?.kind ?? ''];
 		return { key, region, own, grid: groupLayout(own, size) };
 	}).filter(g => g.own.length);
 	const positions: Record<string, Point> = {};

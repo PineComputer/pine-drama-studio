@@ -303,7 +303,7 @@ const notYet = 'Not available yet';
 
 /**
  * The composer: one floating dialog under the picked card, the same on both canvases (the person's design). A top row
- * (Upload, + Variant, Reference, Style, Full prompt), the references, the text specific to this picture, and a bottom
+ * (Upload, + Variant, Reference, Style, Delete, Full prompt), the references, the text specific to this picture, and a bottom
  * bar (model, settings, Generate). An asset's text is its description, its full prompt one click away; an episode
  * card's is its prompt, the only text it has; a storyboard has none. The text is for the next draw, so a picture the
  * person uploaded keeps it; how the picture on the card was made (no prompt, for an upload) is behind "How it was made".
@@ -317,6 +317,7 @@ function Composer({ card, cards, reply, onGo, onClose }: { card: CanvasCard; car
 	// What the shown version was made with, or what is planned for a card not drawn yet, read for display only.
 	const made = reply?.made ?? null;
 	const picture = reply?.picture ?? null;
+	const remove = card.actions.delete;
 	const [draft, setDraft] = useState<{ name: string; text: string } | null>(null);
 	const [full, setFull] = useState(false);
 	const [outcome, setOutcome] = useState<{ key: string; busy: boolean; error: string | null; unchanged: string | null } | null>(null);
@@ -363,6 +364,8 @@ function Composer({ card, cards, reply, onGo, onClose }: { card: CanvasCard; car
 				<button className="chip-button" disabled title={notYet}>Reference</button>
 				<button className="chip-button" disabled title={notYet}>Style</button>
 				<span className="spacer" />
+				{remove && <button className="quiet" disabled={busy} onClick={() => act({ key: `delete:${card.id}`, request: remove })}
+					title={`Delete ${fullName(card)} from the project's assets, as the asset grid's Delete`}><span className="codicon codicon-trash" />Delete</button>}
 				{card.segment && <button className="quiet" onClick={() => post({ v: CANVAS_PROTOCOL, type: 'segEditor', seg: card.segment })} title={`Open ${card.segment} in the seg editor`}>Seg editor ⤢</button>}
 				{record && prompt?.text != null && <button className="quiet" aria-expanded={full} disabled={main?.changed} onClick={() => setFull(v => !v)}
 					title={main?.changed ? 'Save or cancel your edit first' : full ? 'Back to its description' : 'The whole prompt its next draw sends'}>{full ? 'Description ⤡' : 'Full prompt ⤢'}</button>}
