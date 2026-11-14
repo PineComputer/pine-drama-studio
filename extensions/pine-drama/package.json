@@ -285,12 +285,12 @@
         },
         {
           "command": "pineDrama.revealInFiles",
-          "when": "view == pine.project && viewItem =~ /stage/",
+          "when": "view == pine.project && viewItem =~ /\\brevealable\\b/",
           "group": "2_files@1"
         },
         {
           "command": "pineDrama.copyPath",
-          "when": "view == pine.project && viewItem =~ /stage/",
+          "when": "view == pine.project && viewItem =~ /\\brevealable\\b/",
           "group": "2_files@2"
         },
         {

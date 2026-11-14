@@ -56,7 +56,7 @@ test("drama-cli's groups and order, four to a row; the references in a band on t
 /** An episode of `n` segments, each a blocking, two keyframes, a storyboard and a take, and three characters. */
 function longEpisode(n: number): { sections: string[]; all: CanvasCard[] } {
 	const card = (id: string, kind: CanvasCard['kind'], section: string, column: number): CanvasCard => ({ id, kind, label: id, section, column, version: 'v1', accepted: 'v1',
-		segment: null, file: `${id}/v1/a.png`, media: 'image', src: 'x', missing: false, notUsable: null, appearsIn: null, name: null, outgoing: null, inFlight: null, problem: null });
+		segment: null, file: `${id}/v1/a.png`, media: 'image', src: 'x', missing: false, notUsable: null, appearsIn: null, name: null, outgoing: null, inFlight: null, problem: null, actions: { edit: false, delete: null, reveal: true } });
 	const segs = Array.from({ length: n }, (_, i) => `EP001 seg${String(i + 1).padStart(2, '0')}`);
 	const all = [
 		...['a', 'b', 'c'].map(c => card(`assets/characters/${c}`, 'look', 'Characters', 1)),
@@ -266,7 +266,7 @@ test('a frame that steps down and would cover the next one moves it in turn: the
 
 // The person, 2026-11-07: on the canvas a segment's keyframes are expanded, each shot its own card in shot order.
 test("each shot's keyframe is its own card in its segment's row, in shot order", () => {
-	const kf = (shot: number): CanvasCard => ({ id: `episodes/EP001/keyframe/seg01/shot${String(shot).padStart(2, '0')}`, kind: 'keyframe', label: `EP001 seg01 shot ${shot} keyframe`, section: 'EP001 seg01', column: 3, version: 'v1', accepted: null, segment: null, file: 'k.png', media: 'image', src: 'k.png', missing: false, notUsable: null, appearsIn: null, name: null, outgoing: null, inFlight: null, problem: null });
+	const kf = (shot: number): CanvasCard => ({ id: `episodes/EP001/keyframe/seg01/shot${String(shot).padStart(2, '0')}`, kind: 'keyframe', label: `EP001 seg01 shot ${shot} keyframe`, section: 'EP001 seg01', column: 3, version: 'v1', accepted: null, segment: null, file: 'k.png', media: 'image', src: 'k.png', missing: false, notUsable: null, appearsIn: null, name: null, outgoing: null, inFlight: null, problem: null, actions: { edit: false, delete: null, reveal: true } });
 	const all = [kf(3), kf(1), kf(2)];
 	const size = Object.fromEntries(all.map(c => [c.id, cardSize({ w: 1920, h: 1080 })]));
 	const { positions } = layoutEpisode(['EP001 seg01'], all, size);
@@ -276,7 +276,7 @@ test("each shot's keyframe is its own card in its segment's row, in shot order",
 });
 
 /** A small board of two frames, as the person arranged it: cards of any section, sizes given. */
-const card = (id: string, section: string): CanvasCard => ({ id, kind: 'storyboard', label: id, section, column: 0, version: 'v1', accepted: 'v1', segment: null, file: `${id}.png`, media: 'image', src: `${id}.png`, missing: false, notUsable: null, appearsIn: null, name: null, outgoing: null, inFlight: null, problem: null });
+const card = (id: string, section: string): CanvasCard => ({ id, kind: 'storyboard', label: id, section, column: 0, version: 'v1', accepted: 'v1', segment: null, file: `${id}.png`, media: 'image', src: `${id}.png`, missing: false, notUsable: null, appearsIn: null, name: null, outgoing: null, inFlight: null, problem: null, actions: { edit: false, delete: null, reveal: true } });
 
 // A card the person dragged out above its frame was not part of the frame's box, so the frame
 // stepped down past the frame above and carried that card onto the other frame's card.
@@ -344,7 +344,7 @@ test('a board with nothing on it has no opening viewport: an error, not Infinity
 
 
 /** An assets board's card: `id` in the group `section` (its asset's id), an image. */
-const assetCard = (id: string, section: string): CanvasCard => ({ id, kind: id.includes('/variants/') ? 'variant' : 'character', label: id, section, column: 0, version: 'v1', accepted: 'v1',
+const assetCard = (id: string, section: string, kind = id.includes('/variants/') ? 'variant' : id.split('/')[1].slice(0, -1)): CanvasCard => ({ id, kind, label: id, section, column: 0, version: 'v1', accepted: 'v1',
 	notUsable: null, file: `${id}/v1/image-1.png`, media: 'image', src: null, missing: false, appearsIn: [], name: null, segment: null } as unknown as CanvasCard);
 
 // The person: some assets became very tall columns with large empty areas beside them. A group's base and variants are a
@@ -371,4 +371,12 @@ test('an asset group is a grid, not a column; each kind packs into a near-square
 	const height = Math.max(...characters.map(b => b.y + b.h)) - Math.min(...characters.map(b => b.y));
 	assert.ok(width / height < 2.5 && height / width < 2.5, `near-square: ${width} × ${height}`);
 	assert.ok(positions['heading:props'].y >= Math.max(...characters.map(b => b.y + b.h)), 'the props come under the characters');
+});
+
+// An add no task has made yet is an asset whose id is no folder path (project.ts readDrama): its kind places it.
+test("an add's group takes its region from its kind, not its id", () => {
+	const all = [assetCard('add-0001-umbrella', 'add-0001-umbrella', 'prop'), assetCard('add-0002-ana', 'add-0002-ana', 'character')];
+	const { positions } = layoutAssets(['add-0002-ana', 'add-0001-umbrella'], all, Object.fromEntries(all.map(c => [c.id, cardSize(undefined)])));
+	assert.ok(positions['frame:add-0002-ana'] && positions['frame:add-0001-umbrella'], 'both are placed');
+	assert.ok(positions['heading:props'].y > positions['frame:add-0002-ana'].y, 'the prop under the character');
 });

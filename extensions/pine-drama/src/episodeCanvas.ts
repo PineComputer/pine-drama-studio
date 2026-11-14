@@ -201,7 +201,7 @@ export function registerEpisodeCanvas(context: vscode.ExtensionContext, views: P
 		vscode.commands.registerCommand('pineDrama.openEpisodeCanvas', (node?: unknown) => openTarget(node)),
 		// The global assets canvas, focused on an asset when one is given: a card's click and Edit in canvas open it.
 		vscode.commands.registerCommand('pineDrama.openAssetsCanvas', async (stagePath?: unknown) => {
-			if (typeof stagePath === 'string' && /^assets\//.test(stagePath)) {
+			if (typeof stagePath === 'string') {
 				focus.set(ASSETS_CANVAS, stagePath);
 				// Versions shows the asset it opens on, whichever row, card or editor opened it.
 				void views.inspect(stagePath, (await project.drama()).objects.get(stagePath)?.name ?? stagePath)

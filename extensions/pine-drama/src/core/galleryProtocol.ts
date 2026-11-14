@@ -17,8 +17,8 @@ export type Setting = 'interior' | 'exterior';
 
 /** One tile: an object and the version it shows (doc/protocol.md, section 3.2). */
 export interface GalleryTile {
-	/** The object's id, or null for an add the Computer has not made an object yet (`add` names it). */
-	readonly stagePath: string | null;
+	/** The object's id (an add's own id until a task makes it an object). */
+	readonly stagePath: string;
 	readonly name: string;
 	readonly note: string | null;
 	/** The version the tile shows: the current one. */
@@ -28,8 +28,6 @@ export interface GalleryTile {
 	readonly file: string | null;
 	/** The text the card's actions change: the person's description where set, else the agent's. */
 	readonly description: string;
-	/** An add of the person's no task has made an object yet: its client id. */
-	readonly add?: string;
 	/** The person's choice the Computer has not seen yet: the mark's tooltip, or null. */
 	readonly outgoing: string | null;
 	/** An add a running task carries: its line, or null; its edit and remove wait. */
@@ -38,6 +36,7 @@ export interface GalleryTile {
 	readonly problem: { readonly message: string; readonly action: string | null } | null;
 	/** The asset grid: how many of the asset's objects have a version, and how many are still to be made or used (assetStatus.ts). */
 	readonly visuals?: { readonly made: number; readonly needed: number };
+	readonly actions: CardActions;
 }
 
 export interface GallerySection {
@@ -71,11 +70,20 @@ export type CardRequest =
 	| { readonly action: 'prompt'; readonly object: string; readonly text: string }
 	| { readonly action: 'remove'; readonly object: string }
 	| { readonly action: 'add'; readonly type: 'character' | 'scene' | 'prop' | 'variant'; readonly name: string; readonly text: string; readonly from?: string; readonly setting?: Setting }
-	/** An add no task has carried yet (section 3.1): edited or removed in place. */
-	| { readonly action: 'editAdd'; readonly id: string; readonly name: string; readonly text: string }
+	/** An add no task has made yet (section 3.1): removing it deletes the entry. */
 	| { readonly action: 'removeAdd'; readonly id: string }
 	/** `file`: the person's picture on disk; null to ask for one. */
 	| { readonly action: 'import'; readonly object: string; readonly file: string | null };
+
+/** What a card, tile or row offers for its object (project.ts actionsOf): one rule for every view. */
+export interface CardActions {
+	/** Import, describe, + Variant and the prompt: an asset or variant a task has made. */
+	readonly edit: boolean;
+	/** Delete: removes an asset or variant, or withdraws an add; null while a task carries the add, and for any other object. */
+	readonly delete: CardRequest | null;
+	/** Reveal in Files and Copy Path: only an object with a version has a folder. */
+	readonly reveal: boolean;
+}
 
 /**
  * A card action as a page sends it: the person's choice by object id (core/entryActions.ts,
@@ -162,8 +170,6 @@ function readRequest(m: Record<string, unknown>): EntryAction['request'] | undef
 			return (m.type === 'character' || m.type === 'scene' || m.type === 'prop' || m.type === 'variant') && text(m.name, NAME_MAX) && text(m.text, TEXT_MAX)
 				&& (m.from === undefined || isPath(m.from)) && (m.setting === undefined || m.setting === 'interior' || m.setting === 'exterior')
 				? { action: 'add', type: m.type, name: m.name.trim(), text: m.text.trim(), ...(isPath(m.from) ? { from: m.from } : {}), ...(m.setting ? { setting: m.setting as Setting } : {}) } : undefined;
-		case 'editAdd':
-			return typeof m.id === 'string' && text(m.name, NAME_MAX) && text(m.text, TEXT_MAX) ? { action: 'editAdd', id: m.id, name: m.name.trim(), text: m.text.trim() } : undefined;
 		case 'removeAdd':
 			return typeof m.id === 'string' ? { action: 'removeAdd', id: m.id } : undefined;
 		case 'import':

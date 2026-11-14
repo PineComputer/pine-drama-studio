@@ -3,7 +3,10 @@ import { cpSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { DramaProject, episodeOfNode, readDrama, versionFile, versionTitle } from '../core/project';
+import { actionsOf, DramaProject, episodeOfNode, marksOf, readDrama, variantsOf, versionFile, versionTitle } from '../core/project';
+import { assetsBoard } from '../core/assetsCanvas';
+import { lineageMessage } from '../core/canvasMessage';
+import { ASSETS_CANVAS } from '../core/canvasProtocol';
 import { decomposition } from '../core/threeSteps';
 import type { Choices, Snapshot } from '../core/protocol';
 import type { ScopedSnapshot, TasksOf } from '../core/project';
@@ -68,16 +71,42 @@ test("the person's choices win: removed hides an object with its variants; their
 	assert.equal(drama.objects.get('assets/props/umbrella')?.prompt, '', 'an emptied prompt is the person\'s, not the agent\'s');
 });
 
-test("an add shows until a snapshot names it in an object's from_add", async () => {
+test("an add is an object with no version until a snapshot names it in an object's from_add, even one the person removed", async () => {
 	const add = { id: 'add-0002-taxi', type: 'prop' as const, name: 'Taxi', description: 'A yellow cab.' };
 	const root = folder({ schema: 1, objects: {}, added: [add], imports: [] });
-	const before = await readDrama(root, () => [project(PROJECT, 1)]);
-	assert.deepEqual(before.adds.map(a => a.id), ['add-0002-taxi']);
+	const before = (await readDrama(root, () => [project(PROJECT, 1)])).objects.get('add-0002-taxi');
+	assert.deepEqual([before?.added, before?.type, before?.name, before?.description, before?.versions.length], [true, 'prop', 'Taxi', 'A yellow cab.', 0]);
 	const made: Snapshot = { ...PROJECT, observed_at: '2026-11-12T13:00:00Z', objects: { ...PROJECT.objects,
 		'assets/props/taxi': { type: 'prop', name: 'Taxi', segment: null, usable: false, from_add: 'add-0002-taxi' } } };
 	const after = await readDrama(root, () => [project(PROJECT, 1), project(made, 2)]);
-	assert.deepEqual(after.adds, []);
-	assert.ok(after.objects.has('assets/props/taxi'));
+	assert.ok(!after.objects.has('add-0002-taxi'));
+	assert.equal(after.objects.get('assets/props/taxi')?.added, false);
+	const removed = folder({ schema: 1, objects: { 'assets/props/taxi': { removed: true } }, added: [add], imports: [] });
+	assert.ok(!(await readDrama(removed, () => [project(PROJECT, 1), project(made, 2)])).objects.has('add-0002-taxi'), 'a made add stays made when its object is removed');
+});
+
+test('a variant add is a card in its asset\'s frame and a row under it; every view offers the same actions (actionsOf)', async () => {
+	const look = { id: 'add-0004-coat', type: 'variant' as const, name: 'In a coat', description: 'A long grey coat.', from: 'assets/characters/lin' };
+	const root = folder({ schema: 1, objects: {}, added: [look], imports: [] });
+	const drama = await readDrama(root, () => [project(PROJECT, 1)]);
+	assert.deepEqual(variantsOf(drama, 'assets/characters/lin').map(o => o.id), ['add-0004-coat', 'assets/characters/lin/variants/rain'], 'the tree lists it under its asset');
+	assert.equal(assetsBoard(drama).stages.find(s => s.id === 'add-0004-coat')?.section, 'assets/characters/lin', "the assets canvas frames it with its asset");
+	assert.deepEqual(marksOf(() => undefined, drama.objects.get('add-0004-coat')!).outgoing, "Saved. The agent sees it at its Chat's next run.");
+	const actions = (d: typeof drama, id: string) => actionsOf(d.objects.get(id)!);
+	assert.deepEqual(actions(drama, 'add-0004-coat'), { edit: false, delete: { action: 'removeAdd', id: 'add-0004-coat' }, reveal: false });
+	assert.deepEqual(actions(drama, 'assets/characters/lin'), { edit: true, delete: { action: 'remove', object: 'assets/characters/lin' }, reveal: true });
+	assert.deepEqual(actions(drama, 'assets/scenes/street'), { edit: true, delete: { action: 'remove', object: 'assets/scenes/street' }, reveal: false }, 'no version, no folder');
+	assert.deepEqual(actions(drama, 'episodes/EP001'), { edit: false, delete: null, reveal: false });
+	// While a task carries it, it can be neither edited nor removed (doc/protocol.md 3.1).
+	const carried: TasksOf = { requests: () => [{ sent: at(4), chat: 'chat-project', request: { turn: 'task-9', scope: 'project', choices: { schema: 1, objects: {}, added: [look], imports: [] }, versions: {} } }], returns: () => [] };
+	const running = await readDrama(root, () => [project(PROJECT, 1)], () => [], carried);
+	assert.equal(actions(running, 'add-0004-coat').delete, null);
+	// The canvas card carries its actions with every redraw, so an open composer never offers a stale Delete.
+	const board = await lineageMessage({ root, episode: ASSETS_CANVAS, drama: running, layout: {}, focus: undefined, viewport: undefined, src: rel => rel });
+	assert.deepEqual(board.cards.find(c => c.id === 'add-0004-coat')?.actions, { edit: false, delete: null, reveal: false });
+	// Removing its asset removes it with it, as any variant.
+	const gone = folder({ schema: 1, objects: { 'assets/characters/lin': { removed: true } }, added: [look], imports: [] });
+	assert.ok(!(await readDrama(gone, () => [project(PROJECT, 1)])).objects.has('add-0004-coat'));
 });
 
 test('a downloaded version shows as its object\'s newest until its return installs it; then the installed one is read', async () => {
@@ -113,11 +142,11 @@ test("the cards' marks: a choice its scope's last request did not carry is outgo
 	const running = await readDrama(root, () => [project(PROJECT, 1)], () => [], tasks(false));
 	assert.deepEqual(running.objects.get('assets/scenes/office')?.outgoing, { chat: 'chat-project' }, 'the description the request did not carry');
 	assert.equal(running.objects.get('assets/characters/lin')?.outgoing, null, 'no choice, nothing outgoing');
-	assert.equal(running.addsInFlight.get('add-0003-bus'), 'chat-project');
+	assert.deepEqual([running.objects.get('add-0003-bus')?.inFlight, running.objects.get('add-0003-bus')?.outgoing], ['chat-project', null]);
 	assert.equal(running.objects.get('assets/props/umbrella')?.problem?.message, problem.message);
 	// Its return dealt with: no longer in flight, and the scope's last return named no problem.
 	const back = await readDrama(root, () => [project(PROJECT, 1)], () => [], tasks(true));
-	assert.equal(back.addsInFlight.size, 0);
+	assert.deepEqual([back.objects.get('add-0003-bus')?.inFlight, back.objects.get('add-0003-bus')?.outgoing], [null, { chat: null }]);
 	assert.equal(back.objects.get('assets/props/umbrella')?.problem, null);
 });
 

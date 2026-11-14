@@ -5,7 +5,7 @@
 
 import type { CanvasPicture, CanvasRecord } from './canvasProtocol';
 import type { AddType, Collection, GallerySection, GalleryTile } from './galleryProtocol';
-import { marksOf, variantParent, variantsOf, versionFile, type ChatTitle, type Drama, type DramaObject } from './project';
+import { actionsOf, marksOf, variantParent, variantsOf, versionFile, type ChatTitle, type Drama, type DramaObject } from './project';
 import { mediaOf } from './versionDetail';
 
 /** The object type of a grid's kind (doc/protocol.md, section 5.1). */
@@ -49,26 +49,22 @@ function picture(object: DramaObject, version: string | null): string | null {
 
 /**
  * A kind's grid: one card per asset (Pippit's asset grid), its current picture, its name, and its objects counted; its
- * description is its tooltip and what its actions change. The person's adds of this kind that
- * no task has made yet follow as cards of their own (doc/protocol.md, section 3.1), then Create New.
+ * description is its tooltip and what its actions change. An add no task has made yet is an asset like any other
+ * (project.ts readDrama); Create New comes last.
  */
 export function assetGrid(drama: Drama, kind: Collection, chatTitle: ChatTitle = () => undefined): GallerySection {
 	const tiles: GalleryTile[] = assetsOf(drama, kind).map(({ object, made, needed }) => ({
 		stagePath: object.id, name: object.name, note: null, version: object.resolved.current, accepted: object.resolved.accepted,
 		file: picture(object, object.resolved.current), description: object.description ?? '',
-		visuals: { made, needed }, ...marksOf(drama, chatTitle, object, null),
+		visuals: { made, needed }, ...marksOf(chatTitle, object), actions: actionsOf(object),
 	}));
-	const adds: GalleryTile[] = drama.adds.filter(a => a.type === TYPE_OF[kind]).map(a => ({
-		stagePath: null, name: a.name, note: null, version: null, accepted: null, file: null, description: a.description, add: a.id,
-		...marksOf(drama, chatTitle, null, a.id),
-	}));
-	return { title: kind, tiles: [...tiles, ...adds], add: TYPE_OF[kind] };
+	return { title: kind, tiles, add: TYPE_OF[kind] };
 }
 
-/** The record panel's data for an asset's or a variant's card; null for any other object. */
+/** The record panel's data for an asset's or a variant's card, which the person edits; null for any other object. */
 export function recordOf(drama: Drama, id: string): CanvasRecord | null {
 	const object = drama.objects.get(id);
-	if (!object || !['character', 'scene', 'prop', 'variant'].includes(object.type)) {
+	if (!object || !actionsOf(object).edit) {
 		return null;
 	}
 	return { object: id, type: object.type, description: object.description ?? '', from: variantParent(drama, id) ?? null };
