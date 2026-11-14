@@ -43,6 +43,8 @@ interface Case {
 	/** Cards: this many matches of the selector. Text: the page says this (a message that is itself an error). */
 	readonly expect: { readonly selector: string; readonly count: number } | { readonly text: string };
 	/** What the page does once it rendered, and what went wrong; `answer` replies to a page message as the extension would. */
+	/** Rendered as on a Mac (MAC's user agent). */
+	readonly mac?: boolean;
 	readonly interact?: { readonly answer: (message: { type?: string; stageId?: string; version?: string | null }) => unknown; readonly check: (page: Page, posted: readonly unknown[]) => Promise<string[]> };
 }
 
@@ -332,6 +334,42 @@ async function openingCase(source: Source, episode: string): Promise<Case> {
 	return { ...c, name: `${source.name}: ${episode} opens fitted, 25 %-55 %`, interact: { answer: () => null, check } };
 }
 
+/** A Mac's user agent: React Flow takes ⌘ (Meta) for its zoom key only on a Mac (@xyflow/system isMacOs). */
+const MAC = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36';
+
+/**
+ * ⌘+wheel and Ctrl+wheel zoom the board on a Mac, wherever the keyboard is. A webview gets key events only while it
+ * has the keyboard focus, but a wheel event always carries the modifiers held (UI Events, WheelEvent inherits
+ * MouseEvent's metaKey and ctrlKey): with the focus in the workbench, the canvas never sees ⌘ go down, only the wheel.
+ * Each wheel is sent over a card and over the empty pane, once after ⌘'s keydown and once without it.
+ */
+async function wheelZoomCase(source: Source, episode: string): Promise<Case> {
+	const c = await canvasCase(source, episode);
+	const check = async (page: Page): Promise<string[]> => {
+		const problems: string[] = [];
+		const scale = async () => Number(/scale\(([\d.]+)\)/.exec(await page.locator('.react-flow__viewport').first().evaluate(element => (element as { style: { transform: string } }).style.transform))?.[1]);
+		const card = page.locator('.react-flow__node-card').first();
+		const pane = page.locator('.react-flow__pane').first();
+		for (const [where, target] of [['a card', card], ['the pane', pane]] as const) {
+			for (const how of ['⌘ (its keydown seen)', '⌘ (its keydown elsewhere)', 'Ctrl'] as const) {
+				await page.locator('.bar button[aria-label="Fit"]').click();
+				await new Promise(resolve => setTimeout(resolve, 400));
+				const box = await target.boundingBox();
+				const before = await scale();
+				const meta = how !== 'Ctrl';
+				if (how === '⌘ (its keydown seen)') { await page.keyboard.down('Meta'); }
+				await target.dispatchEvent('wheel', { deltaY: -100, deltaMode: 0, metaKey: meta, ctrlKey: !meta, bubbles: true, cancelable: true, clientX: box!.x + 30, clientY: box!.y + 30 });
+				if (how === '⌘ (its keydown seen)') { await page.keyboard.up('Meta'); }
+				await new Promise(resolve => setTimeout(resolve, 100));
+				const after = await scale();
+				if (!(after > before)) { problems.push(`${how}+wheel over ${where} left the zoom at ${after} (was ${before})`); }
+			}
+		}
+		return problems;
+	};
+	return { ...c, mac: true, name: `${source.name}: ${episode} zooms on ⌘+wheel and Ctrl+wheel`, interact: { answer: () => null, check } };
+}
+
 /** An element's text as shown, or null when there is none. */
 const textOf = async (scope: Locator) => (await scope.count()) === 1 ? scope.evaluate(element => (element as { textContent: string | null }).textContent) : null;
 
@@ -511,7 +549,7 @@ interface Page {
 	locator(selector: string): Locator;
 	getByText(text: string): { first(): { waitFor(options: { timeout: number }): Promise<void> } };
 	screenshot(options: { path: string }): Promise<unknown>;
-	readonly keyboard: { press(key: string): Promise<void> };
+	readonly keyboard: { press(key: string): Promise<void>; down(key: string): Promise<void>; up(key: string): Promise<void> };
 	evaluate<T, A>(fn: (arg: A) => T, arg: A): Promise<T>;
 }
 interface Locator {
@@ -525,17 +563,18 @@ interface Locator {
 	getAttribute(name: string): Promise<string | null>;
 	evaluate<T>(fn: (element: unknown) => T): Promise<T>;
 	isDisabled(): Promise<boolean>;
+	dispatchEvent(type: string, init: Record<string, unknown>): Promise<void>;
 	waitFor(options: { timeout: number; state?: 'detached' }): Promise<void>;
 	boundingBox(): Promise<{ x: number; y: number; width: number; height: number } | null>;
 }
-interface Browser { newContext(options?: { viewport: { width: number; height: number } }): Promise<{ newPage(): Promise<Page>; close(): Promise<void> }>; close(): Promise<void> }
+interface Browser { newContext(options?: { viewport?: { width: number; height: number }; userAgent?: string }): Promise<{ newPage(): Promise<Page>; close(): Promise<void> }>; close(): Promise<void> }
 
 const TYPES: Record<string, string> = { '.js': 'text/javascript', '.css': 'text/css', '.ttf': 'font/ttf', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.mp4': 'video/mp4', '.json': 'application/json' };
 
 /** Loads one case and returns what went wrong, if anything. */
 async function render(browser: Browser, c: Case): Promise<string[]> {
 	const problems: string[] = [];
-	const context = await browser.newContext(process.env.PDS_RENDER_SHOTS ? { viewport: { width: 1600, height: 1000 } } : undefined);
+	const context = await browser.newContext({ ...(process.env.PDS_RENDER_SHOTS ? { viewport: { width: 1600, height: 1000 } } : {}), ...(c.mac ? { userAgent: MAC } : {}) });
 	try {
 		const page = await context.newPage();
 		const html = webviewPageHtml(c.page, c.name, c.data, { src: name => `${ORIGIN}/media/${name}`, cspSource: ORIGIN, nonce: 'render-smoke' });
@@ -605,6 +644,7 @@ async function main(): Promise<number> {
 	const cases: Case[] = [
 		await canvasCase(source, ASSETS_CANVAS), await boxCase(source), await faceCase(source), await toolsCase(source), await variantBoxCase(source), await longNameCase(source),
 		await canvasCase(source, 'EP001'), await takeLinesCase({ ...source, drama: await readFixture() }), await openingCase(source, 'EP001'), await episodeBoxCase(source),
+		await wheelZoomCase(source, ASSETS_CANVAS), await wheelZoomCase(source, 'EP001'),
 		await galleryCase(source, 'characters'), await galleryCase(source, 'scenes'), await galleryCase(source, 'props'), await gridClickCase(source),
 		await segCase(source, 'EP001'),
 	];

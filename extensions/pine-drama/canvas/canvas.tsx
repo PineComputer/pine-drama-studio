@@ -36,6 +36,8 @@ const COMMAND = 'pine-canvas-command';
 const DETAIL = 'pine-canvas-detail';
 /** A record panel's action ended (actionEnded): its key, drama-cli's words when it failed, and the line when it wrote nothing. */
 const ACTION_ENDED = 'pine-canvas-action-ended';
+/** The board's zoom range, React Flow's minZoom and maxZoom. */
+const ZOOM = { min: 0.05, max: 4 };
 // Generate with an unsaved edit: the request goes to the chat once that save is written, never after a refused one.
 // Held here, not in the composer, so closing it or picking another card before the save ends drops no request: the composer is keyed by its card and unmounts with its listeners.
 const generateOnceSaved = new Map<string, string>();
@@ -553,6 +555,35 @@ function Canvas({ message, loaded }: { message: Lineage; loaded: Record<string, 
 		return () => window.removeEventListener(COMMAND, run);
 	}, [flow]);
 
+	// ⌘+wheel zooms at the pointer, read from the wheel event itself, as tldraw reads it (useGestureEvents.ts, ctrlKey:
+	// event.metaKey || event.ctrlKey): every WheelEvent carries the modifiers held (UI Events, MouseEvent.metaKey), while
+	// a key's keydown reaches the webview only when it has the keyboard focus. React Flow's zoomActivationKeyCode is that
+	// keydown (useKeyPress), so it is off below; Ctrl+wheel and a pinch already zoom from event.ctrlKey (@xyflow/system
+	// createPanOnScrollHandler). The step is React Flow's own (wheelDelta). The listener is on the element React Flow
+	// pans and zooms (ZoomPane, .react-flow__renderer), capturing before its handler there; the minimap and the bar sit
+	// outside it and keep their own wheel.
+	const wrapper = useRef<HTMLDivElement>(null);
+	useEffect(() => {
+		const pane = wrapper.current?.querySelector<HTMLElement>('.react-flow__renderer');
+		if (!pane) {
+			return;
+		}
+		const wheel = (event: WheelEvent) => {
+			if (!event.metaKey || event.ctrlKey || (event.target instanceof Element && event.target.closest('.nowheel'))) {
+				return;
+			}
+			event.preventDefault();
+			event.stopPropagation();
+			const { x, y, zoom: z } = flow.getViewport();
+			const to = Math.min(ZOOM.max, Math.max(ZOOM.min, z * 2 ** (-event.deltaY * (event.deltaMode === 1 ? 0.05 : event.deltaMode ? 1 : 0.002))));
+			const box = pane.getBoundingClientRect();
+			const [px, py] = [event.clientX - box.left, event.clientY - box.top];
+			void flow.setViewport({ x: px - (px - x) * to / z, y: py - (py - y) * to / z, zoom: to });
+		};
+		pane.addEventListener('wheel', wheel, { capture: true, passive: false });
+		return () => pane.removeEventListener('wheel', wheel, { capture: true });
+	}, [flow]);
+
 	// A new lineage (the project changed) or newly measured pictures update the cards; nothing on screen moves.
 	useEffect(() => {
 		if (first.current) {
@@ -635,6 +666,7 @@ function Canvas({ message, loaded }: { message: Lineage; loaded: Record<string, 
 
 	return (
 		<ReactFlow
+			ref={wrapper}
 			className={`tool-${tool}`}
 			nodes={nodes}
 			edges={edges}
@@ -678,8 +710,9 @@ function Canvas({ message, loaded }: { message: Lineage; loaded: Record<string, 
 			nodesDraggable={tool === 'select'}
 			panOnScroll
 			zoomOnPinch
-			minZoom={0.05}
-			maxZoom={4}
+			zoomActivationKeyCode={null}
+			minZoom={ZOOM.min}
+			maxZoom={ZOOM.max}
 			// The opening view is a prop, not a call after mount: React Flow's `defaultViewport` is the initial pan and zoom (reactflow.dev/api-reference/react-flow#default-viewport).
 			defaultViewport={openViewport}
 			// The assets canvas opens fitted to the view: `fitView` fits the nodes first given
