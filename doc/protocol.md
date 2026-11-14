@@ -178,7 +178,7 @@ The client applies a turn's changes in `change_number` order, through the one qu
 
 ### 4.5 Paid calls (Computer side)
 
-Each paid call's states are documents of their own (`$defs/paidCallState`) at `turns/<turn id>/paid-calls/<paid call id>/<state>.json`, each written once:
+Each paid call that makes or changes a file of an object has its states as documents of their own (`$defs/paidCallState`) at `turns/<turn id>/paid-calls/<paid call id>/<state>.json`, each written once. They tell the client what is being made for which object. A paid call that makes no file of the drama (an observation of a picture, an upload that registers a file with a provider) has none. It is kept in the Computer side's ledger alone, under the same rule that a call whose outcome cannot be learned is never sent again.
 
 | State | Written |
 |---|---|
