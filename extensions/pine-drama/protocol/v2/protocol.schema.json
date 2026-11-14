@@ -110,6 +110,13 @@
               }
             }
           }
+        },
+        "inputs_planned_for_next_draw": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/path"
+          },
+          "description": "Object ids the next draw will send, in order (Image 1..N); written by Pine Computer when it plans the object."
         }
       },
       "allOf": [

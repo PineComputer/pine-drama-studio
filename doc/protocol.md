@@ -57,7 +57,9 @@ An object is a folder holding **`object.json`** (`$defs/object`):
 | `segment` | Its segment within the episode, or absent. |
 | `setting` | For a scene: `interior` or `exterior`. |
 | `relations` | Other relations, each `{kind, to}`: `inside_of` (a scene inside a scene), `appears_in` (an asset in an episode), `needs` (an episode needs an object before it can be shot). |
+| `inputs_planned_for_next_draw` | The object ids the next draw of this object will send, in the order it will send them (`Image 1`…`Image N`), or absent. Pine Computer writes it when it plans the object (a breakdown or a storyboard plans a keyframe, a take or a cut). The client draws a planned card's lines from it, and never reads Pine Computer's own planning files. Once the object is drawn, its receipt's `inputs_sent_in_order` is what that draw used. |
 
+- **One source per state.** A drawn object's lines come from its shown file's receipt, and an undrawn object's from `inputs_planned_for_next_draw`. `needs` is only an episode's, for what it needs before it can be shot.
 - **Who creates objects.** Either side may create an object. The client creates one when the person adds it, with `object.json` and the person's `description.md`. drama-cli derives every name a model reads from `name`, never from the id.
 - **The person's text.** In an object's folder, `description.md` and `prompt.md`, when present, are the text the person and Pine Computer edit. Whoever writes last wins, and git keeps the earlier text.
 - **Removal.** Removing an object deletes its folder; a variant is a folder below its asset's, so it goes with it.
