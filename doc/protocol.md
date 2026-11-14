@@ -145,7 +145,7 @@ change = { schema, turn, seq, prev, files: { <path>: { base, new } } }
 
 The client applies a turn's changes in `seq` order, through the one queue that also writes the person's changes, so two never write at once. For each change:
 
-1. **Resolved already?** The client records, in its turn record, the highest `seq` of each turn it has applied or committed as a conflict. A change at or below it is skipped. If every path's current hash equals its `new`, the change is applied already: it is recorded and skipped.
+1. **Resolved already?** A change is resolved when a commit carries its trailers `Pine-Turn: <turn id>` and `Pine-Change: <seq>`, or when its conflict ref exists. Then it is skipped. The repository is the record, so it travels with the folder. If every path's current hash equals its `new` (a crash's files that a `recovered` commit took), the client records it with an empty commit carrying those trailers, and goes on.
 2. **Conflict.** If any path's current hash differs from its `base`, nothing is written. The whole change is committed, unapplied, under the ref `refs/pine/conflicts/<turn id>/<seq>`, and the client tells the person which paths conflicted. Nothing the turn paid for is lost: the conflict ref keeps it, and the person or a later turn can apply it.
 3. **Write.** Each file is written by a temporary sibling and a rename, receipts before the outputs they describe. A `new` of `null` deletes the file.
 4. **Commit.** The client commits exactly those paths (`git commit --only -- <paths>`) as `agent`, with the trailers `Pine-Turn` and `Pine-Change`.
