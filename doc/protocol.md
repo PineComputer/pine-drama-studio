@@ -83,6 +83,8 @@ The rest of the receipt (the request and response as sent) belongs to the Comput
 
 - **The person changes any file in the folder**, through the client or by hand. A change through the client is a plain write (a temporary sibling, then a rename) and a `person` commit of the paths it wrote.
 - **Hand changes** are committed as `client-found-changes-on-disk` at the next opening or seed.
+- **Using the person's own picture or video for an object.** The person's file replaces the object's shown file. It is written under the shown file's name, with the extension of the person's file, and `object.json` `shown_file` is set to it. If the extension changed, the old shown file and its receipt are deleted in the same commit. The person's file has no receipt, since no paid call made it. History keeps what it replaced.
+- **Files the person attaches** to a note or a chat message, and are not an object's file, are written to `person-attachments/<id>.<extension>` and committed. A note's `attached_file` names one of them (4.2).
 - **A running turn** sees a change only at its next seed (4.2). A person's edit made while a turn runs can be replaced by that turn's later write to the same file; it stays in the file's history, one restore away (4.4).
 
 ## 4. The turn
