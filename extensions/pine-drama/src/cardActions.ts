@@ -15,6 +15,7 @@ export function cardActions(context: vscode.ExtensionContext, root: string): (ac
 		description: (object, current) => vscode.window.showInputBox({ title: `Description of ${object}`, value: current, prompt: 'What the image prompts read.', ignoreFocusOut: true }),
 		file: async () => (await vscode.window.showOpenDialog({ canSelectMany: false, openLabel: 'Import', title: 'Your picture for this asset',
 			filters: { Images: ['png', 'jpg', 'jpeg', 'webp'] } }))?.[0]?.fsPath,
+		confirm: async (question, detail) => await vscode.window.showWarningMessage(question, { modal: true, detail }, 'Delete') === 'Delete',
 	};
 	// A dropped picture comes as bytes: written once, by its hash, to the extension's storage, then cloned into imports/.
 	const keepDropped = async (name: string, bytes: Uint8Array) => {
