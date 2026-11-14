@@ -105,12 +105,14 @@ button.icon .codicon { font-size: 16px; }
 .react-flow__background.dots .react-flow__background-pattern.dots { fill: var(--vscode-editorWhitespace-foreground, var(--vscode-editorIndentGuide-activeBackground1)); }
 button.labeled:disabled { opacity: 0.5; cursor: default; }
 
-/* The tools' cursors (canvas-tools.md): Select an arrow, Hand an open hand, closed while it pans. React Flow's own CSS
-   gives a pane that pans on drag `grab`, `grabbing` while it pans, and `pointer` where a drag selects; with Select the
-   pane keeps the arrow until it pans (the middle button, or Space held), and with Hand a card shows the hand too. */
-.tool-select .react-flow__pane { cursor: default; }
-.tool-select .react-flow__pane.dragging { cursor: grabbing; }
-.tool-hand .react-flow__node { cursor: grab; }
+/* The cursor says what a drag does, on the empty board and on every node alike (most of the board is a frame, a node):
+   with Select the arrow, also while a card is dragged (the person, after LibTV); with Hand, or Space held, an open hand,
+   as tldraw's; closed while the board pans (React Flow marks the pane .dragging). React Flow's style.css sets its own on
+   the pane and on nodes by state, at most three classes; these have three or four and come after it (canvas.tsx imports
+   it first), so they win without !important. */
+.react-flow.tool-select :is(.react-flow__pane, .react-flow__node) { cursor: default; }
+.react-flow.tool-hand :is(.react-flow__pane, .react-flow__node) { cursor: grab; }
+.react-flow:has(.react-flow__pane.dragging) :is(.react-flow__pane, .react-flow__node) { cursor: grabbing; }
 
 /* A card's marks of the person's choices (design.md, section 15). */
 .card .mark { position: absolute; top: 6px; right: 6px; z-index: 2; padding: 2px; border-radius: 4px; background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); }

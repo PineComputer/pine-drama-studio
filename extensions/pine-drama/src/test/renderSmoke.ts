@@ -485,6 +485,9 @@ async function longNameCase(source: Source): Promise<Case> {
 
 /**
  * The canvas tools: the canvas opens with Hand pressed (the person's choice); V presses Select, H presses Hand again.
+ * Each shows its cursor: Select the arrow, also while a card is dragged (the person, after LibTV), and the open hand while
+ * Space is held; Hand the open hand, as tldraw's; either a closed hand while the board pans.
+ * Read where the pointer is: over the empty board, a card, and a frame's margin (most of the board is inside a frame).
  * What a click and a double-click do with each is clickModelCase's.
  */
 async function toolsCase(source: Source): Promise<Case> {
@@ -493,10 +496,68 @@ async function toolsCase(source: Source): Promise<Case> {
 		const problems: string[] = [];
 		const pressed = async () => [await page.locator('.bar button[aria-label="Select"]').getAttribute('aria-pressed'), await page.locator('.bar button[aria-label="Hand"]').getAttribute('aria-pressed')].join(' ');
 		if (await pressed() !== 'false true') { problems.push(`on opening, Select and Hand are pressed ${await pressed()}, not "false true"`); }
+		// Read again each time: a pan moves the cards and frames.
+		const places = async () => {
+			const pane = (await page.locator('.react-flow__pane').first().boundingBox())!;
+			const card = (await page.locator('.react-flow__node-card').first().boundingBox())!;
+			const frame = (await page.locator('.react-flow__node-frame').first().boundingBox())!;
+			return { 'the board': { x: pane.x + pane.width - 8, y: pane.y + pane.height / 2 }, 'a card': { x: card.x + card.width / 2, y: card.y + card.height / 2 }, 'a frame': { x: frame.x + 6, y: frame.y + frame.height - 6 } };
+		};
+		type Doc = { elementFromPoint(x: number, y: number): unknown };
+		const cursor = (at: { x: number; y: number }) => page.evaluate(({ x, y }) => (globalThis as unknown as { getComputedStyle(e: unknown): { cursor: string } })
+			.getComputedStyle((globalThis as unknown as { document: Doc }).document.elementFromPoint(x, y)).cursor, at);
+		const cursors = async (tool: string, want: string) => {
+			for (const [where, at] of Object.entries(await places())) {
+				const shown = await cursor(at);
+				if (shown !== want) { problems.push(`with ${tool}, the cursor over ${where} is ${shown}, not ${want}`); }
+			}
+		};
+		await cursors('Hand', 'grab');
+		// A pan by drag, from a frame's margin: the hand closes while the board moves.
+		const from = (await places())['a frame'];
+		await page.mouse.move(from.x, from.y);
+		await page.mouse.down();
+		await page.mouse.move(from.x + 40, from.y + 30);
+		const panning = await cursor({ x: from.x + 40, y: from.y + 30 });
+		await page.mouse.up();
+		if (panning !== 'grabbing') { problems.push(`with Hand, the cursor while the board pans is ${panning}, not grabbing`); }
 		await page.keyboard.press('v');
+		await cursors('Select', 'default');
+		// A drag from a card's middle: whether React Flow drags that card (its .dragging) and the board's move, and the cursor,
+		// read once the drag has started (one step past React Flow's threshold; the card itself is not carried further).
+		const drag = async (steps: number) => {
+			const node = page.locator('.react-flow__node-card').first();
+			const [card, board] = [(await node.boundingBox())!, await drawnViewport(page)];
+			const at = { x: card.x + card.width / 2, y: card.y + card.height / 2 };
+			await page.mouse.move(at.x, at.y);
+			await page.mouse.down();
+			for (let i = 1; i <= steps; i++) { await page.mouse.move(at.x + 40 * i / steps, at.y + 30 * i / steps); }
+			const [shown, dragged] = [await cursor({ x: at.x + 40, y: at.y + 30 }), /\bdragging\b/.test(await node.getAttribute('class') ?? '')];
+			await page.mouse.up();
+			const panned = await drawnViewport(page);
+			return { shown, dragged, board: Math.hypot(panned.x - board.x, panned.y - board.y) };
+		};
+		// With Select a drag drags the card, the arrow staying (the person, after LibTV).
+		const moved = await drag(1);
+		if (!moved.dragged || moved.board > 0.5) { problems.push(`with Select, a drag from a card ${moved.dragged ? '' : 'did not drag it and '}moved the board ${moved.board.toFixed(0)} px`); }
+		if (moved.shown !== 'default') { problems.push(`with Select, the cursor while a card is dragged is ${moved.shown}, not default`); }
+		// Whatever the drag left picked is dropped, so no composer stands where the cursor is read next.
+		await page.keyboard.press('Escape');
+		// With Select, Space held is the Hand for that while (tldraw's and Figma's spacebar): the open hand at once, and a
+		// drag from a card pans the board, the hand closed.
+		await page.keyboard.down('Space');
+		await new Promise(resolve => setTimeout(resolve, 100));
+		await cursors('Select with Space held', 'grab');
+		const spaced = await drag(2);
+		await page.keyboard.up('Space');
+		await new Promise(resolve => setTimeout(resolve, 100));
+		if (spaced.dragged || spaced.board < 10) { problems.push(`with Select and Space held, a drag from a card ${spaced.dragged ? 'dragged it and ' : ''}panned the board ${spaced.board.toFixed(0)} px`); }
+		if (spaced.shown !== 'grabbing') { problems.push(`with Select and Space held, the cursor while the board pans is ${spaced.shown}, not grabbing`); }
+		await cursors('Select once Space is let go', 'default');
 		if (await pressed() !== 'true false') { problems.push(`after V, Select and Hand are pressed ${await pressed()}, not "true false"`); }
 		await page.keyboard.press('h');
 		if (await pressed() !== 'false true') { problems.push(`after H, Select and Hand are pressed ${await pressed()}, not "false true"`); }
+		await cursors('Hand again', 'grab');
 		return problems;
 	};
 	return { ...c, name: `${source.name}: the canvas tools, Select and Hand`, interact: { answer: () => null, check } };
@@ -678,6 +739,7 @@ interface Page {
 	getByText(text: string): { first(): { waitFor(options: { timeout: number }): Promise<void> } };
 	screenshot(options: { path: string }): Promise<unknown>;
 	readonly keyboard: { press(key: string): Promise<void>; down(key: string): Promise<void>; up(key: string): Promise<void> };
+	readonly mouse: { move(x: number, y: number): Promise<void>; down(): Promise<void>; up(): Promise<void> };
 	evaluate<T, A>(fn: (arg: A) => T, arg: A): Promise<T>;
 }
 interface Locator {

@@ -1,13 +1,13 @@
 // The episode canvas on React Flow (@xyflow/react 12.12.0, MIT;
 // spike S11), on the messages of core/canvasProtocol.ts. React Flow gives pan, zoom, selection and dragging; this file
 // gives the cards, the frames, drama-cli's links (thin, on by default: the person), the layout's
-// persistence and a layout-only undo/redo. The rest is the workbench's: a click shows the stage in the Versions
-// view, a double-click opens the shown file in the native viewer. React Flow's attribution stays visible: removing it
+// persistence and a layout-only undo/redo. The rest is the workbench's: a picked card's stage shows in the Versions
+// view. React Flow's attribution stays visible: removing it
 // needs React Flow Pro (reactflow.dev/learn/troubleshooting/remove-attribution).
 import { createRoot } from 'react-dom/client';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-	applyNodeChanges, Background, BackgroundVariant, Handle, MiniMap, NodeToolbar, Position, ReactFlow, ReactFlowProvider, useReactFlow, useViewport,
+	applyNodeChanges, Background, BackgroundVariant, Handle, MiniMap, NodeToolbar, Position, ReactFlow, ReactFlowProvider, useKeyPress, useReactFlow, useViewport,
 	type Edge, type Node, type NodeChange, type NodeProps, type Viewport,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
@@ -444,6 +444,9 @@ function Canvas({ message, loaded }: { message: Lineage; loaded: Record<string, 
 	const [more, setMore] = useState(false);
 	// The canvas's tool; every canvas opens with Hand, the person's choice.
 	const [tool, setTool] = useState<Tool>('hand');
+	// Space held is the Hand for that while, as tldraw's and Figma's spacebar: what the board does follows `active`, the
+	// bar shows `tool`. React Flow's own key tracking (useKeyPress, which leaves typing in a text alone).
+	const active: Tool = useKeyPress('Space') ? 'hand' : tool;
 	const [notice, setNotice] = useState<string | null>(null);
 	const [detail, setDetail] = useState<DetailMessage | undefined>(undefined);
 	const { zoom } = useViewport();
@@ -629,7 +632,7 @@ function Canvas({ message, loaded }: { message: Lineage; loaded: Record<string, 
 	return (
 		<ReactFlow
 			ref={wrapper}
-			className={`tool-${tool}`}
+			className={`tool-${active}`}
 			nodes={nodes}
 			edges={edges}
 			nodeTypes={nodeTypes}
@@ -651,21 +654,21 @@ function Canvas({ message, loaded }: { message: Lineage; loaded: Record<string, 
 			// Hand only moves the view, as tldraw's hand tool (HandTool.ts): a click picks and selects nothing
 			// (elementsSelectable) and a double-click zooms in at the pointer, React Flow's own zoomOnDoubleClick. Select: a click picks a card, a click on the board drops it,
 			// and a double-click fills the view with the card (fitView's `nodes`, reactflow.dev/api-reference/types/fit-view-options).
-			onNodeClick={tool === 'select' ? (_event, node) => node.type === 'card' && pick((node as CardNode).data.card) : undefined}
-			onNodeDoubleClick={tool === 'select' ? (_event, node) => node.type === 'card' && void flow.fitView({ nodes: [{ id: node.id }], padding: 0.1, duration: 200 }) : undefined}
-			onPaneClick={tool === 'select' ? () => { pick(undefined); setMore(false); } : undefined}
-			elementsSelectable={tool === 'select'}
-			zoomOnDoubleClick={tool === 'hand'}
+			onNodeClick={active === 'select' ? (_event, node) => node.type === 'card' && pick((node as CardNode).data.card) : undefined}
+			onNodeDoubleClick={active === 'select' ? (_event, node) => node.type === 'card' && void flow.fitView({ nodes: [{ id: node.id }], padding: 0.1, duration: 200 }) : undefined}
+			onPaneClick={active === 'select' ? () => { pick(undefined); setMore(false); } : undefined}
+			elementsSelectable={active === 'select'}
+			zoomOnDoubleClick={active === 'hand'}
 			nodesConnectable={false}
 			edgesFocusable={false}
 			deleteKeyCode={null}
 			// Two tools, after tldraw's select and hand. Select: a drag on a card moves it, a drag on empty space draws a selection box, the
-			// middle button drags to pan (React Flow's design-tool controls). Hand: any drag pans. In both, scroll pans and
-			// Space held pans (React Flow's panActivationKeyCode, 'Space' by default), tldraw's spacebar panning.
-			panOnDrag={tool === 'hand' ? true : [1]}
-			selectionOnDrag={tool === 'select'}
-			selectionKeyCode={tool === 'select' ? 'Shift' : null}
-			nodesDraggable={tool === 'select'}
+			// middle button drags to pan (React Flow's design-tool controls). Hand: any drag pans. In both, scroll pans; Space
+			// held is the Hand (`active`).
+			panOnDrag={active === 'hand' ? true : [1]}
+			selectionOnDrag={active === 'select'}
+			selectionKeyCode={active === 'select' ? 'Shift' : null}
+			nodesDraggable={active === 'select'}
 			panOnScroll
 			zoomOnPinch
 			zoomActivationKeyCode={null}
