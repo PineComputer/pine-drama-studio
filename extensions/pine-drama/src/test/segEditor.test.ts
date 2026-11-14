@@ -7,6 +7,7 @@ import { readDrama, type ScopedSnapshot } from '../core/project';
 import type { Choices, Snapshot } from '../core/protocol';
 import { segEditorModel } from '../core/segEditor';
 import { readFromSegEditor, SEG_PROTOCOL } from '../core/segEditorProtocol';
+import { requestDetail } from '../core/versionDetail';
 
 // The seg editor plays a seg's takes itself (core/segEditor.ts, E4), on the protocol fixture (test-fixtures/protocol):
 // the rules that, broken, would play a discarded take, the wrong take first, or show one take's request under another.
@@ -36,15 +37,19 @@ function folder(choice: Choices['objects'][string]): string {
 const uri = (file: string) => `webview:${file}`;
 
 test("a seg's takes are its versions the person has not discarded, each with its file and its own request; the newest plays first", async () => {
-	const model = segEditorModel(await readDrama(folder({ discarded: ['v2'] }), snapshots), 'EP001', uri);
+	const root = folder({ discarded: ['v2'] });
+	const drama = await readDrama(root, snapshots);
+	const model = segEditorModel(drama, 'EP001', uri);
 	const seg = model.segs.find(s => s.id === 'seg01')!;
 	assert.deepEqual(seg.takes.map(t => [t.version, t.label, t.src]), [
 		['v1', 'Earlier take', `webview:${SEG01}/v1/video.mp4`],
 		['v3', 'Waiting for review', `webview:${SEG01}/v3/video.mp4`],
 	]);
 	assert.equal(seg.shown, 'v3');
-	assert.equal(seg.takes.find(t => t.version === 'v3')?.request?.prompt, 'Take v3.', "a take's request is its own version's");
-	assert.equal(seg.takes.find(t => t.version === 'v1')?.request?.prompt, 'Image 1 is the first frame. Lin turns from the window.');
+	// What a take was made with is read when the page shows it, by the canvas panel's reader (segEditor.ts, 'request').
+	const request = (version: string) => requestDetail(drama, root, drama.objects.get(SEG01)!, version, uri);
+	assert.equal((await request('v3'))?.prompt, 'Take v3.', "a take's request is its own version's");
+	assert.equal((await request('v1'))?.prompt, 'Image 1 is the first frame. Lin turns from the window.');
 	assert.equal(seg.planned, null, 'a seg with a take shows no planned prompt');
 });
 
@@ -62,6 +67,8 @@ test('the accepted take plays first; a seg with no take has none, and shows its 
 test("Generate and Regenerate are the webview's one request to shoot; the seg preview's messages are not read", () => {
 	assert.deepEqual(readFromSegEditor({ v: SEG_PROTOCOL, type: 'generate', seg: 'seg01', again: true }), { v: SEG_PROTOCOL, type: 'generate', seg: 'seg01', again: true });
 	assert.equal(readFromSegEditor({ v: SEG_PROTOCOL, type: 'generate', seg: 'seg01' }), undefined, 'Generate states whether it is a new take');
+	assert.deepEqual(readFromSegEditor({ v: SEG_PROTOCOL, type: 'request', take: SEG01, version: 'v1', key: '2:x' }), { v: SEG_PROTOCOL, type: 'request', take: SEG01, version: 'v1', key: '2:x' });
+	assert.equal(readFromSegEditor({ v: SEG_PROTOCOL, type: 'request', take: SEG01, key: '2:x' }), undefined, 'a request names its version');
 	assert.equal(readFromSegEditor({ v: SEG_PROTOCOL, type: 'preview', seg: 'seg01' }), undefined);
 	assert.equal(readFromSegEditor({ v: SEG_PROTOCOL, type: 'select', seg: 'seg01' }), undefined);
 });

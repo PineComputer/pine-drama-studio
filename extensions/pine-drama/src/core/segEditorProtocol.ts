@@ -29,8 +29,6 @@ export interface SegTake {
 	readonly label: string;
 	/** Its video's webview address, or null when the version shows no file. */
 	readonly src: string | null;
-	/** What it was made with (versionDetail.ts). */
-	readonly request: CanvasDetail | null;
 }
 
 /** An object's prompt for its next version (doc/protocol.md, section 5.1): the person's where set, else the agent's. */
@@ -57,7 +55,9 @@ export type ToSegEditor =
 	| { readonly v: typeof SEG_PROTOCOL; readonly type: 'model'; readonly model: SegEditorModel }
 	/** Choose this seg: the canvas's "Open in Seg Editor" on one of its cards. */
 	| { readonly v: typeof SEG_PROTOCOL; readonly type: 'show'; readonly seg: string }
-	| { readonly v: typeof SEG_PROTOCOL; readonly type: 'error'; readonly episode: string; readonly message: string };
+	| { readonly v: typeof SEG_PROTOCOL; readonly type: 'error'; readonly episode: string; readonly message: string }
+	/** What a take was made with, read when the page shows it, by the canvas panel's reader (versionDetail.ts requestDetail). */
+	| { readonly v: typeof SEG_PROTOCOL; readonly type: 'request'; readonly key: string; readonly request: CanvasDetail | null };
 
 export type FromSegEditor =
 	| { readonly v: typeof SEG_PROTOCOL; readonly type: 'ready' }
@@ -67,6 +67,11 @@ export type FromSegEditor =
 	| { readonly v: typeof SEG_PROTOCOL; readonly type: 'canvas' }
 	/** A reference of the request was clicked: show the card of the stage its file is. */
 	| { readonly v: typeof SEG_PROTOCOL; readonly type: 'go'; readonly stageId: string }
+	/**
+	 * The take on screen: what it was made with is asked for when shown, as the canvas asks for a picked card's. `key` comes
+	 * back with the answer: the page names each ask by the model it was drawn from, so an answer to an older one is never shown.
+	 */
+	| { readonly v: typeof SEG_PROTOCOL; readonly type: 'request'; readonly take: string; readonly version: string; readonly key: string }
 	| { readonly v: typeof SEG_PROTOCOL; readonly type: 'failed'; readonly message: string };
 
 /** A message from the webview, or undefined when it is not one of ours. */
@@ -74,7 +79,7 @@ export function readFromSegEditor(value: unknown): FromSegEditor | undefined {
 	if (typeof value !== 'object' || value === null) {
 		return undefined;
 	}
-	const message = value as { v?: unknown; type?: unknown; message?: unknown; stageId?: unknown; seg?: unknown; again?: unknown };
+	const message = value as { v?: unknown; type?: unknown; message?: unknown; stageId?: unknown; seg?: unknown; again?: unknown; take?: unknown; version?: unknown; key?: unknown };
 	if (message.v !== SEG_PROTOCOL) {
 		return undefined;
 	}
@@ -86,6 +91,9 @@ export function readFromSegEditor(value: unknown): FromSegEditor | undefined {
 	}
 	if (message.type === 'go' && typeof message.stageId === 'string') {
 		return { v: SEG_PROTOCOL, type: 'go', stageId: message.stageId };
+	}
+	if (message.type === 'request' && typeof message.take === 'string' && typeof message.version === 'string' && typeof message.key === 'string') {
+		return { v: SEG_PROTOCOL, type: 'request', take: message.take, version: message.version, key: message.key };
 	}
 	if (message.type === 'failed' && typeof message.message === 'string') {
 		return { v: SEG_PROTOCOL, type: 'failed', message: message.message };

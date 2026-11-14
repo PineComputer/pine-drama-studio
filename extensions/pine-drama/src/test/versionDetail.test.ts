@@ -6,7 +6,8 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { readDrama, type ScopedSnapshot } from '../core/project';
 import type { Snapshot } from '../core/protocol';
-import { madeWith, plannedWith, requestDetail, versionDetail } from '../core/versionDetail';
+import { madeWith, plannedWith, requestDetail } from '../core/versionDetail';
+import type { Drama } from '../core/project';
 import { sentRequest } from '../core/requestRead';
 import { episodeLineage } from '../core/lineage';
 
@@ -25,7 +26,7 @@ test("a version's picture inputs are its pictures, its text inputs are listed by
 	record.inputs = [{ object: 'episodes/EP001/breakdown', version: 'v1' }, { object: 'episodes/EP001/keyframe/seg01/shot01', version: 'v1' }];
 	writeFileSync(take, JSON.stringify(record));
 	const drama = await readDrama(root, () => [snapshot('snapshot-project.json'), snapshot('snapshot-episodes.json')]);
-	const detail = versionDetail(drama, 'episodes/EP001/segments/seg01', 'v1', rel => `webview:${rel}`)!;
+	const detail = (await takeDetail(drama, root, rel => `webview:${rel}`))!;
 	assert.deepEqual(detail.pictures.map(p => [p.src, p.stageId]), [['webview:episodes/EP001/keyframe/seg01/shot01/v1/image-1.png', 'episodes/EP001/keyframe/seg01/shot01']]);
 	assert.deepEqual(detail.madeFrom.map(p => [p.src, p.stageId]), [[null, 'episodes/EP001/breakdown']]);
 	assert.ok(detail.madeFrom[0].label.length > 0);
@@ -38,16 +39,20 @@ async function takeMadeFrom(inputs: { object: string; version: string }[]) {
 	cpSync(join(FIXTURE, 'drama'), root, { recursive: true });
 	const take = join(root, 'episodes/EP001/segments/seg01/v1/version.json');
 	writeFileSync(take, JSON.stringify({ ...JSON.parse(readFileSync(take, 'utf8')), inputs }));
-	return readDrama(root, () => [snapshot('snapshot-project.json'), snapshot('snapshot-episodes.json')]);
+	return { root, drama: await readDrama(root, () => [snapshot('snapshot-project.json'), snapshot('snapshot-episodes.json')]) };
 }
+
+/** What the take EP001 seg01 v1 was made with, as the canvas's panel and the seg editor show it (requestDetail). */
+const takeDetail = (drama: Drama, root: string, src: (rel: string) => string = rel => rel) =>
+	requestDetail(drama, root, drama.objects.get('episodes/EP001/segments/seg01')!, 'v1', src);
 
 // The person: a take is made from the pictures its call sent, and its panel showed only its keyframe once it hid every
 // input another listed input was made from (#81). A record lists every version its version was made from (doc/protocol.md
 // 2.1); the panel and the canvas show every one: the pictures in the strip, the rest by name.
 test('a take shows every input it lists: its pictures in the strip, the rest by name, and a line from each on the canvas', async () => {
-	const drama = await takeMadeFrom([{ object: 'episodes/EP001/breakdown', version: 'v1' }, { object: 'assets/characters/lin', version: 'v1' },
+	const { root, drama } = await takeMadeFrom([{ object: 'episodes/EP001/breakdown', version: 'v1' }, { object: 'assets/characters/lin', version: 'v1' },
 		{ object: 'assets/scenes/office', version: 'v1' }, { object: 'episodes/EP001/keyframe/seg01/shot01', version: 'v1' }]);
-	const detail = versionDetail(drama, 'episodes/EP001/segments/seg01', 'v1', rel => rel)!;
+	const detail = (await takeDetail(drama, root))!;
 	assert.deepEqual(detail.pictures.map(r => r.stageId), ['assets/characters/lin', 'assets/scenes/office', 'episodes/EP001/keyframe/seg01/shot01']);
 	assert.deepEqual(detail.madeFrom.map(r => r.stageId), ['episodes/EP001/breakdown']);
 	assert.deepEqual(episodeLineage(drama, 'EP001').links.filter(l => l.to === 'episodes/EP001/segments/seg01').map(l => l.from).sort(),
@@ -74,7 +79,7 @@ test("an input no snapshot lists shows its picture from its folder's version.jso
 		{ object: 'assets/scenes/office/broken', version: 'v1' }, { object: 'assets/scenes/office/outside', version: 'v1' },
 		{ object: 'episodes/EP001/keyframe/seg01/shot01', version: 'v1' }] }));
 	const drama = await readDrama(root, () => [snapshot('snapshot-project.json'), snapshot('snapshot-episodes.json')]);
-	const detail = versionDetail(drama, 'episodes/EP001/segments/seg01', 'v1', rel => rel)!;
+	const detail = (await takeDetail(drama, root))!;
 	assert.deepEqual(detail.pictures.map(r => [r.src, r.stageId]), [['assets/scenes/office/plan/v1/image-1.jpg', null],
 		['episodes/EP001/keyframe/seg01/shot01/v1/image-1.png', 'episodes/EP001/keyframe/seg01/shot01']]);
 	assert.deepEqual(detail.madeFrom.map(r => [r.src, r.stageId]), [[null, null], [null, null], [null, null]], 'the missing, the unreadable and the refused folder, by name');

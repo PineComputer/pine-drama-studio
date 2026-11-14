@@ -7,6 +7,7 @@ import { isAbsolute } from 'node:path';
 import * as vscode from 'vscode';
 import { episodeIn, episodeOfNode, type OutlineNode } from './core/project';
 import { segEditorModel, shootRequest } from './core/segEditor';
+import { requestDetail } from './core/versionDetail';
 import { readFromSegEditor, SEG_PROTOCOL, type ToSegEditor } from './core/segEditorProtocol';
 import type { ProjectViews } from './projectViews';
 import { closeUnrevived, globalStorageFolder, webviewHtml } from './webviewHtml';
@@ -62,6 +63,11 @@ export function registerSegEditor(context: vscode.ExtensionContext, views: Proje
 				await (episodeIn(message.stageId) !== episode
 					? vscode.commands.executeCommand('pineDrama.openAssetsCanvas', message.stageId)
 					: vscode.commands.executeCommand('pineDrama.openEpisodeCanvas', { id: `episodes/${episode}` }));
+			} else if (message?.type === 'request') {
+				const drama = await project.drama();
+				const take = drama.objects.get(message.take);
+				const request = take ? await requestDetail(drama, project.root, take, message.version, rel => panel.webview.asWebviewUri(fileUri(rel)).toString()) : null;
+				await panel.webview.postMessage({ v: SEG_PROTOCOL, type: 'request', key: message.key, request } satisfies ToSegEditor);
 			} else if (message?.type === 'failed') {
 				output.appendLine(`seg editor ${episode}: webview: ${message.message}`);
 			}

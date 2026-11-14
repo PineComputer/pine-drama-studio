@@ -22,7 +22,7 @@ export function mediaOf(file: string): 'image' | 'video' | 'text' {
  * card. The record gives no order: requestDetail numbers them by the request they were sent with. Null when the drama
  * has no such version.
  */
-export function versionDetail(drama: Drama, object: string, version: string, src: (rel: string) => string): CanvasDetail | null {
+function recordedDetail(drama: Drama, object: string, version: string, src: (rel: string) => string): CanvasDetail | null {
 	const record = drama.objects.get(object)?.versions.find(v => v.id === version)?.record;
 	if (!record) {
 		return null;
@@ -41,13 +41,14 @@ export function versionDetail(drama: Drama, object: string, version: string, src
 }
 
 /**
- * What `object`'s version `version` was made with (versionDetail), its pictures numbered as the prompt's "Image N" by the
+ * What `object`'s version `version` was made with (recordedDetail), its pictures numbered as the prompt's "Image N" by the
  * request it was sent with (requestRead.ts), those first, in order, then any other picture it lists, unnumbered; the
  * rest by name. A seg not shot yet (`version` null) shows its compiled request's pictures, from its episode's working
- * video prompts. Where no request is read, the pictures stay as versionDetail lists them; never an error.
+ * video prompts. Where no request is read, the pictures stay as recordedDetail lists them; never an error. The one reader
+ * of how a version was made: the canvas's panel and the seg editor both show it.
  */
 export async function requestDetail(drama: Drama, root: string, object: DramaObject, version: string | null, src: (rel: string) => string): Promise<CanvasDetail | null> {
-	const recorded = version ? versionDetail(drama, object.id, version, src) : null;
+	const recorded = version ? recordedDetail(drama, object.id, version, src) : null;
 	const prompts = !version && object.type === 'take' && object.segment ? drama.objects.get(`episodes/${episodeIn(object.id)}/video_prompts`) : undefined;
 	const at = (path: string) => { const file = located(drama, path); return isAbsolute(file) ? file : join(root, ...file.split('/')); };
 	const sent = version ? await sentRequest(at, versionFolder(object, version))

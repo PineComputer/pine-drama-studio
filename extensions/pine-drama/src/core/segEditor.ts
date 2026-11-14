@@ -5,7 +5,6 @@
 import { episodeIn, versionFile as shown, type Drama, type DramaObject } from './project';
 import type { PlannedPrompt, Poster, Seg, SegEditorModel, SegTake } from './segEditorProtocol';
 import { episodeCut, episodeSegs, shownTake, takeBadge, takeLabel } from './segTakes';
-import { versionDetail } from './versionDetail';
 
 export type { Seg, SegEditorModel };
 
@@ -37,7 +36,7 @@ export function segEditorModel(drama: Drama, episode: string, uri: (file: string
 			id: seg.id, take: object?.id ?? null,
 			takes: object ? object.versions.filter(v => !object.resolved.discarded.has(v.id)).map((v): SegTake => {
 				const file = shown(object, v.id);
-				return { version: v.id, label: takeLabel(object, v.id), src: file ? uri(file) : null, request: versionDetail(drama, object.id, v.id, uri) };
+				return { version: v.id, label: takeLabel(object, v.id), src: file ? uri(file) : null };
 			}) : [],
 			shown: take ?? null,
 			planned: object && !take ? plannedPrompt(drama, object) : null,
