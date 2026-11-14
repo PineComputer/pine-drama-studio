@@ -142,7 +142,8 @@ The rest of the receipt (the request and response as sent) belongs to the Comput
 
 - **The seed is recorded.** `seed_files` MUST be the client's complete current state, recorded in history (2.1), so every input the turn may read can be found again. A folder client first records whatever the folder holds that no record does, as `client-found-changes-on-disk`.
 - **Restore.** The Computer side writes exactly `seed_files` into its workspace, then restores the private state outside it: private state never holds a file of the drama, so it cannot overwrite the seed. A file of the tree the Computer side rewrites only for its own machine, such as a path in its configuration, is kept outside the workspace too, so it never comes back as a change.
-- **Only what changed moves.** The workspace MUST equal `seed_files` exactly. To get there, the Computer side MAY keep its workspace and a local cache of file bytes by hash between turns on the same Computer. It then fetches only the paths whose hash changed, links them in from the cache, and deletes the paths `seed_files` no longer has. This is the remote-execution model of Bazel's REAPI, where an executor materializes an input root from its content-addressed cache. A fresh Computer fetches the whole tree once.
+- **Only what changed moves.** The workspace MUST equal `seed_files` exactly. To get there, the Computer side MAY keep its workspace and a local cache of file bytes by hash between turns on the same Computer. It then fetches only the paths whose hash changed, links them in from the cache, and deletes only the paths `seed_files` does not list. `seed_files` is the client's complete current state, so nothing the drama holds is ever deleted from the workspace. This is the remote-execution model of Bazel's REAPI, where an executor materializes an input root from its content-addressed cache. A fresh Computer fetches the whole tree once.
+- **Verified before any work.** Before the turn's first command, the Computer side checks that its workspace holds exactly `seed_files`: every path, each with its hash. If any file is absent or does not match, it does no work and writes nothing but a `pine_computer_refused_the_turn_before_running` return, with `pine_computer_found_file_missing_from_store` naming the file. A turn never runs on a partial workspace.
 
 ### 4.3 Changes (Computer side → client)
 
@@ -158,17 +159,20 @@ change = { schema, turn_id, change_number, previous_change_sha256, files_after_c
 | `files_after_change` | Each path the change writes, with the hash of its new bytes, or `null` for a file it deletes. |
 
 - **Bytes first.** The Computer side stores every file of `files_after_change` at `files/<hash>` before it writes the change.
-- **Every changed file comes back.** A file the Computer side changes in its workspace by any means (its own commands, or its agent editing the file directly) comes back as a change. Before each of its commands and before its return, the Computer side writes a change for every workspace file that differs from `seed_files` and from what its earlier changes wrote.
+- **Every changed file comes back.** A file the Computer side changes in its workspace by any means (its own commands, or its agent editing the file directly) comes back as a change. Before each of its commands and before its return, the Computer side writes a change for every workspace file that differs from `seed_files` and from what its earlier changes wrote. The baseline is the verified workspace (4.2).
+- **A deletion is only what the turn removed.** A path is written as `null` only if it was present in the verified workspace, or written by an earlier change of this turn, and is gone now. A file that failed to arrive can never come back as a deletion, because then the turn never started.
 
 ### 4.4 Applying a change (client)
 
 The client applies a turn's changes in `change_number` order, through the one queue that also writes the person's changes, so two never write at once. For each change:
 
 1. **Resolved already?** A change whose applied record exists (2.1; in git, a commit carrying its trailers `Pine-Turn-Id` and `Pine-Change-Number`) is skipped. If every path's current hash already equals its hash in `files_after_change` (a crash's files that a folder client recorded as `client-found-changes-on-disk`), the client writes the applied record alone (in git, an empty commit with those trailers) and goes on.
-2. **Write.** Each file is written by a temporary sibling and a rename, receipts before the outputs they describe. A `null` deletes the file.
+2. **Write.** Each file is written by a temporary sibling and a rename, receipts before the outputs they describe. A `null` deletes that file. The client deletes no file a change does not list, and never replaces a whole tree.
 3. **Record.** The client records exactly those paths as one `pine-computer` change with its applied record (in git, `git commit --only -- <paths>` with the trailers).
 
 **A crash** between steps 2 and 3 leaves the files written but unrecorded. A folder client records them as `client-found-changes-on-disk` at the next opening, and step 1 then finds the change applied. A client whose store writes a change atomically has no such window.
+
+**A wrong deletion is undone like any change.** Every deletion the client applies is a recorded change of its turn, so undoing the turn (2.1) brings every deleted file back.
 
 **The newest result lands.** There is no check against what a file held before and no refusal: whichever change is applied last is the file's current content, and the file's history keeps every earlier one, the person's included. The same one rule covers a reroll's attempts, two sessions writing one file, and a turn writing over a person's edit. "Use" (section 5) brings any earlier one back.
 
