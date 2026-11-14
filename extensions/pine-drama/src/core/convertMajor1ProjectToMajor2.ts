@@ -259,6 +259,8 @@ class Conversion {
 	/** The files each object's folder holds from its versions, project-relative, as the last applied version left them. */
 	private readonly holds = new Map<string, Set<string>>();
 	private readonly everListed: ReadonlySet<string>;
+	/** The objects an object.json describes so far: written by each version's copy, and in setCurrent for the rest. */
+	private readonly described = new Set<string>();
 
 	private constructor(private readonly root: string, versions: readonly Major1Version[], private readonly choices: Choices | null,
 		private readonly current: ReadonlyMap<string, Major1Version>, private readonly kept: ReturnType<typeof snapshotState>, snapshots: ReturnType<typeof scopedSnapshots>,
@@ -326,7 +328,8 @@ class Conversion {
 			if (version.job) { await this.writeReceipt(version, target); } else { await rm(join(this.root, `${target}${RECEIPT_SUFFIX}`), { force: true }); }
 			now.add(target);
 		}
-		return [...now, ...await this.clear(version.object, now)].flatMap(p => [p, `${p}${RECEIPT_SUFFIX}`]);
+		const described = await this.writeObjectJson(version.object, version) ? [`${version.object}/${OBJECT_FILE}`] : [];
+		return [...[...now, ...await this.clear(version.object, now)].flatMap(p => [p, `${p}${RECEIPT_SUFFIX}`]), ...described];
 	}
 
 	/** Deletes the files, with their receipts, that the object's folder holds from its versions and `keep` does not name. */
@@ -371,7 +374,7 @@ class Conversion {
 
 	/**
 	 * The table's `current`: each object's files set to its major-1 current version's (record stages included), and an
-	 * object with none, every version discarded, cleared; every object.json written once; the person's pending text; the
+	 * object with none, every version discarded, cleared; every object.json written for its current version; the person's pending text; the
 	 * newest config at the root. Returns the objects to delete: those the person removed, and those a later snapshot of
 	 * their scope stopped listing.
 	 */
@@ -385,10 +388,10 @@ class Conversion {
 		}
 		const removed = [...removedObjectsOf(this.choices, this.kept.edges), ...[...this.everListed].filter(id => !this.kept.listed.has(id))];
 		const owners = [...this.byObject.keys()].filter(o => stageOf(o) === ENTRY).map(o => ownerOf(o, ENTRY));
-		const objects = new Set<string>();
-		for (const object of new Set([...this.kept.listed.keys(), ...owners])) { if (await this.writeObjectJson(object)) { objects.add(object); } }
+		// The objects no version's copy described: planned ones, assets with only an entry, and those whose versions were all discarded.
+		for (const object of new Set([...this.kept.listed.keys(), ...owners])) { if (!this.current.has(object)) { await this.writeObjectJson(object); } }
 		// The person's pending text, for the objects major 2 has (written_for), none of them removed.
-		for (const [object, choice] of Object.entries(this.choices?.objects ?? {}).filter(([id]) => objects.has(id) && !removed.includes(id))) {
+		for (const [object, choice] of Object.entries(this.choices?.objects ?? {}).filter(([id]) => this.described.has(id) && !removed.includes(id))) {
 			if (choice.prompt !== undefined) { await writeWhole(join(this.root, object, PROMPT_FILE), choice.prompt); }
 			if (choice.description !== undefined) { await writeWhole(join(this.root, object, DESCRIPTION_FILE), choice.description); }
 		}
@@ -400,9 +403,11 @@ class Conversion {
 
 	/**
 	 * object_json: from the current entry version when the object has an entry stage, else from the latest snapshot listing
-	 * it. Returns whether the object has one.
+	 * it; its shown file and what its draw sent are `version`'s. Each version's commit writes it for that version, so
+	 * history says which file each past result showed, and the last commit writes it for the current one. Returns whether
+	 * the object has one.
 	 */
-	private async writeObjectJson(object: string): Promise<boolean> {
+	private async writeObjectJson(object: string, version = this.current.get(object)): Promise<boolean> {
 		const snapshot = this.kept.listed.get(object)?.object;
 		const entry = this.current.get(`${object}${ENTRY.v1_object_ends_with}`);
 		// written_for: an object the kept snapshots list, or an asset with a current entry version; no other folder gets one.
@@ -412,14 +417,14 @@ class Conversion {
 			type: snapshot!.type, name: snapshot!.name, variant_of: edges.find(e => e.kind === 'variant_of')?.to,
 			relations: edges.filter(e => e.kind !== 'variant_of').map(e => ({ kind: e.kind, to: e.to })),
 		};
-		const current = this.current.get(object);
 		// The pictures the draw sent (as the receipt's inputs_sent_in_order), else a planned object's snapshot inputs.
-		const sent = current ? current.record.inputs.filter(input => this.shownFile(this.byObject.get(input.object)?.find(v => v.id === input.version))).map(input => input.object)
+		const sent = version ? version.record.inputs.filter(input => this.shownFile(this.byObject.get(input.object)?.find(v => v.id === input.version))).map(input => input.object)
 			: snapshot?.inputs ?? [];
-		const value = { schema: 2, ...fields, ...(snapshot?.segment ? { segment: snapshot.segment } : {}), shown_file: this.shownFile(current),
+		const value = { schema: 2, ...fields, ...(snapshot?.segment ? { segment: snapshot.segment } : {}), shown_file: this.shownFile(version),
 			...(sent.length ? { objects_sent_by_draw_request: sent } : {}) };
 		await mkdir(join(this.root, object), { recursive: true });
 		await writeWhole(join(this.root, object, OBJECT_FILE), `${JSON.stringify(value, null, '\t')}\n`);
+		this.described.add(object);
 		return true;
 	}
 

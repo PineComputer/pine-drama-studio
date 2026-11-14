@@ -140,6 +140,10 @@ test('a major-1 project becomes major 2 by the table: backed up, one commit per 
 	assert.deepEqual(subjects.slice(-2), ['client-found-changes-on-disk|Each object set to its major-1 current; the major-1 folders removed', 'client-found-changes-on-disk|A Pine Drama project of major 2']);
 	assert.deepEqual(subjects.filter(s => /^client-found-changes-on-disk\|Major-1 assets\/characters\/ann\/v\d+, converted$/.test(s)), [`client-found-changes-on-disk|Major-1 ${ANN}/v1, converted`, `client-found-changes-on-disk|Major-1 ${ANN}/v2, converted`]);
 	assert.equal(await out(root, 'show', `HEAD~2:${ANN}/image-1.png`), 'ann two', "v2's picture is in history");
+	// History describes itself: each version's commit names that version's shown file, so a past result is found by it.
+	const described = await Promise.all((await out(root, 'log', '--reverse', '--format=%H', '--', `${ANN}/object.json`)).split('\n')
+		.map(async commit => JSON.parse(await out(root, 'show', `${commit}:${ANN}/object.json`)).shown_file));
+	assert.deepEqual(described, ['image-1.jpg', 'image-1.png', 'image-1.jpg'], 'v1, then v2, then the current v1');
 });
 
 test('a major-1 turn still owed a return refuses the conversion, naming the Studio to finish it in; nothing is changed', async () => {
