@@ -1,11 +1,13 @@
 import { strict as assert } from 'node:assert';
+import { createHash } from 'node:crypto';
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { readDrama, type ScopedSnapshot } from '../core/project';
 import type { Snapshot } from '../core/protocol';
-import { madeWith, plannedWith, versionDetail } from '../core/versionDetail';
+import { madeWith, plannedWith, requestDetail, versionDetail } from '../core/versionDetail';
+import { sentRequest } from '../core/requestRead';
 import { episodeLineage } from '../core/lineage';
 
 const FIXTURE = join(__dirname, '..', '..', 'test-fixtures', 'protocol');
@@ -76,6 +78,47 @@ test("an input no snapshot lists shows its picture from its folder's version.jso
 	assert.deepEqual(detail.pictures.map(r => [r.src, r.stageId]), [['assets/scenes/office/plan/v1/image-1.jpg', null],
 		['episodes/EP001/keyframe/seg01/shot01/v1/image-1.png', 'episodes/EP001/keyframe/seg01/shot01']]);
 	assert.deepEqual(detail.madeFrom.map(r => [r.src, r.stageId]), [[null, null], [null, null], [null, null]], 'the missing, the unreadable and the refused folder, by name');
+});
+
+// The person: the take's references are its prompt's Image 1..N, in that order. The old seg editor's reader (#425, #539),
+// ported: the request's own image order, an asset:// image by its upload's sha256 among the files the request pins, a
+// path by the pinned file it ends with, and the first frame by the version drama-cli records it placed as Image 1.
+test("a take's pictures are numbered as its request sent them, then any other it lists; unread, they stay as listed", async () => {
+	const root = mkdtempSync(join(tmpdir(), 'pds-sent-'));
+	cpSync(join(FIXTURE, 'drama'), root, { recursive: true });
+	const take = 'episodes/EP001/segments/seg01/v1';
+	const pin = (path: string) => ({ path, sha256: createHash('sha256').update(readFileSync(join(root, path))).digest('hex') });
+	const lin = pin('assets/characters/lin/v1/image-1.png');
+	writeFileSync(join(root, take, 'spec.json'), JSON.stringify({
+		content: [{ type: 'text', text: 'Image 1 is the first frame. Image 2 is the office. Image 3 is Lin.' },
+			{ type: 'image_url', image_url: { url: 'asset://frame' } },
+			{ type: 'image_url', image_url: { url: '@/var/lib/sandbox/sessions/s/files/drama/assets/scenes/office/v1/image-1.png' } },
+			{ type: 'image_url', image_url: { url: 'asset://lin' } }],
+		// Lin was uploaded: its upload's sha256 is the one its pinned file has in this project.
+		drama: { first_frame: 'v1', asset_files: { 'asset://lin': lin.sha256 }, lineage: [lin, pin('assets/scenes/office/v1/image-1.png')] },
+	}));
+	const record = join(root, take, 'version.json');
+	writeFileSync(record, JSON.stringify({ ...JSON.parse(readFileSync(record, 'utf8')), inputs: [{ object: 'episodes/EP001/breakdown', version: 'v1' },
+		{ object: 'assets/characters/lin', version: 'v2' }, { object: 'assets/characters/lin', version: 'v1' }, { object: 'assets/scenes/office', version: 'v1' }] }));
+	const drama = await readDrama(root, () => [snapshot('snapshot-project.json'), snapshot('snapshot-episodes.json')]);
+	const seg = drama.objects.get('episodes/EP001/segments/seg01')!;
+	const detail = (await requestDetail(drama, root, seg, 'v1', rel => rel))!;
+	assert.deepEqual(detail.pictures.map(p => [p.n, p.src]), [[1, 'episodes/EP001/keyframe/seg01/shot01/v1/image-1.png'],
+		[2, 'assets/scenes/office/v1/image-1.png'], [3, 'assets/characters/lin/v1/image-1.png'], [undefined, 'assets/characters/lin/v2/image-1.png']],
+		'Image 1 the first frame, 2 and 3 as sent, then Lin v2, listed but not sent, unnumbered');
+	assert.deepEqual(detail.madeFrom.map(r => r.stageId), ['episodes/EP001/breakdown']);
+	// No request, or one that cannot be read: the pictures as the record lists them, nothing numbered, no error.
+	writeFileSync(join(root, take, 'spec.json'), '{not json');
+	assert.deepEqual((await requestDetail(drama, root, seg, 'v1', rel => rel))!.pictures.map(p => p.n), [undefined, undefined, undefined]);
+	// A compiled request keeps Image 1 for the frame shoot adds, and numbers its own images from 2 (#539).
+	mkdirSync(join(root, 'compiled'));
+	writeFileSync(join(root, 'compiled', 'seg01.json'), JSON.stringify({ content: [{ type: 'text', text: 'Image 1 is the first frame.\nImage 2 is Lin.' },
+		{ type: 'image_url', image_url: { url: '@C:\\Users\\me\\drama\\assets\\characters\\lin\\v1\\image-1.png' } }], drama: { lineage: [lin] } }));
+	assert.deepEqual(await sentRequest(path => join(root, ...path.split('/')), 'compiled', 'seg01.json'), { images: [{ n: 2, file: 'assets/characters/lin/v1/image-1.png' }], firstFrame: { n: 1, version: null } });
+	// A Wan request states its prompt and images in `input` (Model Studio's create-task request).
+	writeFileSync(join(root, 'compiled', 'seg02.json'), JSON.stringify({ input: { prompt: 'Image 1 is the first frame.\nImage 2 is Lin.',
+		media: [{ type: 'reference_image', url: '@assets/characters/lin/v1/image-1.png' }] }, drama: { lineage: [lin] } }));
+	assert.deepEqual(await sentRequest(path => join(root, ...path.split('/')), 'compiled', 'seg02.json'), { images: [{ n: 2, file: 'assets/characters/lin/v1/image-1.png' }], firstFrame: { n: 1, version: null } });
 });
 
 // The person: the composer's greyed Model and settings show what the shown version was really made with, read for display

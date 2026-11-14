@@ -8,7 +8,7 @@ import { CANVAS_COMMANDS, CANVAS_PROTOCOL, readFromCanvas, type CanvasDetail, ty
 import { unchangedLine, type EntryDone } from './core/entryActions';
 import { pictureOf, recordOf } from './core/assetStatus';
 import { plannedPrompt, shootRequest } from './core/segEditor';
-import { madeWith, plannedWith, versionDetail } from './core/versionDetail';
+import { madeWith, plannedWith, requestDetail } from './core/versionDetail';
 import { canvasTreePath } from './core/assetsCanvas';
 import { lineageMessage } from './core/canvasMessage';
 import { ASSETS_CANVAS } from './core/lineage';
@@ -75,7 +75,7 @@ export function registerEpisodeCanvas(context: vscode.ExtensionContext, views: P
 			const drama = await project.drama();
 			const object = drama.objects.get(shown.stageId);
 			const src = (rel: string) => webview.asWebviewUri(fileUri(rel)).toString();
-			const detail: CanvasDetail | null = shown.version ? versionDetail(drama, shown.stageId, shown.version, src) : null;
+			const detail: CanvasDetail | null = object ? await requestDetail(drama, project.root, object, shown.version, src) : null;
 			const planned = object && plannedPrompt(drama, object);
 			const prompt = object && (planned || object.prompt !== null) ? { object: object.id, text: planned?.text ?? null } : null;
 			// The shown version's request, or before any is drawn, the one planned for it (versionDetail.ts).

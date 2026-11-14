@@ -4,7 +4,7 @@
 // it here; nothing writes. No vscode import.
 
 import { readFile, stat } from 'node:fs/promises';
-import { join } from 'node:path';
+import { isAbsolute, join } from 'node:path';
 import { CHOICES_FILE, readChoices, readVersions, resolve, VERSION_FILE, type Resolved, type Version as ProtocolVersion } from './choices';
 import { projectIdentity } from './projectPlace';
 import { check, type Add, type Choices, type Edge, type ObjectType, type ProtocolError, type Request, type Snapshot } from './protocol';
@@ -89,10 +89,10 @@ export interface Drama {
 	/** The problem the last return of its scope named for each add, by the add's id. */
 	readonly addProblems: ReadonlyMap<string, ProtocolError>;
 	/**
-	 * The file each version listed as an input shows where no snapshot lists its object (a scene's floor plan), from its
-	 * version.json, by `<object>/<version>`, as versionFile gives a listed one's: read for display only.
+	 * Each version listed as an input where no snapshot lists its object (a scene's floor plan), by `<object>/<version>`:
+	 * its folder (versionFolder's form) and the file its version.json shows, read for display only.
 	 */
-	readonly unlisted: ReadonlyMap<string, string>;
+	readonly unlisted: ReadonlyMap<string, { readonly folder: string; readonly file: string }>;
 }
 
 /**
@@ -190,12 +190,12 @@ export async function readDrama(root: string, snapshotOf: SnapshotOf, previewsOf
 		.filter(input => !objects.has(input.object)).map(input => `${input.object}/${input.version}`));
 	const unlisted = new Map((await Promise.all([...unlistedInputs].map(async key => {
 		// A downloaded version's folder is its preview's (absolute), as versionFile reads it; an installed one's, in the project.
-		const preview = previewed.find(p => `${p.object}/${p.version}` === key)?.dir;
-		const at = join(preview ?? join(root, ...key.split('/')), VERSION_FILE);
+		const folder = previewed.find(p => `${p.object}/${p.version}` === key)?.dir ?? key;
+		const at = join(isAbsolute(folder) ? folder : join(root, ...key.split('/')), VERSION_FILE);
 		// A folder the record names but the project does not hold, or holds unreadable or invalid (its `file` a path the
 		// protocol's versionRecord refuses), shows no picture.
 		const file = await readFile(at, 'utf8').then(text => check('versionRecord', JSON.parse(text), at).file).catch(() => null);
-		return file ? [[key, preview ? join(preview, ...file.split('/')) : `${key}/${file}`] as const] : [];
+		return file ? [[key, { folder, file }] as const] : [];
 	}))).flat());
 	return {
 		objects,
@@ -376,8 +376,12 @@ export function versionFile(object: DramaObject, version: string | null): string
 	if (!file || version === null) {
 		return null;
 	}
-	const preview = object.previews.get(version);
-	return preview ? join(preview, ...file.split('/')) : `${versionFolder(object, version)}/${file}`;
+	return fileIn(versionFolder(object, version), file);
+}
+
+/** `file` (relative, '/'-separated) in a version's folder: a downloaded version's absolute preview folder, or project-relative. */
+export function fileIn(folder: string, file: string): string {
+	return isAbsolute(folder) ? join(folder, ...file.split('/')) : `${folder}/${file}`;
 }
 
 /** A version's folder: project-relative for an installed version, absolute for a downloaded one. */

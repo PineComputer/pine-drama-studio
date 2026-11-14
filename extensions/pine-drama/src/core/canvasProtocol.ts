@@ -145,6 +145,8 @@ export interface MadeFrom {
 	readonly label: string;
 	readonly src: string | null;
 	readonly stageId: string | null;
+	/** Its "Image N" in the prompt, where the request it was sent with says (versionDetail.ts requestDetail). */
+	readonly n?: number;
 }
 
 /** A version's model and its request's settings, each as a person reads it ("2048×1152", "high", "1 image", "19 s"). */
@@ -159,7 +161,8 @@ export interface MadeWith {
  */
 export interface CanvasDetail {
 	readonly prompt: string | null;
-	readonly madeAt: string;
+	/** When it was finished; null for a request not sent yet (a seg not shot). */
+	readonly madeAt: string | null;
 	readonly pictures: readonly MadeFrom[];
 	readonly madeFrom: readonly MadeFrom[];
 }

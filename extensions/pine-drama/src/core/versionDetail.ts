@@ -3,17 +3,17 @@
 // beside it, or planned for a node not drawn yet. No vscode import.
 
 import { readdir, readFile } from 'node:fs/promises';
-import { extname, join } from 'node:path';
+import { extname, isAbsolute, join } from 'node:path';
 import type { CanvasDetail, MadeFrom, MadeWith } from './canvasProtocol';
-import { versionFile, versionTitle, type Drama } from './project';
+import { episodeIn, fileIn, versionFile, versionFolder, versionTitle, type Drama, type DramaObject } from './project';
+import { sentRequest } from './requestRead';
 
 export const IMAGE_SUFFIXES: ReadonlySet<string> = new Set(['.png', '.jpg', '.jpeg', '.webp']);
 
 /**
  * `object`'s version `version` as the panel shows it: its prompt, and every version its record lists it was made from
  * (doc/protocol.md 2.1), in order, the pictures with their webview address (`src`) and the others by name, each with its
- * card. No input is numbered as the
- * prompt's "Image N": that counts the request's images, in an order the record does not give (#77). Null when the drama
+ * card. The record gives no order: requestDetail numbers them by the request they were sent with. Null when the drama
  * has no such version.
  */
 export function versionDetail(drama: Drama, object: string, version: string, src: (rel: string) => string): CanvasDetail | null {
@@ -23,7 +23,8 @@ export function versionDetail(drama: Drama, object: string, version: string, src
 	}
 	const inputs: MadeFrom[] = record.inputs.map(input => {
 		const used = drama.objects.get(input.object);
-		const file = used ? versionFile(used, input.version) : drama.unlisted.get(`${input.object}/${input.version}`) ?? null;
+		const unlisted = drama.unlisted.get(`${input.object}/${input.version}`);
+		const file = used ? versionFile(used, input.version) : unlisted ? fileIn(unlisted.folder, unlisted.file) : null;
 		return {
 			label: versionTitle(drama, input.object, input.version),
 			src: file && IMAGE_SUFFIXES.has(extname(file).toLowerCase()) ? src(file) : null,
@@ -31,6 +32,78 @@ export function versionDetail(drama: Drama, object: string, version: string, src
 		};
 	});
 	return { prompt: record.prompt, madeAt: record.made_at, pictures: inputs.filter(i => i.src), madeFrom: inputs.filter(i => !i.src) };
+}
+
+/**
+ * What `object`'s version `version` was made with (versionDetail), its pictures numbered as the prompt's "Image N" by the
+ * request it was sent with (requestRead.ts), those first, in order, then any other picture it lists, unnumbered; the
+ * rest by name. A seg not shot yet (`version` null) shows its compiled request's pictures, from its episode's working
+ * video prompts. Where no request is read, the pictures stay as versionDetail lists them; never an error.
+ */
+export async function requestDetail(drama: Drama, root: string, object: DramaObject, version: string | null, src: (rel: string) => string): Promise<CanvasDetail | null> {
+	const recorded = version ? versionDetail(drama, object.id, version, src) : null;
+	const prompts = !version && object.type === 'take' && object.segment ? drama.objects.get(`episodes/${episodeIn(object.id)}/video_prompts`) : undefined;
+	const at = (path: string) => { const file = located(drama, path); return isAbsolute(file) ? file : join(root, ...file.split('/')); };
+	const sent = version ? await sentRequest(at, versionFolder(object, version))
+		: prompts?.resolved.current ? await sentRequest(at, versionFolder(prompts, prompts.resolved.current), `${object.segment}.json`) : null;
+	if (!sent) {
+		return recorded;
+	}
+	const numbered = sent.images.flatMap(image => image.file ? [{ ...picture(drama, image.file, src), n: image.n }] : []);
+	const frame = sent.firstFrame && firstFrame(drama, object, sent.firstFrame.version);
+	const pictures = [...frame ? [{ ...picture(drama, frame, src), n: 1 }] : [], ...numbered];
+	const others = (recorded?.pictures ?? []).filter(p => !pictures.some(q => q.src === p.src));
+	return { prompt: recorded?.prompt ?? null, madeAt: recorded?.madeAt ?? null, pictures: [...pictures, ...others], madeFrom: recorded?.madeFrom ?? [] };
+}
+
+/**
+ * A project file's version: the version folder of the drama that holds it (`<object>/<version>/<file>`, a listed
+ * object's or an unlisted input's), the deepest one; null for a file in none.
+ */
+function versionOf(drama: Drama, file: string): { object: string; version: string; rest: string } | null {
+	const parts = file.split('/');
+	for (let at = parts.length - 2; at > 0; at--) {
+		const object = parts.slice(0, at).join('/');
+		if (drama.objects.get(object)?.versions.some(v => v.id === parts[at]) || drama.unlisted.has(`${object}/${parts[at]}`)) {
+			return { object, version: parts[at], rest: parts.slice(at + 1).join('/') };
+		}
+	}
+	return null;
+}
+
+/**
+ * Where a project file is: in its version's folder (versionFolder), a downloaded version's being its preview folder,
+ * for a listed object or an unlisted one; as it is otherwise.
+ */
+function located(drama: Drama, file: string): string {
+	const of = versionOf(drama, file);
+	const object = of && drama.objects.get(of.object);
+	const folder = of && (object ? versionFolder(object, of.version) : drama.unlisted.get(`${of.object}/${of.version}`)?.folder);
+	return of && folder ? fileIn(folder, of.rest) : file;
+}
+
+/** A file a request pinned (project-relative) as a picture it was made from: its version's title and card where the drama holds them. */
+function picture(drama: Drama, file: string, src: (rel: string) => string): MadeFrom {
+	const of = versionOf(drama, file);
+	const object = of && drama.objects.get(of.object);
+	return {
+		label: object ? versionTitle(drama, object.id, of.version) : file,
+		src: IMAGE_SUFFIXES.has(extname(file).toLowerCase()) ? src(located(drama, file)) : null,
+		stageId: object?.id ?? null,
+	};
+}
+
+/**
+ * The picture a seg starts from, `version` of its shot 1 keyframe, or when null the version shoot would send, its
+ * accepted one (short_drama stages.py `_first_frame_items`, plan.py `_accepted_current`) (requestRead.ts SentRequest.firstFrame).
+ */
+function firstFrame(drama: Drama, take: DramaObject, version: string | null): string | null {
+	const prefix = `episodes/${episodeIn(take.id)}/keyframe/${take.segment}/`;
+	const shot1 = [...drama.objects.values()].find(o => o.id.startsWith(prefix) && Number(o.id.slice(prefix.length).replace(/\D/g, '')) === 1);
+	const shown = version ?? shot1?.resolved.accepted;
+	const file = shown && shot1?.versions.find(v => v.id === shown)?.record.file;
+	// Project-relative, as a request pins a file (picture() finds a downloaded one's preview).
+	return shot1 && file ? `${shot1.id}/${shown}/${file}` : null;
 }
 
 /**

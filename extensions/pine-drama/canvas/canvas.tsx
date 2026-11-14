@@ -17,7 +17,7 @@ import './canvas.css';
 import { NAME_MAX, TEXT_MAX, type EntryAction } from '../src/core/galleryProtocol';
 import { ASSETS_CANVAS, CANVAS_PROTOCOL, opensFile, type CanvasCard, type CanvasPicture, type CanvasCommand, type FromCanvas, type Point, type Size, type ToCanvas } from '../src/core/canvasProtocol';
 import { CANVAS_WAIT_LIMIT_S, waitingText } from '../src/core/canvasWait';
-import { RequestView } from './requestView';
+import { PictureRef, RequestView } from './requestView';
 import { cardSize, layoutAssets, layoutEpisode, layoutOf, onBoard, openingViewport, positionsFor } from '../src/core/canvasLayout';
 
 declare function acquireVsCodeApi(): { postMessage(message: FromCanvas): void; setState(state: { episode: string }): void };
@@ -357,11 +357,7 @@ function Composer({ card, cards, reply, onGo, onClose }: { card: CanvasCard; car
 			</div>
 			{references.length > 0 && (
 				<div className="composer-refs">
-					{references.map((r, i) => (
-						<button key={i} className="ref" disabled={!r.stageId} onClick={() => r.stageId && onGo(r.stageId)} title={`${r.label}${r.stageId ? '\nClick: go to its card' : ''}`}>
-							{r.src ? <img src={r.src} draggable={false} /> : <span className="codicon codicon-file-media" />}
-						</button>
-					))}
+					{references.map((r, i) => <PictureRef key={i} r={r} onGo={onGo} />)}
 					{record?.from && <span className="muted">Base, sent with it</span>}
 				</div>
 			)}
