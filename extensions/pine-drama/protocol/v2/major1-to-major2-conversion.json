@@ -1,0 +1,105 @@
+{
+  "schema": 2,
+  "description": "How the Studio converts a major-1 drama into major 2 (doc/protocol.md, section 8). Normative data: the client applies it as written and knows no major-1 record format beyond it. Every path is project-relative; {object} is a v1 object id with its version segment removed, {owner} the object a record stage belongs to, {file} a path inside a version folder.",
+  "version_folders": {
+    "a_version_folder_is": "a folder holding version.json, named like v<digits> or t<two or more digits>",
+    "its_object_is": "the folder that holds it ({object})",
+    "applied_in_order": "one global order across all objects: by version.json made_at, then object id, then version id; one commit per version, authored studio-found-changes-on-disk. So history reads as it happened, and every input a receipt names is already at its major-2 path."
+  },
+  "record_stages": [
+    {
+      "v1_object_ends_with": "/entry",
+      "owner": "the entry folder's parent ({owner})",
+      "operation": "split_entry_record_into_object_files",
+      "reads": "entry.json",
+      "description_field_by_owner_kind": {
+        "characters": "appearance",
+        "scenes": "description",
+        "props": "description",
+        "variant": "text"
+      },
+      "writes": {
+        "{owner}/description.md": "the description field's text",
+        "{owner}/entry.json": "entry.json without the fields id, name, setting, inside_of, appears_in, from, text and the description field; every other field (look, members, establishing, …) stays"
+      },
+      "also_gives": "the fields of {owner}'s object.json (see object_json)"
+    },
+    {
+      "v1_object_ends_with": "/prompts",
+      "owner": "the prompts folder's parent ({owner})",
+      "operation": "extract_json_field_to_markdown",
+      "reads": "prompt.json",
+      "field": "text",
+      "writes": {
+        "{owner}/prompt.md": "the field's text"
+      }
+    },
+    {
+      "v1_object_ends_with": "/describe",
+      "owner": "the describe folder's parent ({owner})",
+      "operation": "write_receipt_only",
+      "writes": {
+        "{owner}/description.md.receipt.json": "the receipt rule below, from this describe version's job.json, only when {owner}'s current entry version was written from this call: its artifact.json metadata has source.kind \"describe\" and source.call naming this describe version. A description the person wrote later (entry describe) has no receipt."
+      }
+    }
+  ],
+  "objects_dropped": [
+    "assets/index"
+  ],
+  "every_other_version": {
+    "operation": "copy_outputs_into_object_folder",
+    "copies": "each file artifact.json lists under outputs, at {object}/{file}; input/ included, which keeps bible/input/brief.md and bible/input/screenplay.md for the stages that read them",
+    "except": [
+      "files under asset/ or reviews/ (a session's upload records and major 1's reviews)",
+      "prompt.json and entry.json (record stages above)"
+    ],
+    "a_file_dropped_by_a_later_version": "is deleted in that version's commit, with its receipt, when the later version no longer lists it",
+    "also_copies": {
+      "episodes/<EP>/edit": [
+        "technical-check.json: written after artifact.json, so artifact.json does not list it"
+      ]
+    }
+  },
+  "receipt_rule": {
+    "when": "the version folder has job.json",
+    "beside": "each file the version copies (outputs), as <file>.receipt.json, in the same commit",
+    "fields": {
+      "paid_call_id": "job.json attempt_id",
+      "finished_at": "version.json made_at",
+      "inputs_sent_in_order": "version.json inputs in order, each {path: the input version's shown file at its major-2 path, sha256: that file's hash}; an input whose version has no shown file is left out",
+      "prompt_sent": "version.json prompt",
+      "cost": "{usd: job.json actual_usd, reported_by: \"pine\" when job.json connection is set, otherwise job.json provider}; null when actual_usd is null"
+    }
+  },
+  "not_version_folders": {
+    "config/<v>/drama-cli.cfg.yaml": "the newest is written to drama-cli.cfg.yaml at the root",
+    "inputs/": "kept as it is",
+    "imports/": "dropped (in history)",
+    "turns/": "dropped (in history); read first for the snapshots above",
+    "understanding/": "dropped (in history)",
+    "reviews/ in any version folder": "dropped (in history)",
+    "choices.json": "dropped (in history); read first for current, discarded and the person's pending text"
+  },
+  "current": {
+    "rule": "after every version's commit, a last commit sets each kept object's files to the files of its major-1 current version (major 1's 3.2: the chosen version, else the newest not discarded) and writes every object.json (see object_json)",
+    "removed_objects": "an object choices.json marks removed is deleted, with every variant under it",
+    "pending_text": "choices.json prompt and description fields become {object}/prompt.md and {object}/description.md"
+  },
+  "snapshots": {
+    "read_from": [
+      "turns/<task>.json in the folder (its snapshot)",
+      "when the folder has no turns/: the Studio's own records of that drama (returns/<task>.json in its storage), the same installed snapshots"
+    ],
+    "when_neither_exists": "the conversion refuses, changes nothing, and asks the person to open the project once in the previous Studio (major 1), which writes turns/, with a link to its download",
+    "an_object_is_kept_when": "the latest installed snapshot of its scope lists it (the Project Chat's for shared objects and episode objects, a snapshot listing its episode for an episode's objects), as major 1's 5.3 has it; an object it no longer lists is deleted in the last commit"
+  },
+  "object_json": {
+    "written_for": "every object the kept snapshots list, and every asset or variant with an entry stage; no other folder gets one (looks/face, plan)",
+    "one_source_per_field": {
+      "type, name, setting, variant_of, relations": "from the object's current entry version when it has an entry stage (record_stages /entry), otherwise from the latest snapshot that lists it (type, name, segment; relations from its edges inside_of, appears_in, needs; variant_of from its edge variant_of)",
+      "segment": "from that snapshot",
+      "shown_file": "always the current version's version.json file"
+    },
+    "written_in": "the last commit (current), once, so no commit order decides a field"
+  }
+}
