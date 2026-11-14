@@ -397,8 +397,7 @@
         "upgrade_needed": {
           "type": "object",
           "required": [
-            "minimum_client_version",
-            "download_url"
+            "minimum_client_version"
           ],
           "properties": {
             "minimum_client_version": {

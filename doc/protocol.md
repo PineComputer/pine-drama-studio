@@ -3,13 +3,13 @@
 Status: draft. Major 2 replaces major 1 whole: a reader of one major reads no document of the other (section 7).
 
 This protocol connects two sides, the way Codex runs a task:
-- the **client**, the program on the person's machine. It holds the drama's folder, shows it, and lets the person change any file in it, as with a local coding agent;
-- the **Computer side**, the program on a Pine Computer that makes the drama. Each turn works in its own workspace, seeded from the folder, and every result it finishes comes back as one change the client applies, as Codex's cloud tasks are applied (`git apply --check`, then the apply).
+- the **client**, the program the person uses: a desktop app holding the drama's folder, or a web service holding it on its server. It shows the drama and lets the person change any file of it, as with a local coding agent;
+- the **Computer side**, the program on a Pine Computer that makes the drama. Each turn works in its own workspace, seeded from the client's files, and every result it finishes comes back as one change the client applies, as Codex's cloud tasks are applied (`git apply --check`, then the apply).
 
 The Computer side also works with no client: driven by Pine Computer's own agent, by another program, or from a terminal.
 
-**The drama's folder is a git repository** (section 2).
-- **One current file per object.** Each object has one current copy of each of its files, and history is the repository's commits.
+**The client keeps every file of the drama and its complete history** (section 2). A git repository is the reference implementation.
+- **One current file per object.** Each object has one current copy of each of its files, and history keeps every earlier one.
 - **No version numbers, no choices file, no acceptance state, no scopes.**
 - **Any number of sessions** may work on one drama at once. The newest result lands, and history keeps every earlier one (4.4).
 
@@ -23,26 +23,33 @@ A client can be built from this page and one schema file, [`protocol/v2/protocol
 | Type | Rule |
 |---|---|
 | Document | UTF-8 JSON with `"schema": 2`. |
-| Path | A file or folder inside the drama's folder: project-relative, `/`-separated, Unicode NFC. No segment is empty or starts with `.`. No segment contains `\` or a control character (U+0000–U+001F, U+007F–U+009F), is a Windows reserved name (`CON`, `PRN`, `AUX`, `NUL`, `COM1`–`COM9`, `LPT1`–`LPT9`, with or without an extension), or ends with `.` or a space. There is no leading or trailing `/`, and a path is at most 240 characters. Two paths that differ only by case are the same path. A name starting with `.` (`.git`, `.gitattributes`) is never a path of this protocol, so it never travels. |
+| Path | A file or folder of the drama: project-relative, `/`-separated, Unicode NFC. No segment is empty or starts with `.`. No segment contains `\` or a control character (U+0000–U+001F, U+007F–U+009F), is a Windows reserved name (`CON`, `PRN`, `AUX`, `NUL`, `COM1`–`COM9`, `LPT1`–`LPT9`, with or without an extension), or ends with `.` or a space. There is no leading or trailing `/`, and a path is at most 240 characters. Two paths that differ only by case are the same path. A name starting with `.` (`.git`, `.gitattributes`) is never a path of this protocol, so it never travels. |
 | Object id | The path of the object's folder, for example `assets/characters/lin`. Whoever creates the object chooses it. |
 | Turn id | An id the client chooses for a turn. It matches `^[A-Za-z0-9_-]{8,64}$` and is never reused in a drama. |
 | Paid call id | An id the Computer side chooses for one paid call, unique in the drama, matching the same pattern. |
 | Time | An RFC 3339 `date-time` in UTC, whole seconds, with the `Z` suffix, for example `2026-11-15T10:00:00Z`. |
 | Hash | The lowercase hex SHA-256 of a file's bytes. Git's own object ids never appear in a document. |
 
-## 2. The drama's folder (client)
+## 2. The drama's files (client)
 
-### 2.1 The repository
+### 2.1 The project's files and history
 
-- **Who writes what.** The folder is a git repository, and only the client writes `.git`.
-- **Commits.** The client commits every change made in the folder, each with the author that made it:
-  - `pine-computer`: a result applied from a turn (4.4), with the trailers `Pine-Turn-Id: <turn id>` and `Pine-Change-Number: <change number>`;
-  - `person`: the person's own change through the client;
-  - `client-found-changes-on-disk`: whatever the folder holds that no commit records (a hand edit, or the files of a write a crash cut off), found when the client opens the drama or seeds a turn.
-- **Byte-preserving.** The client MUST store files byte for byte. It writes `* -text -filter -ident -working-tree-encoding` to the repository's `info/attributes`, which takes precedence over any `.gitattributes` ([gitattributes](https://git-scm.com/docs/gitattributes)). It writes nothing of its own into the folder itself. A repository the folder already has is used as it is.
-- **History is the only undo.** Undoing a change is a revert of its commit; a turn's changes are the commits carrying its `Pine-Turn-Id` trailer.
+**What every client MUST keep.** These are properties; any storage that has them will do.
+- **Files, byte for byte.** Every file of the drama, exactly as written, with no line-ending, encoding or other conversion.
+- **A complete history.** Every earlier content of every file, with who changed it: `pine-computer` (a change applied from a turn, 4.4), `person` (the person's own change), or `client-found-changes-on-disk` (what a folder client finds on disk that no record holds, 3).
+- **Applied once.** Each change of a turn, `(turn_id, change_number)`, is applied at most once, and the record that it was applied is durable.
+- **Atomic changes.** A change's files are written and recorded together. A reader never sees half of one.
+- **Restore and undo.** Any earlier result's files can be brought back (5), and a turn's changes can be undone as a whole.
 
-**`pine-drama-project.json`** (`$defs/projectMarker`) at the folder's root marks it as a drama of this major: `{"schema": 2}`. It is written when the drama is made, or last by a conversion from another major. A folder without it is not a drama of major 2.
+**The reference implementation is a git repository in the drama's folder**, which Pine Drama Studio uses:
+- each change is a commit of exactly its paths (`git commit --only -- <paths>`), authored as above;
+- a turn's change carries the trailers `Pine-Turn-Id: <turn id>` and `Pine-Change-Number: <change number>`, which are its applied record;
+- the byte rule is `* -text -filter -ident -working-tree-encoding` in the repository's `info/attributes`, which takes precedence over any `.gitattributes` ([gitattributes](https://git-scm.com/docs/gitattributes)), and nothing of the client's own goes into the folder itself;
+- history is `git log` of a path, and undoing a turn is a revert of the commits carrying its `Pine-Turn-Id`.
+
+A client that keeps the drama elsewhere, for example a web service on its own server, meets the same properties its own way. Git on its server is the simplest.
+
+**`pine-drama-project.json`** (`$defs/projectMarker`) at the drama's root marks it as a drama of this major: `{"schema": 2}`. It is written when the drama is made, or last by a conversion from another major. A folder without it is not a drama of major 2.
 
 ### 2.2 Objects
 
@@ -50,16 +57,18 @@ An object is a folder holding **`object.json`** (`$defs/object`):
 
 | Field | Meaning |
 |---|---|
-| `type` | `episode`, `screenplay`, `bible`, `character`, `scene`, `prop`, `variant`, `breakdown`, `storyboard`, `keyframe`, `video_prompts`, `take`, `cut` or `subtitles`, in pipeline order. |
+| `type` | `episode`, `screenplay`, `bible`, `character`, `scene`, `prop`, `variant`, `breakdown`, `storyboard`, `keyframe`, `video_prompts`, `take`, `cut` or `subtitles`, in pipeline order. Writers write only these. A client shows an object of a type it does not know as a plain card, and refuses nothing for it. |
 | `name` | Its name for the person. |
 | `shown_file` | The object's shown file, relative to its folder (image, video or text), or `null` before it has one. Such an object is a planned, empty card. |
 | `variant_of` | For a variant: the object id it derives from. |
 | `segment` | Its segment within the episode, or absent. |
 | `setting` | For a scene: `interior` or `exterior`. |
 | `relations` | Other relations, each `{kind, to}`: `inside_of` (a scene inside a scene), `appears_in` (an asset in an episode), `needs` (an episode needs an object before it can be shot). |
-| `objects_sent_by_draw_request` | The object ids this object's draw request sends, in the order it sends them (`Image 1`…`Image N`), or absent for an object that is not drawn from others. Pine Computer writes it when it plans the object (a breakdown or a storyboard plans a keyframe, a take or a cut), and the person may edit it. The draw builds its request from this list and nothing else, so what is drawn and what the canvas shows cannot differ. |
+| `objects_sent_by_draw_request` | The object ids this object's draw request sends, in the order it sends them (`Image 1`…`Image N`), or absent for an object that is not drawn from others. Pine Computer writes it only when a turn plans that object (a breakdown or a storyboard plans a keyframe, a take or a cut): never as a side effect of another object changing, and never when it reads. The person may add to, remove from or reorder it on any object, drawn or not, and it then stays as they set it until they, or a turn that plans that object again, change it. The draw builds its request from this list and nothing else, so what is drawn and what the canvas shows cannot differ. |
 
 - **One source for lines.** Every line the client draws between objects comes from `objects_sent_by_draw_request` (plus `variant_of` and `relations`), for a drawn object and an undrawn one alike. A receipt's `inputs_sent_in_order` is the record of what a past draw sent, shown with that result; it is never read for lines. `needs` is only an episode's, for what it needs before it can be shot.
+- **Pine Computer changes an object only in a turn that works on that object.** It plans, draws or rewrites that object itself: never as a side effect of another object changing, and never when it reads one. So a field the person set (`objects_sent_by_draw_request`, `relations`, `variant_of`, the text files) stays as they set it until they, or a turn that works on that object, change it. History keeps both.
+- **References that no longer resolve.** A listed object may be deleted later, and a reference may point back at its own object, directly or through others. Both are allowed in the data. A draw sends the shown files of the listed objects that exist, in order, and names each one it could not send in `pine_computer_could_not_do` (4.6). It refuses nothing. A draw sends files, not a graph, so a cycle sends each file once, as listed.
 - **Who creates objects.** Either side may create an object. The client creates one when the person adds it, with `object.json` and the person's `description.md`. drama-cli derives every name a model reads from `name`, never from the id.
 - **The person's text.** In an object's folder, `description.md` and `prompt.md`, when present, are the text the person and Pine Computer edit. Whoever writes last wins, and git keeps the earlier text.
 - **Removal.** Removing an object deletes its folder; a variant is a folder below its asset's, so it goes with it.
@@ -83,10 +92,16 @@ The rest of the receipt (the request and response as sent) belongs to the Comput
 
 ## 3. The person's changes (client)
 
-- **The person changes any file in the folder**, through the client or by hand. A change through the client is a plain write (a temporary sibling, then a rename) and a `person` commit of the paths it wrote.
-- **Hand changes** are committed as `client-found-changes-on-disk` at the next opening or seed.
+- **The person changes any file of the drama.** Each edit is a plain write of exactly the files it changes, through the client's one write queue, recorded as a `person` change (2.1). There is one path per edit:
+  - an `object.json` field (`objects_sent_by_draw_request`, `relations`, `variant_of`, `name`);
+  - adding an object, which writes its folder with `object.json` and `description.md`;
+  - removing an object, which deletes its folder;
+  - `description.md` or `prompt.md`;
+  - the person's own picture or video, below.
+- **Canvas positions** and every other view state are the client's own, per person or per profile, and are never written into the drama.
+- **Hand changes** (a folder client): a file changed outside the client is recorded as `client-found-changes-on-disk` at the next opening or seed.
 - **Using the person's own picture or video for an object.** The person's file replaces the object's shown file. It is written under the shown file's name, with the extension of the person's file, and `object.json` `shown_file` is set to it. If the extension changed, the old shown file and its receipt are deleted in the same commit. The person's file has no receipt, since no paid call made it. History keeps what it replaced.
-- **Files the person attaches** to a note or a chat message, and are not an object's file, are written to `person-attachments/<id>.<extension>` and committed. A note's `attached_file` names one of them (4.2).
+- **Files the person attaches** to a note or a chat message, and are not an object's file, are written to `person-attachments/<id>.<extension>` and recorded as a `person` change. A note's `attached_file` names one of them (4.2).
 - **A running turn** sees a change only at its next seed (4.2). A person's edit made while a turn runs can be replaced by that turn's later write to the same file; it stays in the file's history, one restore away (4.4).
 
 ## 4. The turn
@@ -101,6 +116,7 @@ The rest of the receipt (the request and response as sent) belongs to the Comput
 **Sessions.**
 - A session runs one turn at a time and sends its next only after its previous return is resolved (4.6).
 - Any number of sessions may work on one drama. None owns any object.
+- A client that runs several turns at once opens several sessions. Which session runs what, and how many there are, is the client's to arrange.
 
 **Storage.** The keys of the Computer's artifact store, each written once:
 - `files/<hash>`: one file;
@@ -120,11 +136,11 @@ The rest of the receipt (the request and response as sent) belongs to the Comput
 | Field | Meaning |
 |---|---|
 | `turn_id` | The turn id. |
-| `seed_files` | The seed: every file of the drama at the commit the client made for it, `{<path>: <hash>}`. Paths starting with `.` are left out (section 1). |
+| `seed_files` | The seed: every file of the drama as the client holds it now, `{<path>: <hash>}`. Paths starting with `.` are left out (section 1). |
 | `session_private_state` | The hash of the session's private state from its last return, or `null`. |
 | `notes_for_pine_computer` | The person's feedback for Pine Computer, each `{object_id, text, attached_file?, position_in_shown_file?: {x, y}, seconds_into_video?}`. `attached_file` is a file of `seed_files` (a picture the person attached), `position_in_shown_file` gives fractions 0–1 of the shown file's width and height, and `seconds_into_video` gives seconds into a video. A note decides nothing. |
 
-- **The seed commit.** Before writing the request, the client commits whatever is uncommitted as `client-found-changes-on-disk`, so the seed is a commit and every input the turn may read is in history.
+- **The seed is recorded.** `seed_files` MUST be the client's complete current state, recorded in history (2.1), so every input the turn may read can be found again. A folder client first records whatever the folder holds that no record does, as `client-found-changes-on-disk`.
 - **Restore.** The Computer side writes exactly `seed_files` into its workspace, then restores the private state outside it: private state never holds a file of the drama, so it cannot overwrite the seed. A file of the tree the Computer side rewrites only for its own machine, such as a path in its configuration, is kept outside the workspace too, so it never comes back as a change.
 - **Only what changed moves.** The workspace MUST equal `seed_files` exactly. To get there, the Computer side MAY keep its workspace and a local cache of file bytes by hash between turns on the same Computer. It then fetches only the paths whose hash changed, links them in from the cache, and deletes the paths `seed_files` no longer has. This is the remote-execution model of Bazel's REAPI, where an executor materializes an input root from its content-addressed cache. A fresh Computer fetches the whole tree once.
 
@@ -148,11 +164,11 @@ change = { schema, turn_id, change_number, previous_change_sha256, files_after_c
 
 The client applies a turn's changes in `change_number` order, through the one queue that also writes the person's changes, so two never write at once. For each change:
 
-1. **Resolved already?** A change is resolved when a commit carries its trailers `Pine-Turn-Id: <turn id>` and `Pine-Change-Number: <change number>`. Then it is skipped. The repository is the record, so it travels with the folder. If every path's current hash already equals its hash in `files_after_change` (a crash's files that a `client-found-changes-on-disk` commit took), the client records it with an empty commit carrying those trailers, and goes on.
+1. **Resolved already?** A change whose applied record exists (2.1; in git, a commit carrying its trailers `Pine-Turn-Id` and `Pine-Change-Number`) is skipped. If every path's current hash already equals its hash in `files_after_change` (a crash's files that a folder client recorded as `client-found-changes-on-disk`), the client writes the applied record alone (in git, an empty commit with those trailers) and goes on.
 2. **Write.** Each file is written by a temporary sibling and a rename, receipts before the outputs they describe. A `null` deletes the file.
-3. **Commit.** The client commits exactly those paths (`git commit --only -- <paths>`) as `pine-computer`, with the trailers `Pine-Turn-Id` and `Pine-Change-Number`.
+3. **Record.** The client records exactly those paths as one `pine-computer` change with its applied record (in git, `git commit --only -- <paths>` with the trailers).
 
-**A crash** between steps 2 and 3 leaves the files on disk. The next opening commits them as `client-found-changes-on-disk`, and step 1 then finds the change applied.
+**A crash** between steps 2 and 3 leaves the files written but unrecorded. A folder client records them as `client-found-changes-on-disk` at the next opening, and step 1 then finds the change applied. A client whose store writes a change atomically has no such window.
 
 **The newest result lands.** There is no check against what a file held before and no refusal: whichever change is applied last is the file's current content, and the file's history keeps every earlier one, the person's included. The same one rule covers a reroll's attempts, two sessions writing one file, and a turn writing over a person's edit. "Use" (section 5) brings any earlier one back.
 
@@ -164,9 +180,9 @@ Each paid call's states are documents of their own (`$defs/paidCallState`) at `t
 |---|---|
 | `pine_computer_sent_request_to_provider` | Before the call is sent to the provider. |
 | `provider_returned_output_to_pine_computer`, `provider_reported_failure_to_pine_computer`, `pine_computer_cancelled_call_after_person_pressed_stop` | When the call ends so. These are terminal. |
+| `pine_computer_cannot_learn_call_outcome` | When the call's outcome cannot be learned. This state is **not settled**: the Computer side MUST NOT send the same request to the provider again while a call of it is in this state. |
 
 The person pressing Stop is the only cause of `pine_computer_cancelled_call_after_person_pressed_stop`. A call cut off any other way (the Pine turn ending, the Computer lost) is `pine_computer_cannot_learn_call_outcome` until a later turn learns its outcome.
-| `pine_computer_cannot_learn_call_outcome` | When the call's outcome cannot be learned. This state is **not settled**: the Computer side MUST NOT send the same request to the provider again while a call of it is in this state. |
 
 A paid-call state carries `{schema, paid_call_id, object_id, state, state_written_at, cost?}`. It is the public summary only.
 - **The ledger stays the Computer side's.** The paid-call ledger keeps the reservation, the generation lock, the attempt identity, the request as saved and the provider's reference (drama-cli's `ledger.py`). It travels in the private state, so a later turn of the session can settle a call an earlier one started.
@@ -192,6 +208,7 @@ A paid-call state carries `{schema, paid_call_id, object_id, state, state_writte
 
 - **Resolved.** A return is resolved once its changes up to `last_change` are applied. The session may then send its next turn.
 - **Private state.** The client keeps a copy of every private-state archive a return named, by hash, and the session's next request names the one its latest resolved return gave. A `pine_computer_refused_the_turn_before_running` or missing return keeps the one before.
+- **The turn's own cost** is the one Pine reports for the turn (its turn result's `usage.cost`, `{total, currency}`). Receipts carry only the paid calls' costs (2.3).
 - **Stops are questions.** The five stops of the drama workflow are `pine_computer_is_waiting_for_person_answer` returns: the person's answer is the approval of the next paid work, given before it, as a coding agent asks for approval before it acts (Codex's AskForApproval). There is no acceptance after the fact.
 
 ### 4.7 Stop, and a run that does not return
@@ -207,8 +224,8 @@ A paid-call state carries `{schema, paid_call_id, object_id, state, state_writte
 
 ## 5. What the client shows
 
-- **The cards** show what the folder holds: each object's `object.json`, its `shown_file` and its receipts. A history is `git log` of a path.
-- **"Use" on a past result** restores every file of that result's change (the commit carrying its `Pine-Change-Number`), receipts with them, as a `person` commit. So an output never sits beside another result's sibling or receipt.
+- **The cards** show what the client holds: each object's `object.json`, its `shown_file` and its receipts. A file's history is every earlier content of it (2.1; in git, `git log` of the path).
+- **"Use" on a past result** restores every file of that result's change (in git, the commit carrying its `Pine-Change-Number`), receipts with them, as a `person` change. So an output never sits beside another result's sibling or receipt.
 
 ## 6. Errors
 
@@ -226,9 +243,9 @@ An error is `{code, message, action?, upgrade_needed?}`. `message` is for the pe
 ## 7. Majors and upgrades
 
 - **One major per reader.** A reader reads only its own major, and a document of any other major is refused whole, with `pine_computer_refused_request_of_unsupported_protocol_major` or `client_refused_document_of_unsupported_protocol_major` by whichever side refused. A major is the format itself: read by rules it does not follow, a document could write wrong data into the person's folder. Git likewise refuses a repository whose format version it does not understand ([gitrepository-layout](https://git-scm.com/docs/gitrepository-layout)).
-- **A refusal names the upgrade.** Either refusal MUST carry `upgrade_needed: {minimum_client_version, download_url}` when the refusing side knows it: the lowest client version that reads the newer major, and where to download it. The client MUST show it to the person.
-  - When the client meets a newer major, it names its own newer version and where to download it.
-  - When it meets an older Computer side (a major-1 refusal, or no answer in major 2), it says that this Computer runs an older drama-cli and that a new Chat starts on a current one.
+- **A refusal names the upgrade.** Either refusal MUST carry `upgrade_needed: {minimum_client_version, download_url?}` when the refusing side knows it: the lowest client version that reads the newer major and, for a client people install, where to download it. The client MUST tell the person.
+  - When the client meets a newer major, it says which newer version of itself is needed, and where to get it when there is a download.
+  - When it meets an older Computer side (a major-1 refusal, or no answer in major 2), it says that this Computer runs an older Pine Computer side, and that a new session starts on a current one.
 - **A drama of another major** is never written. The client offers to convert it (section 8).
 - **Releases.** A new major ships the client and the Computer side on the same day.
 
