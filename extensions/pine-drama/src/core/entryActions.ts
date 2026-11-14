@@ -18,10 +18,12 @@ export interface EntryDone {
 	readonly already: boolean;
 }
 
-/** What a card action asks the person, in the window; undefined means the person cancelled. */
+/** What a card action asks the person, in the window; undefined or false means the person cancelled. */
 export interface EntryAsk {
 	description(object: string, current: string): PromiseLike<string | undefined>;
 	file(): PromiseLike<string | undefined>;
+	/** A yes or no before an action the person may not have meant, as the Explorer asks before a delete (explorer.confirmDelete). */
+	confirm(question: string, detail: string): PromiseLike<boolean>;
 }
 
 /** The line a card shows when nothing changed, so a press that changed nothing never looks lost. */
@@ -44,6 +46,7 @@ export async function runCardAction(root: string, request: CardRequest, ask: Ent
 			await change(c => withObject(c, request.object, e => e.chosen?.version === request.version ? e : { ...e, chosen: { version: request.version, words: USE_AS_MAIN } }));
 			break;
 		case 'discard':
+			if (!await ask.confirm(`Delete ${request.version} of ${request.object}?`, 'It leaves the strip; its files stay in the folder.')) { return undefined; }
 			await change(c => withObject(c, request.object, e => e.discarded?.includes(request.version) ? e : { ...e, discarded: [...(e.discarded ?? []), request.version] }));
 			break;
 		case 'describe': {
