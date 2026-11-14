@@ -2,7 +2,9 @@
 // the real path of its deepest existing ancestor, then the rest, so a symlinked drama/ or subfolder that points out is
 // refused, never followed. No vscode import.
 
-import { lstatSync, realpathSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
+import { constants, existsSync, lstatSync, readdirSync, realpathSync } from 'node:fs';
+import { copyFile, open, rename, unlink } from 'node:fs/promises';
 import { basename, dirname, join, resolve, sep } from 'node:path';
 
 /** A session's project root, and the folder nothing it settles may leave: its bound folder, or the root itself. */
@@ -59,4 +61,50 @@ export function within(boundary: string, path: string): boolean {
 export function throughNoLink(root: string, path: string): boolean {
 	const real = realTarget(root);
 	return !!real && realTarget(join(root, ...path.split('/'))) === join(real, ...path.split('/'));
+}
+
+/**
+ * Writes `file` whole: a sibling temporary file, fsync, then rename. The temporary file's name is unique to the write
+ * (a random UUID, as npm's write-file-atomic makes one per call): two writes in the same folder at the same millisecond,
+ * such as two sessions recording the same holder (B9), named one file, so one rename found it gone.
+ */
+export async function writeWhole(file: string, text: string | Uint8Array): Promise<void> {
+	const temp = join(dirname(file), `.${randomUUID()}.tmp`);
+	const handle = await open(temp, 'w');
+	try {
+		await handle.writeFile(text);
+		await handle.sync();
+	} finally {
+		await handle.close();
+	}
+	try {
+		await rename(temp, file);
+	} catch (error) {
+		await unlink(temp).catch(() => undefined);
+		throw error;
+	}
+}
+
+/**
+ * The first of `name`, `numbered(2)`, `numbered(3)`, … that no entry of the folder `folder` holds and `planned` does not
+ * name, by any case: two names that differ only by case are one path (doc/protocol.md section 1).
+ */
+export function unusedName(folder: string, name: string, numbered: (n: number) => string, planned: Iterable<string> = []): string {
+	const taken = new Set([...existsSync(folder) ? readdirSync(folder) : [], ...planned].map(entry => entry.toLowerCase()));
+	for (let n = 1; ; n++) {
+		const candidate = n === 1 ? name : numbered(n);
+		if (!taken.has(candidate.toLowerCase())) { return candidate; }
+	}
+}
+
+/** Copies `source` to `target` whole, as writeWhole writes: a clone where the file system has them (APFS), a copy otherwise, then a rename into place. */
+export async function copyWhole(source: string, target: string): Promise<void> {
+	const temp = join(dirname(target), `.${randomUUID()}.tmp`);
+	await copyFile(source, temp, constants.COPYFILE_FICLONE);
+	try {
+		await rename(temp, target);
+	} catch (error) {
+		await unlink(temp).catch(() => undefined);
+		throw error;
+	}
 }

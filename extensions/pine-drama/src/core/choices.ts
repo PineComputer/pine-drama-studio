@@ -2,10 +2,9 @@
 // whole: a temporary file, fsync, then rename, which the OS makes atomic. Versions and reviews are read from the folder
 // itself, never from an index of ours. No vscode import.
 
-import { randomUUID } from 'node:crypto';
-import { constants } from 'node:fs';
-import { copyFile, mkdir, open, readdir, readFile, rename, unlink } from 'node:fs/promises';
-import { dirname, extname, join } from 'node:path';
+import { readdir, readFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { writeWhole } from './placement';
 import { listOf, MAJOR, mapOf, matches, UnsupportedMajor, type Choices, type ObjectChoice, type Review, type VersionRecord } from './protocol';
 
 export const CHOICES_FILE = 'choices.json';
@@ -35,43 +34,16 @@ export async function readChoices(root: string): Promise<Choices | null> {
 }
 
 /**
- * Writes `file` whole: a sibling temporary file, fsync, then rename. The temporary file's name is unique to the write
- * (a random UUID, as npm's write-file-atomic makes one per call): two writes in the same folder at the same millisecond,
- * such as two sessions recording the same holder (B9), named one file, so one rename found it gone.
+ * Changes the folder's choices (major 1, until the turn flow moves to major 2): `change` gets the current ones (empty
+ * when there are none) and returns the new ones, which are written whole. The caller runs it in the project's one write
+ * queue (projectHistory.ts runInProjectWriteQueue), as every write of the project's files runs. Only the caller's own
+ * change is new: the rest of the file goes back as it was read, so nothing else in it, hand-edited or written by another
+ * Studio, can refuse the person's change.
  */
-export async function writeWhole(file: string, text: string | Uint8Array): Promise<void> {
-	const temp = join(dirname(file), `.${randomUUID()}.tmp`);
-	const handle = await open(temp, 'w');
-	try {
-		await handle.writeFile(text);
-		await handle.sync();
-	} finally {
-		await handle.close();
-	}
-	try {
-		await rename(temp, file);
-	} catch (error) {
-		await unlink(temp).catch(() => undefined);
-		throw error;
-	}
-}
-
-const queues = new Map<string, Promise<unknown>>();
-
-/**
- * Changes the folder's choices: `change` gets the current ones (empty when there are none) and returns the new ones,
- * which are written whole. Only the caller's own change is new: the rest of the file goes back as it was read, so
- * nothing else in it, hand-edited or written by another Studio, can refuse the person's change. Changes to one folder run one after another, so none is lost; the project window
- * lock keeps every other window out.
- */
-export function updateChoices(root: string, change: (choices: Choices) => Choices): Promise<Choices> {
-	const run = (queues.get(root) ?? Promise.resolve()).catch(() => undefined).then(async () => {
-		const next = change((await readChoices(root)) ?? EMPTY);
-		await writeWhole(join(root, CHOICES_FILE), `${JSON.stringify(next, null, '\t')}\n`);
-		return next;
-	});
-	queues.set(root, run);
-	return run;
+export async function updateChoices(root: string, change: (choices: Choices) => Choices): Promise<Choices> {
+	const next = change((await readChoices(root)) ?? EMPTY);
+	await writeWhole(join(root, CHOICES_FILE), `${JSON.stringify(next, null, '\t')}\n`);
+	return next;
 }
 
 /** `choices` with `object`'s entry changed by `change`; an entry left empty is dropped. */
@@ -80,30 +52,6 @@ export function withObject(choices: Choices, object: string, change: (entry: Obj
 	const objects = { ...choices.objects };
 	if (Object.keys(entry).length) { objects[object] = entry; } else { delete objects[object]; }
 	return { ...choices, objects };
-}
-
-/**
- * Copies the person's picture to `imports/<id><ext>`: a clone where the file system has them (APFS), a
- * copy otherwise, then a rename into place. Returns the project-relative path.
- */
-export async function copyImport(root: string, source: string, id: string): Promise<string> {
-	const rel = `imports/${id}${extname(source).toLowerCase()}`;
-	const target = join(root, ...rel.split('/'));
-	await mkdir(dirname(target), { recursive: true });
-	await copyWhole(source, target);
-	return rel;
-}
-
-/** Copies `source` to `target` whole, as writeWhole writes: a clone where the file system has them (APFS), a copy otherwise, then a rename into place. */
-export async function copyWhole(source: string, target: string): Promise<void> {
-	const temp = join(dirname(target), `.${randomUUID()}.tmp`);
-	await copyFile(source, temp, constants.COPYFILE_FICLONE);
-	try {
-		await rename(temp, target);
-	} catch (error) {
-		await unlink(temp).catch(() => undefined);
-		throw error;
-	}
 }
 
 export interface Version {

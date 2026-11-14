@@ -1,12 +1,13 @@
 // A task's start on the Studio's side (doc/protocol.md, 4.1 and 4.2): the request, built from the drama's folder and the
 // returns installed in it, and the message that starts it. No vscode import.
 
+import { PERSON_ATTACHMENTS_FOLDER } from './protocol';
+import { writeWhole } from './placement';
 import { sha256, sha256OfFileOnDisk } from './sha256';
 import { existsSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { create as createTar } from 'tar';
-import { writeWhole } from './choices';
 import type { TasksOf } from './project';
 import { projectIdentity } from './projectPlace';
 import type { Choices, Folders, Note, ProtocolError, Request, Snapshot } from './protocol';
@@ -91,7 +92,7 @@ export interface SentTask {
 	readonly request: Request;
 }
 
-/** Writes `path` whole (choices.ts, writeWhole), its folder made first. */
+/** Writes `path` whole (placement.ts, writeWhole), its folder made first. */
 async function writeJson(path: string, value: unknown): Promise<void> {
 	await mkdir(dirname(path), { recursive: true });
 	await writeWhole(path, JSON.stringify(value));
@@ -276,7 +277,7 @@ export function scopedSnapshots(returns: readonly Pick<Turn, 'task' | 'scope' | 
 }
 
 /** The folders of the client files (doc/protocol.md, 3.3): the person's pictures and their inputs. */
-export const CLIENT_FOLDERS = ['imports', 'inputs'] as const;
+export const CLIENT_FOLDERS = ['inputs', PERSON_ATTACHMENTS_FOLDER] as const;
 
 /** Every client file of the drama at `root`: its project-relative path, and where it is. */
 export function clientFileList(root: string): { readonly rel: string; readonly path: string }[] {

@@ -5,6 +5,14 @@ import { isPath, readEntryAction, type EntryAction } from './galleryProtocol';
 
 export const CANVAS_PROTOCOL = 1;
 
+/** Who a history commit is by, in the person's words (doc/protocol.md 2.1): the Versions view's and the strip's. */
+export function madeBy(author: string): string {
+	return author === 'pine-computer' ? 'by the Pine Computer' : author === 'person' ? 'by you' : author === 'client-found-changes-on-disk' ? 'found on disk' : author;
+}
+
+/** A commit's time as the Versions view and the strip show it: "2026-11-12 10:05". */
+export const shortDate = (iso: string): string => iso.slice(0, 16).replace('T', ' ');
+
 /**
  * What an object with nothing shown yet says, the one wording for the canvas card, the seg editor's badge and the tree:
  * being made while a paid call for it is under way, else not shot yet for a take or a cut, not drawn yet for the rest.
@@ -109,10 +117,27 @@ export type ToCanvas =
 		readonly record?: CanvasRecord | null;
 		/** The box's prompt; null for an object with none to edit. */
 		readonly prompt?: CanvasPrompt | null;
+		/** Its shown file's earlier results and the one in use, for Use (versionDetail.ts pictureHistory); null with none. */
+		readonly picture?: CanvasPicture | null;
 		/** What its next draw request sends, Image 1..N (versionDetail.ts nextDrawRequest): the composer's references. */
 		readonly nextDraw?: readonly MadeFrom[] }
 	/** A record panel's action ended (cardActions.ts): its failure, or `unchanged` when it wrote nothing (unchangedLine). */
 	| { readonly v: typeof CANVAS_PROTOCOL; readonly type: 'actionEnded'; readonly key: string; readonly error: string | null; readonly unchanged: string | null };
+
+/** A card's picture history as the composer's strip shows it ("The record panel's picture versions"). */
+export interface CanvasPicture {
+	readonly object: string;
+	/** Newest first, one per result of the shown file (projectHistory.ts listHistoryOfShownFile); Main is the one shown. */
+	readonly versions: readonly {
+		readonly commit: string;
+		/** When and by whom (madeBy, shortDate). */
+		readonly label: string;
+		readonly main: boolean;
+		readonly src: string;
+		/** Each result's own (versionDetail.ts mediaOf): an object can turn from a picture into a video. */
+		readonly media: 'image' | 'video' | 'text';
+	}[];
+}
 
 /** The box's one text: the object's prompt.md, which the person and the agent edit; null while there is none. */
 export interface CanvasPrompt {

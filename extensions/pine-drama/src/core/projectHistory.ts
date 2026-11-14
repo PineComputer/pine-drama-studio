@@ -7,9 +7,11 @@
 import { existsSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { devNull } from 'node:os';
-import { join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { git } from './git';
+import { writeWhole } from './placement';
 import { projectIdentity } from './projectPlace';
+import { OBJECT_FILE } from './protocol';
 
 /**
  * A commit's author (doc/protocol.md 2.1): a turn's result, the person's own change through the Studio, or what the
@@ -26,7 +28,7 @@ export type CommitAuthor = 'pine-computer' | 'person' | 'client-found-changes-on
 // `-delta`: no delta compression of media, which recompressed bytes don't gain from (gitattributes, "delta").
 const ATTRIBUTES = ['* -text -filter -ident -working-tree-encoding', ...['png', 'jpg', 'jpeg', 'webp', 'gif', 'mp4', 'mov', 'webm', 'wav', 'mp3', 'm4a']
 	.map(ext => `*.${ext} -delta`)].join('\n') + '\n';
-// The Studio's own temporary files, a whole write's sibling (choices.ts, writeWhole), gone once its rename is done; and
+// The Studio's own temporary files, a whole write's sibling (placement.ts, writeWhole), gone once its rename is done; and
 // the Finder's: in the repository's own info/exclude (gitignore, "$GIT_DIR/info/exclude"), not the person's folder.
 const EXCLUDED = '.*.tmp\n.DS_Store\n';
 
@@ -114,34 +116,122 @@ export async function historyHasTurnChange(projectRoot: string, turnId: string, 
 	return found.split('\0').some(entry => entry.trim() === `${turnId}\x1f${changeNumber}`);
 }
 
-/** One commit of a file's history: who made it, the turn's change it applied if any, and the file's blob there. */
-export interface FileHistoryEntry {
+/** One commit of a history: who made it, when, the turn's change it applied if any, and the files it changed. */
+export interface HistoryEntry {
 	readonly commit: string;
 	readonly author: string;
 	readonly committedAt: string;
 	readonly turnChange: { readonly turnId: string; readonly changeNumber: number } | null;
-	/** git's id of the file's bytes at this commit (a local id, doc/protocol.md section 1), or null where the commit deletes it. */
-	readonly blob: string | null;
+	/**
+	 * Each file under the path asked that the commit changed, with git's id of its bytes there (a local id, doc/protocol.md
+	 * section 1), or null where the commit deleted it.
+	 */
+	readonly files: ReadonlyMap<string, string | null>;
 }
 
 /**
- * `path`'s history, newest first: every commit of HEAD's history that changed it (git log -- <path>), with its blob
- * there, named by one `git cat-file --batch-check`, which reads no file's bytes. The version strip, "Use" and a
- * conversion's check read it.
+ * The history of `path`, a file or a folder, newest first: every commit of HEAD's history that changed a file there
+ * (git log -- <path>), each with the files it changed there and their blobs, from git's raw diff output (git log --raw),
+ * which reads no file's bytes. The one history lister: an object's shown file and a conversion's check read it.
  */
-export async function listHistoryOfFile(projectRoot: string, path: string): Promise<FileHistoryEntry[]> {
+export async function listHistory(projectRoot: string, path: string): Promise<HistoryEntry[]> {
 	if (!existsSync(join(projectRoot, '.git')) || !await hasHead(projectRoot)) { return []; }
-	const log = await run(projectRoot, 'person', ['log', '-z', `--format=%H%x1f%an%x1f%cI%x1f%(trailers:key=${TURN_ID},valueonly)%x1f%(trailers:key=${CHANGE_NUMBER},valueonly)`, '--', path]);
-	const commits = log.split('\0').filter(Boolean).map(entry => entry.split('\x1f').map(field => field.trim()));
-	if (!commits.length) { return []; }
-	const asked = commits.map(([commit]) => `${commit}:${path}`);
-	// One line per name asked: "<blob> blob <size>", or "<name asked> missing" where the commit holds no such file. A
-	// missing reply is known by the name asked, so a file named like a reply is never read as one.
-	const lines = (await run(projectRoot, 'person', ['cat-file', '--batch-check'], { stdin: asked.map(name => `${name}\n`).join('') })).split('\n');
-	return commits.map(([commit, author, committedAt, turnId, changeNumber], i) => ({
-		commit, author, committedAt, blob: lines[i] === `${asked[i]} missing` ? null : lines[i].split(' ')[0],
-		turnChange: turnId && changeNumber ? { turnId, changeNumber: Number(changeNumber) } : null,
+	const log = await run(projectRoot, 'person', ['log', '-z', '--raw', '--no-renames', '--no-abbrev',
+		`--format=%x1e%H%x1f%an%x1f%cI%x1f%(trailers:key=${TURN_ID},valueonly)%x1f%(trailers:key=${CHANGE_NUMBER},valueonly)`, '--', path]);
+	// Each commit starts with a record separator and its fields, then NUL-separated pairs: a raw line
+	// (":<mode> <mode> <blob before> <blob after> <status>") and its path. A blob of zeros is no file.
+	return log.split('\x1e').filter(Boolean).map(record => {
+		const [head, ...raw] = record.split('\0');
+		const [commit, author, committedAt, turnId, changeNumber] = head.split('\x1f').map(field => field.trim());
+		const files = new Map<string, string | null>();
+		for (let i = 0; i + 1 < raw.length; i += 2) {
+			const after = raw[i].trim().split(' ')[3];
+			files.set(raw[i + 1], /^0+$/.test(after) ? null : after);
+		}
+		return { commit, author, committedAt, files, turnChange: turnId && changeNumber ? { turnId, changeNumber: Number(changeNumber) } : null };
+	});
+}
+
+/** One result of an object: the commit that first wrote it, its file then, its blob, and whether the object shows it now. */
+export interface ShownFileHistoryEntry extends Omit<HistoryEntry, 'files'> {
+	readonly file: string;
+	readonly blob: string;
+	readonly shown: boolean;
+}
+
+/**
+ * `object`'s results, newest first: each content its shown file has had, under every name its object.json gave it (an
+ * import keeps the name with the person's extension, doc/protocol.md section 3), once, at the commit that first wrote
+ * it; `shown` marks the one its history shows now, which a Use makes an earlier one again. A commit's shown file is
+ * the one its object.json names after that commit. The strip, Versions and Use read it.
+ */
+export async function listHistoryOfShownFile(projectRoot: string, object: string): Promise<ShownFileHistoryEntry[]> {
+	const oldestFirst = (await listHistory(projectRoot, object)).reverse();
+	// The shown file each commit's object.json names, where the commit changed it; an object.json that is no JSON names none.
+	const named = await Promise.all(oldestFirst.map(async ({ files }) => {
+		const blob = files.get(`${object}/${OBJECT_FILE}`);
+		if (blob === undefined) { return undefined; }
+		try {
+			const shown = blob === null ? null : Object(JSON.parse((await blobBytes(projectRoot, blob)).toString('utf8'))).shown_file;
+			return typeof shown === 'string' ? shown : null;
+		} catch {
+			return null;
+		}
 	}));
+	let shown: string | null = null;
+	// Each file's blob after the commits walked so far, and each result by its file and blob.
+	const blobs = new Map<string, string | null>();
+	const results = new Map<string, Omit<ShownFileHistoryEntry, 'shown'>>();
+	const resultNow = () => {
+		const file = shown === null ? null : `${object}/${shown}`;
+		const blob = file === null ? null : blobs.get(file) ?? null;
+		return file === null || blob === null ? null : { key: `${file}\0${blob}`, file, blob };
+	};
+	for (const [i, { files, ...entry }] of oldestFirst.entries()) {
+		for (const [path, blob] of files) { blobs.set(path, blob); }
+		if (named[i] !== undefined) { shown = named[i]!; }
+		const result = resultNow();
+		if (result && !results.has(result.key)) { results.set(result.key, { ...entry, file: result.file, blob: result.blob }); }
+	}
+	const now = resultNow()?.key;
+	return [...results].reverse().map(([key, result]) => ({ ...result, shown: key === now }));
+}
+
+/** The bytes `path` held at commit `commit`, or null where it held no such file. */
+export async function readFileAtCommit(projectRoot: string, commit: string, path: string): Promise<Buffer | null> {
+	return (await exec(projectRoot, 'person', ['cat-file', '-e', `${commit}:${path}`])).exitCode === 0 ? blobBytes(projectRoot, `${commit}:${path}`) : null;
+}
+
+/**
+ * The files commit `commit` changed in `object`'s own folder, each with its bytes there, or null where it deleted the
+ * file: what a "Use" of that result restores (doc/protocol.md section 5). A folder below holding an object.json, in the
+ * commit or among what it changed, is an object of its own (a variant) and is left out. git diff-tree names them, the
+ * first commit's too (--root).
+ */
+export async function readChangeOfObject(projectRoot: string, commit: string, object: string): Promise<Map<string, Buffer | null>> {
+	const listed = (await run(projectRoot, 'person', ['diff-tree', '-r', '-z', '--root', '--no-commit-id', '--name-status', '--no-renames', commit, '--', object])).split('\0').filter(Boolean);
+	const changed = new Map<string, boolean>();
+	for (let i = 0; i + 1 < listed.length; i += 2) { changed.set(listed[i + 1], listed[i] === 'D'); }
+	const tree = (await run(projectRoot, 'person', ['ls-tree', '-r', '-z', '--name-only', commit, '--', object])).split('\0').filter(Boolean);
+	const objects = [...tree, ...changed.keys()].filter(path => basename(path) === OBJECT_FILE).map(dirname).filter(folder => folder !== object);
+	const files = new Map<string, Buffer | null>();
+	for (const [path, deleted] of changed) {
+		if (objects.some(folder => path.startsWith(`${folder}/`))) { continue; }
+		files.set(path, deleted ? null : await blobBytes(projectRoot, `${commit}:${path}`));
+	}
+	return files;
+}
+
+/** Writes the blob `blob` to `file`, once: a past version's picture, for a thumbnail outside the project's folder. */
+export async function writeBlobToFile(projectRoot: string, blob: string, file: string): Promise<void> {
+	if (existsSync(file)) { return; }
+	await mkdir(dirname(file), { recursive: true });
+	await writeWhole(file, await blobBytes(projectRoot, blob));
+}
+
+/** A blob's bytes, by any name git resolves to one (`<commit>:<path>` or its id); latin1 maps each byte to one character. */
+async function blobBytes(projectRoot: string, name: string): Promise<Buffer> {
+	return Buffer.from(await run(projectRoot, 'person', ['cat-file', 'blob', name], { encoding: 'latin1' }), 'latin1');
 }
 
 const escapeRegex = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -157,7 +247,7 @@ async function hasHead(projectRoot: string): Promise<boolean> {
  * post-commit either), and the folder's own repository whatever the environment names (REPOSITORY_UNSET). Paths are
  * literal, never patterns (git, --literal-pathspecs).
  */
-function exec(projectRoot: string, author: CommitAuthor, args: readonly string[], call: { readonly stdin?: string } = {}) {
+function exec(projectRoot: string, author: CommitAuthor, args: readonly string[], call: { readonly stdin?: string; readonly encoding?: BufferEncoding } = {}) {
 	const env = { ...REPOSITORY_UNSET, GIT_CONFIG_GLOBAL: devNull, GIT_LITERAL_PATHSPECS: '1', GIT_AUTHOR_NAME: author,
 		GIT_AUTHOR_EMAIL: `${author}@pine-drama.invalid`, GIT_COMMITTER_NAME: author, GIT_COMMITTER_EMAIL: `${author}@pine-drama.invalid` };
 	return git(['-c', 'commit.gpgsign=false', '-c', `core.hooksPath=${devNull}`, ...args], projectRoot, { env, ...call });

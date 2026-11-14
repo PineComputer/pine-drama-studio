@@ -1,14 +1,14 @@
 import { readFile } from 'node:fs/promises';
 import { isAbsolute, join, relative, sep } from 'node:path';
 import * as vscode from 'vscode';
-import { notMadeText } from './core/canvasProtocol';
+import { madeBy, notMadeText, shortDate } from './core/canvasProtocol';
 import { Latest } from './core/latest';
 import { PROJECT_VIEW_ID, startOnProduction } from './productionStart';
 import { ProjectFinder, PROJECT_FILES } from './core/projectFinder';
 import { PROJECT_MARKER_FILE } from './core/protocol';
 import { major1ConversionPending } from './core/convertMajor1ProjectToMajor2';
 import { DramaProject, NOTE_ATTACH, NOTE_INTAKE, readProjectMajor, type OutlineNode, type ProjectReadModel, type Role } from './core/project';
-import { listHistoryOfFile, type FileHistoryEntry } from './core/projectHistory';
+import { listHistoryOfShownFile, type ShownFileHistoryEntry } from './core/projectHistory';
 import { holdsNoProject } from './core/binding';
 import { decomposition, detachedStage, kindRow, lockOf, openSteps, sectionLines } from './core/threeSteps';
 
@@ -219,11 +219,8 @@ class ProjectProvider implements vscode.TreeDataProvider<OutlineNode> {
 	}
 }
 
-/** A row of Versions: one commit of the shown file's history. */
-type TimelineEntry = FileHistoryEntry & { readonly file: string; readonly newest: boolean };
-
-/** Who a history commit is by, in the person's words (doc/protocol.md 2.1). */
-const BY: Readonly<Record<string, string>> = { 'pine-computer': 'by the Pine Computer', person: 'by you', 'client-found-changes-on-disk': 'found on disk' };
+/** A row of Versions: one result of the shown file (projectHistory.ts listHistoryOfShownFile). */
+type TimelineEntry = ShownFileHistoryEntry;
 
 class TimelineProvider implements vscode.TreeDataProvider<TimelineEntry> {
 	private readonly changed = new vscode.EventEmitter<void>();
@@ -247,20 +244,17 @@ class TimelineProvider implements vscode.TreeDataProvider<TimelineEntry> {
 
 	getTreeItem(entry: TimelineEntry): vscode.TreeItem {
 		const item = new vscode.TreeItem(shortDate(entry.committedAt));
-		item.description = [BY[entry.author] ?? entry.author, entry.blob === null ? 'deleted' : '', entry.newest ? 'shown' : ''].filter(Boolean).join(' · ');
-		item.iconPath = new vscode.ThemeIcon(entry.newest ? 'pass-filled' : entry.blob === null ? 'trash' : 'circle-small');
+		item.description = [madeBy(entry.author), entry.shown ? 'shown' : ''].filter(Boolean).join(' · ');
+		item.iconPath = new vscode.ThemeIcon(entry.shown ? 'pass-filled' : 'circle-small');
 		item.tooltip = `${entry.file}\n${entry.commit.slice(0, 12)}${entry.turnChange ? `\nTurn ${entry.turnChange.turnId}, change ${entry.turnChange.changeNumber}` : ''}`;
-		// The shown file opens from its newest row; an earlier one is brought back by Use, on its card.
-		if (entry.newest && entry.blob !== null && this.project) {
+		// The shown file opens from its row; an earlier one is brought back by Use, on its card.
+		if (entry.shown && this.project) {
 			item.command = { command: 'vscode.open', title: 'Open', arguments: [fileUri(this.project.root, entry.file), { preview: true }] };
 		}
 		return item;
 	}
 }
 
-function shortDate(iso?: string): string {
-	return iso ? iso.slice(0, 16).replace('T', ' ') : '';
-}
 
 /** A stage to show in Versions: its path, and the label for the title. */
 export interface StageRef {
@@ -324,9 +318,9 @@ export async function registerProjectViews(context: vscode.ExtensionContext, out
 	const show = async (stage: StageRef, latestOnly: () => boolean) => {
 		const project = current();
 		const file = (await project.drama()).objects.get(stage.stagePath)?.shownFile ?? null;
-		const history = file ? await listHistoryOfFile(project.root, file) : [];
+		const history = file ? await listHistoryOfShownFile(project.root, stage.stagePath) : [];
 		if (latestOnly()) {
-			versions.show(history.map((entry, i) => ({ ...entry, file: file!, newest: i === 0 })));
+			versions.show(history);
 			await vscode.commands.executeCommand('setContext', 'pineDrama.versionsShown', true);
 			versionsView.title = `Versions · ${stage.label}`;
 			versionsView.description = file ? undefined : 'nothing shown yet';

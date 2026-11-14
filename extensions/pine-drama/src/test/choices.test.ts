@@ -1,9 +1,10 @@
+import { writeWhole } from '../core/placement';
 import { strict as assert } from 'node:assert';
 import { cp, mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { readChoices, readVersions, resolve, updateChoices, versionRecordOf, withObject, writeWhole } from '../core/choices';
+import { readChoices, readVersions, resolve, updateChoices, versionRecordOf, withObject } from '../core/choices';
 import { Holders } from '../core/taskArtifacts';
 import { UnsupportedMajor, type Choices } from '../core/protocol';
 

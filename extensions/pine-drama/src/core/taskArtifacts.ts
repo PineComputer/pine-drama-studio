@@ -9,10 +9,10 @@
 // The Studio keeps each archive it received byte for byte (`kept`), so it can put it on another Computer unchanged; which
 // Computer is assumed to hold anything: each task lists its store, and copies or uploads what it lacks. No vscode import.
 
+import { writeWhole } from './placement';
 import { existsSync, readFileSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { writeWhole } from './choices';
 import { sha256 } from './sha256';
 
 /** A Computer's artifacts, as the SDK's `client.artifacts(computerId)` offers them. */

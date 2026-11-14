@@ -6,6 +6,7 @@ import { test } from 'node:test';
 import { convertMajor1ProjectToMajor2, LAST_MAJOR_1_STUDIO, major1ConversionPending, RefusedWithUpgradeInstructions } from '../core/convertMajor1ProjectToMajor2';
 import { git } from '../core/git';
 import { readProjectMajor } from '../core/project';
+import { listHistoryOfShownFile } from '../core/projectHistory';
 import type { Request } from '../core/protocol';
 import { sha256 } from '../core/sha256';
 import { dramaRecordOf } from '../core/taskRun';
@@ -144,6 +145,8 @@ test('a major-1 project becomes major 2 by the table: backed up, one commit per 
 	const described = await Promise.all((await out(root, 'log', '--reverse', '--format=%H', '--', `${ANN}/object.json`)).split('\n')
 		.map(async commit => JSON.parse(await out(root, 'show', `${commit}:${ANN}/object.json`)).shown_file));
 	assert.deepEqual(described, ['image-1.jpg', 'image-1.png', 'image-1.jpg'], 'v1, then v2, then the current v1');
+	assert.deepEqual((await listHistoryOfShownFile(root, ANN)).map(r => [r.file, r.shown]), [[`${ANN}/image-1.png`, false], [`${ANN}/image-1.jpg`, true]],
+		"the strip offers v2 under its own name, and shows v1, once");
 });
 
 test('a major-1 turn still owed a return refuses the conversion, naming the Studio to finish it in; nothing is changed', async () => {

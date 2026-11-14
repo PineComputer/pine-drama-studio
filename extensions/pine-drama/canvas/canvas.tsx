@@ -15,7 +15,7 @@ import '@xyflow/react/dist/style.css';
 import '@vscode/codicons/dist/codicon.css';
 import './canvas.css';
 import { NAME_MAX, TEXT_MAX, type EntryAction } from '../src/core/galleryProtocol';
-import { ASSETS_CANVAS, CANVAS_PROTOCOL, notMadeText, type CanvasCard, type CanvasCommand, type CanvasViewport, type FromCanvas, type Point, type Size, type ToCanvas } from '../src/core/canvasProtocol';
+import { ASSETS_CANVAS, CANVAS_PROTOCOL, notMadeText, type CanvasCard, type CanvasCommand, type CanvasPicture, type CanvasViewport, type FromCanvas, type Point, type Size, type ToCanvas } from '../src/core/canvasProtocol';
 import { CANVAS_WAIT_LIMIT_S, waitingText } from '../src/core/canvasWait';
 import { PictureRef, RequestView } from './requestView';
 import { cardSize, layoutAssets, layoutEpisode, layoutOf, onBoard, openingViewport, positionsFor } from '../src/core/canvasLayout';
@@ -199,6 +199,43 @@ function defaults(message: Lineage, loaded: Record<string, Loaded>): Layout {
 }
 
 /**
+ * A picture's history as Pippit's strip ("The record panel's picture versions"): one thumbnail per result its shown file
+ * held, newest first, the one in use marked Main; a click on another offers Use, which brings that result's whole change
+ * back, receipts with it (doc/protocol.md section 5). History keeps every one, so nothing here deletes.
+ */
+function PictureState({ picture, busy, act }: { picture: CanvasPicture; busy: boolean; act: (action: EntryAction) => void }) {
+	const [chosen, setChosen] = useState<string | null>(null);
+	const main = picture.versions.find(v => v.main);
+	const pick = chosen && picture.versions.find(v => v.commit === chosen && !v.main);
+	return (
+		<div className="picture-state">
+			{main && <span>{`${main.label} · Main`}</span>}
+			{picture.versions.length > 0 && (
+				<div className="strip" role="list">
+					{picture.versions.map(v => (
+						<div key={v.commit} role="listitem" className={`version${v.commit === chosen ? ' chosen' : ''}`} title={`${v.label}${v.main ? ' · Main' : ''}`}>
+							<button className="thumb" onClick={() => setChosen(v.commit === chosen ? null : v.commit)} aria-label={`${v.label}${v.main ? ', Main' : ''}`}>
+								{v.media === 'image' && <img src={v.src} draggable={false} />}
+								{/* #t=0.5, as the card: frame 0 of a take is often black. */}
+								{v.media === 'video' && <video src={`${v.src}#t=0.5`} preload="metadata" muted playsInline />}
+								{v.main && <span className="main">Main</span>}
+							</button>
+							<span className="label">{v.label}</span>
+						</div>
+					))}
+				</div>
+			)}
+			{pick && (
+				<div className="composer-row">
+					<button className="labeled" disabled={busy} onClick={() => { act({ key: `use:${picture.object}`, request: { action: 'use', object: picture.object, commit: pick.commit } }); setChosen(null); }}
+						title={`Use the result of ${pick.label}`}>Use</button>
+				</div>
+			)}
+		</div>
+	);
+}
+
+/**
  * A text the composer edits in place, flat on the composer's surface: what is shown (the person's edit, else the
  * current text), whether it changed or was emptied, and its save, a card action under `key`.
  */
@@ -308,6 +345,7 @@ function Composer({ card, reply, onGo, onClose }: { card: CanvasCard; reply: Det
 					{references.map((r, i) => <PictureRef key={i} r={r} onGo={onGo} />)}
 				</div>
 			)}
+			{reply?.picture && <PictureState picture={reply.picture} busy={busy} act={act} />}
 			{!reply && <div className="detail-note">Reading its record…</div>}
 			{reply?.error && <div className="detail-note">{reply.error}</div>}
 			{main && <FlatText key={main.key} edit={main} busy={busy} label={!record ? 'Prompt' : full ? 'Full prompt' : 'Description'} />}

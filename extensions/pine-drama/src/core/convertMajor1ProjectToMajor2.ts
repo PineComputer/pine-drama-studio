@@ -6,9 +6,10 @@
 import { constants, existsSync, readdirSync, readFileSync } from 'node:fs';
 import { cp, mkdir, readFile, rm } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
-import { CHOICES_FILE, copyWhole, readChoices, readVersions, resolve, versionRecordOf, writeWhole } from './choices';
+import { CHOICES_FILE, readChoices, readVersions, resolve, versionRecordOf } from './choices';
+import { copyWhole, writeWhole } from './placement';
 import { readProjectMajor, snapshotState, writeProjectMarker } from './project';
-import { commitPathsToHistory, listHistoryOfFile, runInProjectWriteQueue } from './projectHistory';
+import { commitPathsToHistory, listHistory, runInProjectWriteQueue } from './projectHistory';
 import { sha256OfFileOnDisk } from './sha256';
 import { DESCRIPTION_FILE, OBJECT_FILE, PROJECT_MARKER_FILE, PROMPT_FILE, RECEIPT_SUFFIX, type Choices, type Edge, type VersionRecord } from './protocol';
 import { dramaRecordOf, dramaRecordsOf, publishKeptTurns, scopedSnapshots, tasksOf, turnsOf } from './taskRun';
@@ -454,7 +455,7 @@ class Conversion {
 	/**
 	 * §8 step 6: every object's files are the bytes of its current version, as the inventory read them, and every converted
 	 * version's bytes are in its major-2 path's history: the commit of the folder as found holds them at their major-1 path,
-	 * and its blob there is one the major-2 path's history names (projectHistory.listHistoryOfFile).
+	 * and its blob there is one the major-2 path's history names (projectHistory.listHistory).
 	 */
 	async verify(): Promise<void> {
 		const kept = `the major-1 folders were kept, and the backup is beside the project`;
@@ -465,7 +466,7 @@ class Conversion {
 				}
 			}
 		}
-		const blobsOf = async (path: string) => new Set((await listHistoryOfFile(this.root, path)).map(e => e.blob));
+		const blobsOf = async (path: string) => new Set((await listHistory(this.root, path)).map(e => e.files.get(path) ?? null));
 		const history = new Map<string, Set<string | null>>();
 		for (const [object, list] of this.byObject) {
 			for (const version of stageOf(object) ? [] : list) {

@@ -1,5 +1,6 @@
 // A Chat's tasks end to end over the fake Pine (doc/protocol.md, section 4): the request and its message go up, the
 // return is installed at the turn's end, and a scope's next task goes only after the last return is installed.
+import { git } from '../core/git';
 import { strict as assert } from 'node:assert';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -173,7 +174,7 @@ test('a turn that ended is collected and its return installed even though its ev
 	} finally { f.store.close(); }
 });
 
-test('files added in the chat input go into the drama\'s folder and travel in the request: a picture to imports/, a document to inputs/', async () => {
+test('files added in the chat input go into the drama\'s folder as the person\'s commit and travel in the request: a picture to person-attachments/, a document to inputs/', async () => {
 	const f = fixture();
 	try {
 		const outside = realpathSync(mkdtempSync(join(tmpdir(), 'pine-added-')));
@@ -185,13 +186,14 @@ test('files added in the chat input go into the drama\'s folder and travel in th
 			{ kind: 'file', path: picture }, { kind: 'file', path: brief }, { kind: 'file', path: join(outside, 'a folder') }], f.root));
 		assert.match(f.said(said), /Not sent to the agent: a folder \(a folder\)/);
 		assert.equal(readFileSync(join(f.root, 'inputs/brief.md'), 'utf8'), 'BRIEF');
-		const imported = readdirSync(join(f.root, 'imports'));
+		const imported = readdirSync(join(f.root, 'person-attachments'));
 		assert.equal(imported.length, 1);
-		assert.match(imported[0], /^[0-9a-f-]{36}\.jpg$/, 'a picture is imports/<client id>.<ext>');
+		assert.match(imported[0], /^[0-9a-f-]{36}\.jpg$/, 'a picture is person-attachments/<id>.<ext>');
 		const sent = f.request(0) as unknown as { files: Record<string, string> };
-		assert.deepEqual(Object.keys(sent.files).sort(), [`imports/${imported[0]}`, 'inputs/brief.md']);
-		assert.ok(f.store.messages('main').some(m => m.kind === 'instructions' && m.text === `Pine Drama Studio: the person added to the drama's folder: imports/${imported[0]}, inputs/brief.md.`));
-		assert.equal((await readChoices(f.root))?.imports.length ?? 0, 0, 'a picture for the agent to look at is no import of an object');
+		assert.deepEqual(Object.keys(sent.files).sort(), ['inputs/brief.md', `person-attachments/${imported[0]}`]);
+		assert.ok(f.store.messages('main').some(m => m.kind === 'instructions' && m.text === `Pine Drama Studio: the person added to the drama's folder: person-attachments/${imported[0]}, inputs/brief.md.`));
+		const log = await git(['log', '--format=%an', '--name-only'], f.root);
+		assert.deepEqual(log.stdout.trim().split('\n').filter(Boolean).sort(), ['inputs/brief.md', 'person', `person-attachments/${imported[0]}`].sort(), 'one person commit of what was placed');
 	} finally { f.store.close(); }
 });
 

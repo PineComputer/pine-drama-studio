@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { applyChangeToProjectFolder, NotAProjectPathError, type ProjectFolderChange } from '../core/applyChange';
 import { git } from '../core/git';
-import { commitFilesFoundOnDisk, listHistoryOfFile } from '../core/projectHistory';
+import { commitFilesFoundOnDisk, listHistory } from '../core/projectHistory';
 
 // Applying a turn's change, a Use or an Undo (doc/protocol.md 4.4): the rules that, broken, would lose a paid result,
 // apply one twice, take one change for another, or write outside the project.
@@ -58,7 +58,7 @@ test('a change whose files a crash left on disk is recorded with an empty commit
 	writeFileSync(join(dir, LOOK), 'picture one');
 	await commitFilesFoundOnDisk(dir, 'Changes found on disk when the project opened');
 	const change = turnChange(1, { [LOOK]: 'picture one' });
-	assert.equal(await applyChangeToProjectFolder(dir, change, store()), 'already on disk, recorded', 'no bytes are fetched again');
+	assert.equal(await applyChangeToProjectFolder(dir, change, store()), 'already on disk', 'no bytes are fetched again');
 	assert.equal(await out(dir, 'show', '--name-only', '--format=%an', 'HEAD'), 'pine-computer');
 	assert.equal(await applyChangeToProjectFolder(dir, change, store()), 'already in history');
 });
@@ -72,8 +72,8 @@ test("the newest result lands over the person's edit, and the file's history kee
 	await applyChangeToProjectFolder(dir, turnChange(2, { [LOOK]: 'picture two' }), bytes);
 	await applyChangeToProjectFolder(dir, turnChange(3, { [LOOK]: null }), bytes);
 	assert.equal(existsSync(join(dir, LOOK)), false, 'null deletes the file');
-	const history = await listHistoryOfFile(dir, LOOK);
-	assert.deepEqual(history.map(h => [h.author, h.blob, h.turnChange?.changeNumber ?? null]), [
+	const history = await listHistory(dir, LOOK);
+	assert.deepEqual(history.map(h => [h.author, h.files.get(LOOK), h.turnChange?.changeNumber ?? null]), [
 		['pine-computer', null, 3],
 		['pine-computer', blob('picture two'), 2],
 		['client-found-changes-on-disk', blob('the person\'s own picture'), null],
@@ -117,12 +117,12 @@ test('text quoted in a commit message is no trailer: the change it quotes is sti
 	assert.equal(await applyChangeToProjectFolder(dir, turnChange(1, { [LOOK]: 'one' }), store('one')), 'written and committed');
 });
 
-test('a folder linked into .git is never written through, and a file named like a cat-file reply keeps its history', async () => {
+test('a folder linked into .git is never written through, and a file whose name is words and spaces keeps its history', async () => {
 	const dir = project();
 	await applyChangeToProjectFolder(dir, turnChange(1, { 'a blob 1000': 'x', [LOOK]: 'one' }), store('x', 'one'));
 	await applyChangeToProjectFolder(dir, turnChange(2, { 'a blob 1000': null, [LOOK]: 'two' }), store('two'));
-	assert.deepEqual((await listHistoryOfFile(dir, 'a blob 1000')).map(h => h.blob), [null, blob('x')]);
-	assert.deepEqual((await listHistoryOfFile(dir, LOOK)).map(h => h.blob), [blob('two'), blob('one')]);
+	assert.deepEqual((await listHistory(dir, 'a blob 1000')).map(h => h.files.get('a blob 1000')), [null, blob('x')]);
+	assert.deepEqual((await listHistory(dir, LOOK)).map(h => h.files.get(LOOK)), [blob('two'), blob('one')]);
 	symlinkSync(join(dir, '.git'), join(dir, 'linked'));
 	const config = readFileSync(join(dir, '.git', 'config'), 'utf8');
 	await assert.rejects(applyChangeToProjectFolder(dir, turnChange(3, { 'linked/config': 'x' }), store('x')), (error: Error) => error instanceof NotAProjectPathError);

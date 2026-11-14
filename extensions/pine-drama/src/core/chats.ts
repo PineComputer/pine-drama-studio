@@ -37,12 +37,13 @@ import { givenBack, refusalLine } from './refusal';
 import { Holders, keptBytes, putAll, requestKey, returnKey } from './taskArtifacts';
 import { dramaRecordOf, installedSnapshots, requestKeys, requestOf, taskMessage, type DramaRecord } from './taskRun';
 import { runInProjectWriteQueue } from './projectHistory';
+import { applyPersonChange } from './applyChange';
 import { installReturn, previewProgress, readReturn, type ReviewTarget } from './resultImporter';
-import { UnsupportedMajor, type Return } from './protocol';
-import { copyImport, readChoices, updateChoices, withObject, writeWhole } from './choices';
+import { PERSON_ATTACHMENTS_FOLDER, UnsupportedMajor, type Return } from './protocol';
+import { readChoices, updateChoices, withObject } from './choices';
 import { resolveReturned, type ResolveSources, type Resolved } from './resolve';
 import { localProjectFile } from './chatLinks';
-import { within, type ProjectPlace } from './placement';
+import { type ProjectPlace, unusedName, within } from './placement';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, statSync } from 'node:fs';
 import { basename, extname, join } from 'node:path';
 import { withoutRepeatedQuestion } from './askedOnce';
@@ -104,7 +105,7 @@ const WAITING = '_Pine Computer is still running this turn; your message will be
 /** The pause between two polls of a running task's progress (doc/protocol.md, 4.6), as the live reads it replaces polled. */
 const PREVIEW_POLL_MS = 2_000;
 
-/** A picture the person adds goes to imports/ (placeFiles): the image types the Studio shows. */
+/** A picture the person adds goes to person-attachments/ (placeFiles): the image types the Studio shows. */
 const PICTURE = /\.(png|jpe?g|webp)$/i;
 
 /** What the person is told when a task's turn ends with no return (doc/protocol.md, 4.5): only they decide on running it again. */
@@ -1420,47 +1421,45 @@ export class ChatService {
 	}
 
 	/**
-	 * Places the person's files in the drama's folder (doc/protocol.md, 3.3). A picture goes to `imports/<client id>.<ext>`
-	 * (choices.ts, copyImport), for the agent to look at: it is no import of an object and chooses nothing. Any other file
-	 * goes to `inputs/<name>`, a name not taken there (`2-<name>`, …); a Word or PDF file also gets its text beside it as
-	 * `inputs/<stem>.txt`, since drama-cli reads a screenplay as UTF-8 text only (core/extract.ts).
+	 * Places the person's files in the project's folder (doc/protocol.md section 3), as one person change through the one
+	 * landing (applyChange.ts applyPersonChange). A picture goes to `person-attachments/<id>.<ext>`, for the agent to look
+	 * at: it is no object's file. Any other file goes to `inputs/<name>`, a name not taken there (`2-<name>`, …); a Word
+	 * or PDF file also gets its text beside it as `inputs/<stem>.txt`, since drama-cli reads a screenplay as UTF-8 text
+	 * only (core/extract.ts).
 	 */
 	private async placeFiles(key: string, paths: readonly string[]): Promise<{ placed: string[]; unread: { name: string; why: string }[] }> {
 		const root = this.projectRoot(key);
 		if (!root) { throw new Error('this session has no drama folder to place the files in'); }
-		const placed: string[] = [];
+		const files = new Map<string, Buffer | string>();
 		const unread: { name: string; why: string }[] = [];
-		const free = (name: string) => {
-			let candidate = name;
-			for (let n = 2; existsSync(join(root, 'inputs', candidate)) || placed.includes(`inputs/${candidate}`); n++) { candidate = `${n}-${name}`; }
-			return candidate;
-		};
-		for (const path of paths) {
-			if (PICTURE.test(path)) {
-				placed.push(await copyImport(root, path, randomUUID()));
-				continue;
-			}
-			const name = free(basename(path));
-			mkdirSync(join(root, 'inputs'), { recursive: true });
-			const bytes = readFileSync(path);
-			await writeWhole(join(root, 'inputs', name), bytes);
-			placed.push(`inputs/${name}`);
-			if (EXTRACTED.test(name)) {
-				let read: Extraction;
-				try {
-					read = await extractText(name, bytes);
-				} catch (error) {
-					read = { complete: false, why: `it could not be read: ${(error as Error).message}` };
+		const free = (name: string) => unusedName(join(root, 'inputs'), name, n => `${n}-${name}`, [...files.keys()].filter(path => path.startsWith('inputs/')).map(path => basename(path)));
+		// Named inside the write queue, as the folder is when the files land.
+		await applyPersonChange(root, 'Your files for the chat', async () => {
+			for (const path of paths) {
+				if (PICTURE.test(path)) {
+					files.set(`${PERSON_ATTACHMENTS_FOLDER}/${randomUUID()}${extname(path).toLowerCase()}`, readFileSync(path));
+					continue;
 				}
-				if (read.complete) {
-					const text = free(textName(name));
-					await writeWhole(join(root, 'inputs', text), read.text);
-					placed.push(`inputs/${text}`);
-				} else {
-					unread.push({ name, why: read.why });
+				const name = free(basename(path));
+				const bytes = readFileSync(path);
+				files.set(`inputs/${name}`, bytes);
+				if (EXTRACTED.test(name)) {
+					let read: Extraction;
+					try {
+						read = await extractText(name, bytes);
+					} catch (error) {
+						read = { complete: false, why: `it could not be read: ${(error as Error).message}` };
+					}
+					if (read.complete) {
+						files.set(`inputs/${free(textName(name))}`, read.text);
+					} else {
+						unread.push({ name, why: read.why });
+					}
 				}
 			}
-		}
+			return files;
+		});
+		const placed = [...files.keys()];
 		this.log(`${key}: placed ${placed.join(', ') || 'nothing'}${unread.length ? `; text not read: ${unread.map(u => `${u.name} (${u.why})`).join('; ')}` : ''}`);
 		return { placed, unread };
 	}

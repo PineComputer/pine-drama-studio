@@ -53,16 +53,13 @@ export type ToGallery =
 
 /** A card action, by the protocol's object ids (project-relative paths); core/entryActions.ts runs it. */
 export type CardRequest =
-	| { readonly action: 'choose'; readonly object: string; readonly version: string }
-	| { readonly action: 'discard'; readonly object: string; readonly version: string }
+	/** "Use" on a past result of the object: its whole change, from that commit, comes back (doc/protocol.md section 5). */
+	| { readonly action: 'use'; readonly object: string; readonly commit: string }
 	/** `text`: the new description, written in place; absent to ask the person, starting from `description`. */
 	| { readonly action: 'describe'; readonly object: string; readonly description: string; readonly text?: string }
 	| { readonly action: 'prompt'; readonly object: string; readonly text: string }
 	| { readonly action: 'remove'; readonly object: string }
 	| { readonly action: 'add'; readonly type: 'character' | 'scene' | 'prop' | 'variant'; readonly name: string; readonly text: string; readonly from?: string; readonly setting?: Setting }
-	/** An add no task has carried yet (section 3.1): edited or removed in place. */
-	| { readonly action: 'editAdd'; readonly id: string; readonly name: string; readonly text: string }
-	| { readonly action: 'removeAdd'; readonly id: string }
 	/** `file`: the person's picture on disk; null to ask for one. */
 	| { readonly action: 'import'; readonly object: string; readonly file: string | null };
 
@@ -138,8 +135,8 @@ export function readEntryAction(message: Record<string, unknown>): EntryAction |
 
 function readRequest(m: Record<string, unknown>): EntryAction['request'] | undefined {
 	switch (m.action) {
-		case 'choose': case 'discard':
-			return isPath(m.object) && isPath(m.version) && !m.version.includes('/') ? { action: m.action, object: m.object, version: m.version } : undefined;
+		case 'use':
+			return isPath(m.object) && typeof m.commit === 'string' && /^[0-9a-f]{40,64}$/.test(m.commit) ? { action: 'use', object: m.object, commit: m.commit } : undefined;
 		case 'describe':
 			return isPath(m.object) && typeof m.description === 'string' && (m.text === undefined || typeof m.text === 'string')
 				? { action: 'describe', object: m.object, description: m.description, ...(typeof m.text === 'string' ? { text: m.text } : {}) } : undefined;
@@ -151,10 +148,6 @@ function readRequest(m: Record<string, unknown>): EntryAction['request'] | undef
 			return (m.type === 'character' || m.type === 'scene' || m.type === 'prop' || m.type === 'variant') && text(m.name, NAME_MAX) && text(m.text, TEXT_MAX)
 				&& (m.from === undefined || isPath(m.from)) && (m.setting === undefined || m.setting === 'interior' || m.setting === 'exterior')
 				? { action: 'add', type: m.type, name: m.name.trim(), text: m.text.trim(), ...(isPath(m.from) ? { from: m.from } : {}), ...(m.setting ? { setting: m.setting as Setting } : {}) } : undefined;
-		case 'editAdd':
-			return typeof m.id === 'string' && text(m.name, NAME_MAX) && text(m.text, TEXT_MAX) ? { action: 'editAdd', id: m.id, name: m.name.trim(), text: m.text.trim() } : undefined;
-		case 'removeAdd':
-			return typeof m.id === 'string' ? { action: 'removeAdd', id: m.id } : undefined;
 		case 'import':
 			return isPath(m.object) ? { action: 'import', object: m.object, file: null } : undefined;
 		case 'importDropped':

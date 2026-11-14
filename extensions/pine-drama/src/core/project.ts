@@ -6,8 +6,8 @@
 import { readFileSync, statSync } from 'node:fs';
 import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { CHOICES_FILE, writeWhole } from './choices';
-import { noFileThere } from './placement';
+import { CHOICES_FILE } from './choices';
+import { noFileThere, writeWhole } from './placement';
 import { projectIdentity } from './projectPlace';
 import { DESCRIPTION_FILE, OBJECT_FILE, PROJECT_MARKER_FILE, PROMPT_FILE, RECEIPT_SUFFIX, type Edge, type ObjectType, type ProtocolError, type Request, type Snapshot } from './protocol';
 
@@ -108,7 +108,7 @@ export function fileAddressByVersion(projectRoot: string, address: (rel: string)
 }
 
 /** A file's text, or null when there is none. */
-const textOrNull = (file: string) => readFile(file, 'utf8').catch(error => {
+const readTextOrNull = (file: string): Promise<string | null> => readFile(file, 'utf8').catch(error => {
 	if (noFileThere(error)) { return null; }
 	throw error;
 });
@@ -140,6 +140,11 @@ async function objectFiles(dir: string, prefix: string): Promise<string[]> {
 	return [...entries.some(e => e.isFile() && e.name === OBJECT_FILE) ? [`${prefix}${OBJECT_FILE}`] : [], ...below.flat()];
 }
 
+/** An object's object.json as written, every field kept, a document of protocol major 2 (doc/protocol.md 2.2). */
+export async function readObjectFile(projectRoot: string, id: string): Promise<Record<string, any>> {
+	return majorTwo(`${id}/${OBJECT_FILE}`, JSON.parse(await readFile(join(projectRoot, ...id.split('/'), OBJECT_FILE), 'utf8')));
+}
+
 /**
  * Reads the project at `projectRoot` from its folder (doc/protocol.md 2.2, section 5), the one reader every view uses:
  * every folder holding object.json, outside names starting with "." (section 1), is an object. `makingNow` names the
@@ -150,12 +155,12 @@ export async function readProjectFromFolder(projectRoot: string, makingNow: Read
 	const read = await Promise.all(listed.map(async name => {
 		const id = name === OBJECT_FILE ? '' : name.slice(0, -OBJECT_FILE.length - 1);
 		const at = (file: string) => join(projectRoot, ...id.split('/'), file);
-		const raw = majorTwo(`${id}/${OBJECT_FILE}`, JSON.parse(await readFile(at(OBJECT_FILE), 'utf8')));
+		const raw = await readObjectFile(projectRoot, id);
 		const shown = typeof raw.shown_file === 'string' ? raw.shown_file : null;
-		const receipt = shown ? await textOrNull(at(`${shown}${RECEIPT_SUFFIX}`)) : null;
+		const receipt = shown ? await readTextOrNull(at(`${shown}${RECEIPT_SUFFIX}`)) : null;
 		return {
 			id, raw, shownFile: shown ? `${id}/${shown}` : null, shownFileReceipt: receipt === null ? null : receiptOf(majorTwo(`${id}/${shown}${RECEIPT_SUFFIX}`, JSON.parse(receipt))),
-			description: await textOrNull(at(DESCRIPTION_FILE)), prompt: await textOrNull(at(PROMPT_FILE)),
+			description: await readTextOrNull(at(DESCRIPTION_FILE)), prompt: await readTextOrNull(at(PROMPT_FILE)),
 		};
 	}));
 	const ids = new Set(read.map(o => o.id));
@@ -320,7 +325,8 @@ function note(id: keyof typeof NOTES & string): OutlineNode {
 	return { id, label: NOTES[id], kind: 'group', role: 'note', hasChildren: false };
 }
 
-const ASSET_GROUPS: readonly [string, string, Role, ObjectType][] = [
+/** The asset folders (doc/protocol.md 2.2): each folder, its heading, its role and the type of the objects in it. */
+export const ASSET_GROUPS: readonly [string, string, Role, ObjectType][] = [
 	['assets/characters', 'characters', 'characters', 'character'], ['assets/scenes', 'scenes', 'scenes', 'scene'], ['assets/props', 'props', 'props', 'prop'],
 ];
 

@@ -22,7 +22,7 @@ import { galleryPageMessage } from '../core/galleryMessage';
 import { NAME_MAX, TEXT_MAX, type Collection } from '../core/galleryProtocol';
 import { readProjectFromFolder, type ProjectReadModel } from '../core/project';
 import { segEditorModel } from '../core/segEditor';
-import { nextDrawRequest } from '../core/versionDetail';
+import { mediaOf, nextDrawRequest } from '../core/versionDetail';
 import { SEG_PROTOCOL } from '../core/segEditorProtocol';
 import { webviewPageHtml, type WebviewPage } from '../core/webviewPage';
 
@@ -120,19 +120,63 @@ function promptOf(source: Source, id: string): CanvasPrompt | null {
 	return text !== null ? { object: id, text } : null;
 }
 
-/** What the extension answers a click on a card with (episodeCanvas.ts detailReply): its record and prompt. */
+/** The commits of a picture's two results the strip offers, newest first, as pictureHistory gives them from git. */
+const NEWER = 'a'.repeat(40);
+const EARLIER = 'b'.repeat(40);
+
+/**
+ * A shown picture's history as the extension sends it (versionDetail.ts pictureHistory): the fixture has no git history,
+ * so two results of its shown file, the newest the one in use. Null for a card with no picture or take shown.
+ */
+function historyOf(object: string, file: string | null) {
+	const media = file ? mediaOf(file) : 'text';
+	return file && media !== 'text' ? { object, versions: [
+		{ commit: NEWER, label: '2026-11-13 10:00 · by the Pine Computer', main: true, src: fileSrc(file), media },
+		{ commit: EARLIER, label: '2026-11-12 10:05 · by you', main: false, src: fileSrc(file), media },
+	] } : null;
+}
+
+/** What the extension answers a click on a card with (episodeCanvas.ts detailReply): its record, prompt, next draw and picture history. */
 function recordAnswer(source: Source) {
 	return (m: { type?: string; stageId?: string }) => {
 		if (m.type !== 'inspect' || !m.stageId) { return null; }
 		const object = source.drama.objects.get(m.stageId);
 		return { v: CANVAS_PROTOCOL, type: 'detail', stageId: m.stageId, detail: null, record: recordOf(source.drama, m.stageId),
-			prompt: promptOf(source, m.stageId), nextDraw: object ? nextDrawRequest(source.drama, object, fileSrc) : [], error: null };
+			prompt: promptOf(source, m.stageId), nextDraw: object ? nextDrawRequest(source.drama, object, fileSrc) : [],
+			picture: object ? historyOf(object.id, object.shownFile) : null, error: null };
 	};
 }
 
 /** A card action the page posted (FromCanvas `entry`), by its request. */
 type Posted = { type?: string; stageId?: string; key?: string; request?: { action?: string; object?: string; text?: string } };
 const entries = (posted: readonly unknown[], action: string) => (posted as Posted[]).filter(m => m.type === 'entry' && m.request?.action === action);
+
+/**
+ * The composer's strip of a picture's results: the one in use marked Main, and on another a click offers Use, which asks
+ * for that result's commit back (an `entry` use), and nothing on the strip deletes.
+ */
+async function useCase(source: Source): Promise<Case> {
+	const c = await canvasCase(source, ASSETS_CANVAS);
+	const lin = 'assets/characters/lin';
+	const check = async (page: Page, posted: readonly unknown[]): Promise<string[]> => {
+		await page.keyboard.press('v');
+		await page.locator(`.react-flow__node-card[data-id="${lin}"]`).click({ position: { x: 12, y: 12 } });
+		const versions = page.locator('.composer .strip .version');
+		if (await versions.first().waitFor({ timeout: WAIT_MS }).then(() => false, () => true)) { return [`${lin}'s composer shows no strip`]; }
+		const problems: string[] = [];
+		if (await versions.count() !== 2) { problems.push(`the strip shows ${await versions.count()} results, not 2`); }
+		if (await versions.nth(0).locator('.main').count() !== 1 || await versions.nth(1).locator('.main').count() !== 0) { problems.push('Main is not on the one in use alone'); }
+		if (await page.locator('.composer .strip .delete').count()) { problems.push('the strip offers Delete'); }
+		await versions.nth(1).locator('.thumb').click();
+		const use = page.locator('.composer button:has-text("Use")');
+		if (await use.waitFor({ timeout: WAIT_MS }).then(() => false, () => true)) { return [...problems, 'a click on an earlier result offers no Use']; }
+		await use.click();
+		for (const until = Date.now() + 3000; !entries(posted, 'use').length && Date.now() < until;) { await new Promise(resolve => setTimeout(resolve, 50)); }
+		const sent = entries(posted, 'use')[0] as { request?: { object?: string; commit?: string } } | undefined;
+		return sent?.request?.object === lin && sent.request.commit === EARLIER ? problems : [...problems, `Use sent ${JSON.stringify(sent?.request)}`];
+	};
+	return { ...c, name: `${source.name}: the strip's Use asks for an earlier result back`, interact: { answer: recordAnswer(source), check } };
+}
 
 async function boxCase(source: Source): Promise<Case> {
 	const c = await canvasCase(source, ASSETS_CANVAS);
@@ -830,7 +874,7 @@ async function main(): Promise<number> {
 	const source: Source = { name: 'full', root, drama: await readFixture(), drawn: true };
 	const afterBible: Source = { name: 'after the bible', root: join(FIXTURES, 'after-bible'), drama: await readProjectFromFolder(join(FIXTURES, 'after-bible')), drawn: false };
 	const cases: Case[] = [
-		await canvasCase(source, ASSETS_CANVAS), await boxCase(source), await faceCase(source), await toolsCase(source), await clickModelCase(source, ASSETS_CANVAS), await variantBoxCase(source), await longNameCase(source),
+		await canvasCase(source, ASSETS_CANVAS), await boxCase(source), await useCase(source), await faceCase(source), await toolsCase(source), await clickModelCase(source, ASSETS_CANVAS), await variantBoxCase(source), await longNameCase(source),
 		await canvasCase(source, 'EP001'), await takeLinesCase({ ...source, drama: await readFixture() }), await openingCase(source, 'EP001'), await episodeBoxCase(source), await clickModelCase(source, 'EP001'),
 		await wheelZoomCase(source, ASSETS_CANVAS), await wheelZoomCase(source, 'EP001'),
 		await assetsFloorCase(source), await savedViewportCase(source, ASSETS_CANVAS), await savedViewportCase(source, 'EP001'),

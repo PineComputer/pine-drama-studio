@@ -53,10 +53,10 @@ test('a new binding takes any folder that holds no drama-cli project; a project 
 	const notes = folder('notes');
 	mkdirSync(join(notes, 'drama'));
 	writeFileSync(join(notes, 'drama', 'notes.md'), 'the person\'s');
-	assert.deepEqual(entryFor([], '/p', KEY, notes), { kind: 'go', bind: true, note: SAID(notes) }, 'only inputs/ and imports/ travel');
+	assert.deepEqual(entryFor([], '/p', KEY, notes), { kind: 'go', bind: true, note: SAID(notes) }, 'only inputs/ and person-attachments/ travel');
 	mkdirSync(join(notes, 'inputs'));
 	writeFileSync(join(notes, 'inputs', 'notes.md'), 'the person\'s');
-	assert.deepEqual(entryFor([], '/p', KEY, notes), { kind: 'go', bind: true, note: `${SAID(notes)} Its 1 file under imports/, inputs/ (under 0.1 MB) goes to the Pine Computer with each task, and no result replaces it.` });
+	assert.deepEqual(entryFor([], '/p', KEY, notes), { kind: 'go', bind: true, note: `${SAID(notes)} Its 1 file under inputs/, person-attachments/ (under 0.1 MB) goes to the Pine Computer with each task, and no result replaces it.` });
 	const project = folder('double-life');
 	writeFileSync(join(project, 'pine-drama-project.json'), '{"schema":2}\n');
 	assert.deepEqual(entryFor([], '/p', KEY, project), { kind: 'adopt', folder: project });
@@ -85,7 +85,7 @@ test('the note counts only the files that travel: the client folders, less .DS_S
 	writeFileSync(join(finder, 'notes.txt'), 'the person\'s, outside inputs/');
 	assert.deepEqual(entryFor([], '/p', KEY, finder), { kind: 'go', bind: true, note: SAID(finder) });
 	writeFileSync(join(finder, 'inputs', 'Thumbs.db'), 'explorer'); writeFileSync(join(finder, 'inputs', 'notes.txt'), 'the person\'s');
-	assert.deepEqual(entryFor([], '/p', KEY, finder), { kind: 'go', bind: true, note: `${SAID(finder)} Its 2 files under imports/, inputs/ (under 0.1 MB) go to the Pine Computer with each task, and no result replaces them.` });
+	assert.deepEqual(entryFor([], '/p', KEY, finder), { kind: 'go', bind: true, note: `${SAID(finder)} Its 2 files under inputs/, person-attachments/ (under 0.1 MB) go to the Pine Computer with each task, and no result replaces them.` });
 });
 
 test('a bound session goes on in its folder and is refused elsewhere; a Chat of no project joins it as a session (D48)', () => {

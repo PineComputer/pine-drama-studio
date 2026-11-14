@@ -7,7 +7,7 @@ import { CANVAS_COMMANDS, CANVAS_PROTOCOL, readFromCanvas, type CanvasDetail, ty
 import { unchangedLine, type EntryDone } from './core/entryActions';
 import { recordOf } from './core/assetStatus';
 import { shootRequest } from './core/segEditor';
-import { nextDrawRequest, receiptDetail } from './core/versionDetail';
+import { nextDrawRequest, pictureHistory, receiptDetail } from './core/versionDetail';
 import { canvasTreePath } from './core/assetsCanvas';
 import { lineageMessage } from './core/canvasMessage';
 import { ASSETS_CANVAS } from './core/lineage';
@@ -69,7 +69,8 @@ export function registerEpisodeCanvas(context: vscode.ExtensionContext, views: P
 
 	/**
 	 * The detail panel's reply for a card: what its shown file was made with (its receipt, versionDetail.ts); an asset's or
-	 * a variant's card, its record too; and the box's prompt (prompt.md) for an object that has one to edit.
+	 * a variant's card, its record too; the box's prompt (prompt.md) for an object that has one to edit; what its next draw
+	 * sends; and its picture's history for Use.
 	 */
 	const detailReply = async (webview: vscode.Webview, episode: string, shown: Shown): Promise<ToCanvas> => {
 		try {
@@ -79,7 +80,9 @@ export function registerEpisodeCanvas(context: vscode.ExtensionContext, views: P
 			const detail: CanvasDetail | null = object ? receiptDetail(project.root, drama, object, src) : null;
 			const prompt = object && object.prompt !== null ? { object: object.id, text: object.prompt } : null;
 			return { v: CANVAS_PROTOCOL, type: 'detail', stageId: shown.stageId, detail, record: recordOf(drama, shown.stageId),
-				prompt, nextDraw: object ? nextDrawRequest(drama, object, src) : [], error: object ? null : `${shown.stageId} is not in the project any more` };
+				prompt, nextDraw: object ? nextDrawRequest(drama, object, src) : [],
+				picture: object ? await pictureHistory(project.root, object, globalStorageFolder(context).fsPath, file => webview.asWebviewUri(vscode.Uri.file(file)).toString()) : null,
+				error: object ? null : `${shown.stageId} is not in the project any more` };
 		} catch (error) {
 			const text = (error as Error).message;
 			output.appendLine(`canvas ${episode}: ${text} (project ${project.root})`);

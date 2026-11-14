@@ -5,8 +5,9 @@
 
 import { statSync } from 'node:fs';
 import { extname, join } from 'node:path';
-import type { CanvasDetail, MadeFrom } from './canvasProtocol';
+import { madeBy, shortDate, type CanvasDetail, type CanvasPicture, type MadeFrom } from './canvasProtocol';
 import { objectOwningFile, objectTitle, type ProjectObject, type ProjectReadModel } from './project';
+import { listHistoryOfShownFile, writeBlobToFile } from './projectHistory';
 import { sha256OfFileOnDisk } from './sha256';
 
 const IMAGE_SUFFIXES: ReadonlySet<string> = new Set(['.png', '.jpg', '.jpeg', '.webp']);
@@ -48,6 +49,25 @@ export function nextDrawRequest(drama: ProjectReadModel, object: ProjectObject, 
 		const file = drama.objects.get(id)?.shownFile ?? null;
 		return { label: objectTitle(drama, id), src: file && mediaOf(file) === 'image' ? src(file) : null, stageId: drama.objects.has(id) ? id : null, n: i + 1 };
 	});
+}
+
+/**
+ * `object`'s picture history for the composer's strip: one thumbnail per result of its shown file, newest first, the one
+ * it shows Main (projectHistory.ts listHistoryOfShownFile), each written once from history to `storage` under its blob
+ * id (writeBlobToFile) and shown at `src` of that file. Null with no picture or take shown, or no history.
+ */
+export async function pictureHistory(projectRoot: string, object: ProjectObject, storage: string, src: (file: string) => string): Promise<CanvasPicture | null> {
+	const shown = object.shownFile;
+	const media = shown ? mediaOf(shown) : 'text';
+	if (!shown || media === 'text') { return null; }
+	const history = await listHistoryOfShownFile(projectRoot, object.id);
+	if (!history.length) { return null; }
+	const versions = await Promise.all(history.map(async entry => {
+		const file = join(storage, 'history', `${entry.blob}${extname(entry.file).toLowerCase()}`);
+		await writeBlobToFile(projectRoot, entry.blob, file);
+		return { commit: entry.commit, label: `${shortDate(entry.committedAt)} · ${madeBy(entry.author)}`, main: entry.shown, src: src(file), media: mediaOf(entry.file) };
+	}));
+	return { object: object.id, versions };
 }
 
 /** The sha256 each file was last found with, by path, with the size and time it had then. */

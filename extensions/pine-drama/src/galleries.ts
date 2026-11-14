@@ -6,7 +6,7 @@ import * as vscode from 'vscode';
 import { unchangedLine } from './core/entryActions';
 import { cardActions } from './cardActions';
 import { galleryPageMessage } from './core/galleryMessage';
-import { fileAddressByVersion } from './core/project';
+import { ASSET_GROUPS, fileAddressByVersion } from './core/project';
 import { Throttled } from './core/throttled';
 import { GALLERY_PROTOCOL, readFromGallery, type Collection, type ToGallery } from './core/galleryProtocol';
 import type { ProjectViews } from './projectViews';
@@ -29,7 +29,7 @@ export function registerGalleries(context: vscode.ExtensionContext, views: Proje
 	// The tree item a page shows: its kind's group.
 	views.follow(() => {
 		const page = [...pages].find(([panel]) => panel.active)?.[1];
-		return page && { path: { characters: 'assets/characters', scenes: 'assets/scenes', props: 'assets/props' }[page.collection], versions: 'none' };
+		return page && { path: ASSET_GROUPS.find(([, , role]) => role === page.collection)![0], versions: 'none' };
 	});
 	// The card actions and Create New, shared with the assets canvas's record panel (cardActions.ts).
 	const act = cardActions(context, project.root);
