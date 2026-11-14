@@ -76,6 +76,9 @@ Each output of a paid call has a receipt beside it, **`<file>.receipt.json`** (`
 
 The rest of the receipt (the request and response as sent) belongs to the Computer side. A client MAY show it, and decides nothing from it.
 
+- **One receipt per output.** A call with several outputs (a take's video and its last frame) has a receipt beside each, all in one change.
+- **No paid call, no receipt.** A file made without a paid call (a cut, an overlay, a conversion) has none.
+
 ## 3. The person's changes (client)
 
 - **The person changes any file in the folder**, through the client or by hand. A change through the client is a plain write (a temporary sibling, then a rename) and a `person` commit of the paths it wrote.
@@ -119,7 +122,7 @@ The rest of the receipt (the request and response as sent) belongs to the Comput
 | `conflicts` | The changes of this session's earlier turns that the client committed as conflicts since its last request (4.4), each `{turn, seq, paths}`, so the agent learns of them. |
 
 - **The seed commit.** Before writing the request, the client commits whatever is uncommitted as `recovered`, so the seed is a commit and every input the turn may read is in history.
-- **Restore.** The Computer side writes exactly `tree` into its workspace, then restores the private state outside it: private state never holds a file of the drama, so it cannot overwrite the seed.
+- **Restore.** The Computer side writes exactly `tree` into its workspace, then restores the private state outside it: private state never holds a file of the drama, so it cannot overwrite the seed. A file of the tree the Computer side rewrites only for its own machine, such as a path in its configuration, is kept outside the workspace too, so it never comes back as a change.
 
 ### 4.3 Changes (Computer side → client)
 
@@ -201,7 +204,7 @@ A job carries `{schema, job, object, state, at, cost?}`. It is the public summar
 ## 5. What the client shows
 
 - **The cards** show what the folder holds: each object's `object.json`, its shown `file` and its receipts. A history is `git log` of a path, and a conflict ref is listed with the history of the paths it holds.
-- **"Use" on a past result** restores that commit's files for the path, its receipt with it, as a `person` commit.
+- **"Use" on a past result** restores every file of that result's change (the commit carrying its `Pine-Change`), receipts with them, as a `person` commit. So an output never sits beside another result's sibling or receipt.
 
 ## 6. Errors
 
