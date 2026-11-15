@@ -105,7 +105,7 @@ export type ToCanvas =
 		/** The view the person last left this canvas at, or null: it then opens by openingViewport. */
 		readonly viewport: CanvasViewport | null;
 	}
-	| { readonly v: typeof CANVAS_PROTOCOL; readonly type: 'error'; readonly episode: string; readonly message: string; readonly code: string | null; readonly action: string | null }
+	| { readonly v: typeof CANVAS_PROTOCOL; readonly type: 'error'; readonly episode: string; readonly message: string }
 	/**
 	 * A board command from a keybinding scoped to the focused canvas (package.json `keybindings`, when
 	 * `activeWebviewPanelId == 'pineDrama.episodeCanvas'`): React Flow has no select-all, and the workbench's own zoom
@@ -148,12 +148,8 @@ export interface CanvasPrompt {
 
 /** An asset or variant as the record panel shows and edits it. */
 export interface CanvasRecord {
-	readonly object: string;
-	readonly type: string;
 	/** Its description.md, which the person and the agent edit (doc/protocol.md 2.2). */
 	readonly description: string;
-	/** What a variant derives from (`variant_of`), as an object id the canvas centres; null for an asset. */
-	readonly from: string | null;
 }
 
 /** A file the shown file was made from: its object's name, its picture when it is one, and its card when on the board. */
@@ -179,16 +175,10 @@ export interface CanvasDetail {
 export const CANVAS_COMMANDS = ['zoomIn', 'zoomOut', 'fit', 'selectAll'] as const;
 export type CanvasCommand = typeof CANVAS_COMMANDS[number];
 
-/** A card as shown: its object and its shown file. */
-export interface Shown {
-	readonly stageId: string;
-	readonly file: string | null;
-}
-
 export type FromCanvas =
 	| { readonly v: typeof CANVAS_PROTOCOL; readonly type: 'ready' }
 	/** One card was clicked: the Versions view follows it; nothing opens. */
-	| ({ readonly v: typeof CANVAS_PROTOCOL; readonly type: 'inspect' } & Shown)
+	| { readonly v: typeof CANVAS_PROTOCOL; readonly type: 'inspect'; readonly stageId: string }
 	/** No card is picked any more: going back to this canvas leaves Versions empty (auto-reveal.md, section 7). */
 	| { readonly v: typeof CANVAS_PROTOCOL; readonly type: 'unpick' }
 	/** The person moved cards or frames, laid the board out again, or undid or redid one of those: every node's position. */
@@ -218,8 +208,8 @@ export function readFromCanvas(value: unknown): FromCanvas | undefined {
 	if (message.type === 'ready' || message.type === 'unpick') {
 		return { v: CANVAS_PROTOCOL, type: message.type };
 	}
-	if (message.type === 'inspect' && typeof message.stageId === 'string' && nullableString(message.file)) {
-		return { v: CANVAS_PROTOCOL, type: 'inspect', stageId: message.stageId, file: message.file };
+	if (message.type === 'inspect' && typeof message.stageId === 'string') {
+		return { v: CANVAS_PROTOCOL, type: 'inspect', stageId: message.stageId };
 	}
 	if (message.type === 'layout' && typeof message.episode === 'string' && isLayout(message.positions)) {
 		return { v: CANVAS_PROTOCOL, type: 'layout', episode: message.episode, positions: message.positions };

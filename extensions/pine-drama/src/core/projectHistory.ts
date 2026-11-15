@@ -57,17 +57,13 @@ export function runInProjectWriteQueue<T>(projectRoot: string, write: () => Prom
 }
 
 /**
- * Inside the project's write queue: commits `paths` (project-relative files or folders) as `author` with
- * `message` and `trailers`. The commit takes only those paths, so a file someone else changed or staged meanwhile keeps
- * its change for the commit of whoever made it (git commit, "--only"). A commit with trailers is a record (a turn's
- * change applied, doc/protocol.md 4.4), so it is made even when its paths are unchanged (--allow-empty). A commit that
- * fails is thrown: a version the history does not hold could be overwritten unseen.
+ * Inside the project's write queue: commits `paths` (project-relative files or folders) as `author` with `message`. The
+ * commit takes only those paths, so a file someone else changed or staged meanwhile keeps its change for the commit of
+ * whoever made it (git commit, "--only"); with nothing changed there, it makes none. A commit that fails is thrown: a
+ * version the history does not hold could be overwritten unseen.
  */
-export async function commitPathsToHistory(projectRoot: string, author: CommitAuthor, paths: readonly string[], message: string,
-	trailers: Readonly<Record<string, string>> = {}): Promise<void> {
+export async function commitPathsToHistory(projectRoot: string, author: CommitAuthor, paths: readonly string[], message: string): Promise<void> {
 	await ensureRepository(projectRoot);
-	const trailing = Object.entries(trailers).flatMap(([key, value]) => ['--trailer', `${key}: ${value}`]);
-	const record = trailing.length > 0;
 	// A path on disk is staged by `git add` (--force: even where the folder's .gitignore names it); one the write removed by
 	// `git rm --cached --ignore-unmatch`, which also takes a deletion a cut-off commit left staged. The commit then reads
 	// them with --only, against HEAD too; a removed path HEAD never held is left out, as git refuses a whole commit for one.
@@ -77,15 +73,12 @@ export async function commitPathsToHistory(projectRoot: string, author: CommitAu
 	if (removed.length) { await run(projectRoot, author, ['rm', '-r', '-q', '--cached', '--ignore-unmatch', '--', ...removed]); }
 	const inHead = removed.length && await hasHead(projectRoot) ? (await run(projectRoot, author, ['ls-tree', '-r', '-z', '--name-only', 'HEAD', '--', ...removed])).split('\0') : [];
 	const spec = [...onDisk, ...removed.filter(p => inHead.some(t => t === p || t.startsWith(`${p}/`)))];
-	if (!spec.length && !record) { return; }
-	if (spec.length) {
-		// --quiet exits 1 when something is staged there, 0 when there is nothing to commit (git diff, "--exit-code").
-		const staged = await exec(projectRoot, author, ['diff', '--cached', '--quiet', '--', ...spec]);
-		if (staged.exitCode !== 0 && staged.exitCode !== 1) { throw new Error(`git diff: ${staged.stderr.trim()}`); }
-		if (staged.exitCode === 0 && !record) { return; }
-	}
-	// --only with no path and --allow-empty commits nothing of the index: an empty record (git commit, "--only").
-	await run(projectRoot, author, ['commit', '-q', ...(record ? ['--allow-empty'] : []), '-m', message, ...trailing, '--only', '--', ...spec]);
+	if (!spec.length) { return; }
+	// --quiet exits 1 when something is staged there, 0 when there is nothing to commit (git diff, "--exit-code").
+	const staged = await exec(projectRoot, author, ['diff', '--cached', '--quiet', '--', ...spec]);
+	if (staged.exitCode !== 0 && staged.exitCode !== 1) { throw new Error(`git diff: ${staged.stderr.trim()}`); }
+	if (staged.exitCode === 0) { return; }
+	await run(projectRoot, author, ['commit', '-q', '-m', message, '--only', '--', ...spec]);
 }
 
 /**

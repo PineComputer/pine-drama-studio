@@ -39,7 +39,7 @@ function fixture(more: Partial<ConstructorParameters<typeof ChatService>[0]> = {
 	} });
 	const service = new ChatService({ holdsProject: () => true, turnEndGraceMs: 0, store, port, vault: new MemoryVault(), pine: { endpoint: 'https://offline.invalid', apiKey: 'offline' },
 		files: { projectsRoot: join(dir, 'projects') }, protocol: testProtocol(dir), ...more });
-	const send = (text: string, key = 'main') => drain(service.submit(key, text, key === 'main' ? 'Project Chat' : 'Session', root));
+	const send = (text: string, key = 'main') => drain(service.submit(key, text, key === 'main' ? 'Project Chat' : 'Session', [], root));
 	/** The drama's folder on the Computer of a Chat's session. */
 	const drama = (key = 'main') => join(pine.workdirOf(store.chat(key)!.pine_session_name!), 'drama');
 	const said = (updates: Update[]) => updates.map(u => u.text).join('\n');
@@ -96,7 +96,7 @@ test('while a turn runs its files come into the project folder on a timer, with 
 	const f = fixture({ collectEveryMs: 20 });
 	try {
 		f.pine.plans = [{ state: 'running', files: made('assets/props/a', 'a, being drawn') }];
-		const reply = f.service.submit('main', 'draw a', 'Project Chat', f.root);
+		const reply = f.service.submit('main', 'draw a', 'Project Chat', [], f.root);
 		const pumping = drain(reply);
 		await until(() => existsSync(join(f.root, 'assets/props/a/picture.png')), 'the file comes in while the turn runs');
 		assert.equal(f.store.chat('main')?.state, 'running');
@@ -113,7 +113,7 @@ test('a turn that ended is settled and its changes land even though its event st
 	try {
 		f.pine.plans = [{ state: 'running' }];
 		const said: Update[] = [];
-		const reply = f.service.submit('main', 'draw the umbrella', 'Project Chat', f.root);
+		const reply = f.service.submit('main', 'draw the umbrella', 'Project Chat', [], f.root);
 		const end = Date.now() + 20_000;
 		while (f.store.chat('main')?.state !== 'running') {
 			assert.ok(Date.now() < end, 'the turn runs');
@@ -158,7 +158,7 @@ test('files added in the chat input go into the drama\'s folder as the person\'s
 		const brief = join(outside, 'brief.md'); writeFileSync(brief, 'BRIEF');
 		mkdirSync(join(outside, 'a folder'));
 		f.pine.plans = [{ state: 'completed', text: 'ok' }];
-		const said = await drain(f.service.submitWithFiles('main', 'use these', 'Project Chat', [
+		const said = await drain(f.service.submit('main', 'use these', 'Project Chat', [
 			{ kind: 'file', path: picture }, { kind: 'file', path: brief }, { kind: 'file', path: join(outside, 'a folder') }], f.root));
 		assert.match(f.said(said), /Not sent to the agent: a folder \(a folder\)/);
 		assert.equal(readFileSync(join(f.root, 'inputs/brief.md'), 'utf8'), 'BRIEF');
@@ -237,7 +237,7 @@ test('Stop while the Computer starts: nothing goes up, no turn starts, and nothi
 	try {
 		const release = f.pine.hold('ensureComputer');
 		const abort = new AbortController();
-		const updates = f.service.submit('main', 'draw a', 'Project Chat', f.root, abort.signal);
+		const updates = f.service.submit('main', 'draw a', 'Project Chat', [], f.root, abort.signal);
 		const reading = drain(updates);
 		await until(() => f.pine.calls.ensureComputer === 1, 'the Computer starts');
 		stop(updates, abort);
@@ -255,7 +255,7 @@ test('Stop while a turn runs: Pine cancels it, what its agent changed lands with
 	try {
 		f.pine.plans = [{ state: 'running', files: made('assets/props/a', 'half of a') }];
 		const abort = new AbortController();
-		const updates = f.service.submit('main', 'draw a', 'Project Chat', f.root, abort.signal);
+		const updates = f.service.submit('main', 'draw a', 'Project Chat', [], f.root, abort.signal);
 		const reading = drain(updates);
 		await until(() => f.store.chat('main')?.state === 'running', 'the turn runs');
 		const turn = f.store.chat('main')!.current_turn_id!;
@@ -280,7 +280,7 @@ test('a Stop that reaches the run on its way: the turn Pine started for it is ca
 		const abort = new AbortController();
 		const run = f.pine.run.bind(f.pine);
 		f.pine.run = async (...args: Parameters<FakePine['run']>) => { abort.abort(); return run(...args); };
-		await drain(f.service.submit('main', 'draw a', 'Project Chat', f.root, abort.signal));
+		await drain(f.service.submit('main', 'draw a', 'Project Chat', [], f.root, abort.signal));
 		assert.equal(lastTurnState(f), 'canceled');
 		await until(() => existsSync(join(f.root, 'assets/props/a/picture.png')) && !f.service.hasUnfinishedTurnFollowUp('main'), 'the stopped turn\'s files land');
 		assert.equal(f.store.chat('main')?.state, 'idle', 'the Chat is idle, as after any Stop');
@@ -294,7 +294,7 @@ test('a Stop whose cancel Pine took but whose answer was lost still lands what t
 		const cancel = f.pine.cancel.bind(f.pine);
 		f.pine.cancel = async (...args: Parameters<FakePine['cancel']>) => { await cancel(...args); throw new UnconfirmedError('cancel: response lost'); };
 		const abort = new AbortController();
-		const updates = f.service.submit('main', 'draw a', 'Project Chat', f.root, abort.signal);
+		const updates = f.service.submit('main', 'draw a', 'Project Chat', [], f.root, abort.signal);
 		const reading = drain(updates);
 		await until(() => f.store.chat('main')?.state === 'running', 'the turn runs');
 		stop(updates, abort);

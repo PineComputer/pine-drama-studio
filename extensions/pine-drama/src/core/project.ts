@@ -23,12 +23,10 @@ export interface ObjectEdge {
 
 /** The receipt beside a paid output (doc/protocol.md 2.3): what it was made from, with what prompt, for what cost. */
 export interface Receipt {
-	readonly paidCallId: string;
 	readonly finishedAt: string;
 	/** The files it was sent, in order (Image 1..N), each with the sha256 of its bytes then. */
 	readonly inputsSentInOrder: readonly { readonly path: string; readonly sha256: string }[];
 	readonly promptSent: string | null;
-	readonly cost: { readonly usd: number; readonly reportedBy: string } | null;
 }
 
 /** One object of the project as every view shows it: a folder holding object.json (doc/protocol.md 2.2). */
@@ -98,9 +96,8 @@ const readTextOrNull = (file: string): Promise<string | null> => readFile(file, 
 function receiptOf(raw: unknown): Receipt {
 	const r = Object(raw);
 	return {
-		paidCallId: String(r.paid_call_id), finishedAt: String(r.finished_at), promptSent: typeof r.prompt_sent === 'string' ? r.prompt_sent : null,
+		finishedAt: String(r.finished_at), promptSent: typeof r.prompt_sent === 'string' ? r.prompt_sent : null,
 		inputsSentInOrder: Array.isArray(r.inputs_sent_in_order) ? r.inputs_sent_in_order.map((i: unknown) => ({ path: String(Object(i).path), sha256: String(Object(i).sha256) })) : [],
-		cost: r.cost && typeof r.cost === 'object' ? { usd: Number(r.cost.usd), reportedBy: String(r.cost.reported_by) } : null,
 	};
 }
 

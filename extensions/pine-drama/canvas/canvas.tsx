@@ -463,7 +463,7 @@ function Canvas({ message, loaded }: { message: Lineage; loaded: Record<string, 
 	const pick = (card: CanvasCard | undefined) => {
 		setPicked(card?.id ?? null);
 		setDetail(undefined);
-		post(card ? { v: CANVAS_PROTOCOL, type: 'inspect', stageId: card.id, file: card.file } : { v: CANVAS_PROTOCOL, type: 'unpick' });
+		post(card ? { v: CANVAS_PROTOCOL, type: 'inspect', stageId: card.id } : { v: CANVAS_PROTOCOL, type: 'unpick' });
 	};
 	// The project was read again: the picked card's detail is read again too, for what its folder holds now.
 	useEffect(() => {
@@ -774,7 +774,6 @@ function App() {
 			<div className="error">
 				<h2>{message.episode}: the canvas has no data</h2>
 				<p>{message.message}</p>
-				{message.code && <p className="detail">code {message.code}{message.action ? ` · action ${message.action}` : ''}</p>}
 			</div>
 		);
 	}

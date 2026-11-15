@@ -119,7 +119,7 @@ Pine Computer keeps its own records of the drama in **`pine-computer-records/`**
 - **Canvas positions** and every other view state are the client's own, per person or per profile, and are never written into the drama.
 - **Hand changes** (a folder client): a file changed outside the client is recorded as `client-found-changes-on-disk` at the next opening or before the next turn (4.3).
 - **Using the person's own picture or video for an object.** The person's file replaces the object's shown file. It is written under the shown file's name, with the extension of the person's file, and `object.json` `shown_file` is set to it. If the extension changed, the old shown file and its receipt are deleted in the same commit. The person's file has no receipt, since no paid call made it. History keeps what it replaced.
-- **Files the person attaches** to a chat message, and are not an object's file, are written to `person-attachments/<id>.<extension>` and recorded as a `person` change. The message names each by its path.
+- **Files the person attaches** to a chat message, and are not an object's file: a picture is written to `person-attachments/<id>.<extension>`, any other file to `inputs/` under a name not taken there, and a document whose text the client can read (.docx, .doc, a PDF with a text layer, .rtf) also gets that text beside it as a `.txt` file, also under a name not taken. Each is recorded as a `person` change, and the message names each by its path.
 - **A running turn** sees the person's change only from the next turn on (4.3). A person's edit made while a turn runs is replaced only if that turn changes the same file; it stays in the file's history, one restore away (4.3).
 
 ## 4. The turn
@@ -140,7 +140,7 @@ The client is the turn's harness, as Codex's cloud harness is: it puts the drama
 
 ### 4.2 The session's last commit
 
-For each session, the client keeps the commit the Computer and the client last agreed on: the last put, or the last collection that landed. Every bundle builds on it.
+For each session, the client keeps the commit the Computer and the client last agreed on: the last put, or the last collection that landed. Every put builds on it, and a turn's first capture too; each later capture of the turn builds on the one before (4.3).
 - **When the Computer still has it** (`git cat-file -e`), a put's commit has it as its parent, and the bundle carries only what is new since.
 - **When it does not** (a new session, or a lost git directory), the put is a **parentless snapshot** of the client's current files, with no history, so the first bundle is only the current files.
 - **The client's full history stays with the client.**
@@ -154,10 +154,10 @@ For each session, the client keeps the commit the Computer and the client last a
    - The snapshot becomes the session's last commit.
 2. **The turn.** The client sends the message (4.1).
 3. **Collect.**
-   - One `exec` captures what `drama/` holds (`git add -A --force` with that pathspec, then a commit whose parent is the session's last commit) and writes a bundle of it. When the tree is unchanged, there is no commit and no bundle.
-   - The client fetches the bundle under a ref of its own and takes the changed paths with `git diff-tree -r -z --no-renames`. It applies each path on its own. A path the person edited by hand there is first recorded as `client-found-changes-on-disk`, so history keeps their version. Deletions go first, each removing the folders it leaves empty. Then each write, streamed from its blob, receipts before the outputs they describe (2.3).
-   - **While the turn runs**, the client MAY collect, for example every few seconds. Such a collection only writes the files changed since the previous one into the folder, so the person sees the turn's results as they come. It makes no commit, and the session's last commit stays.
-   - **Once the turn has ended on Pine, however it ended**, a last collection writes what changed since the previous one. Then the client records exactly what landed of the turn's changes since the session's last commit as the turn's **one** `pine-computer` change, with its trailers (2.1). The change is built from the result's files, whatever the folder holds now. In the same step it moves the session's last commit to the result, so a collection again finds nothing new.
+   - One `exec` captures what `drama/` holds (`git add -A --force` with that pathspec, then a commit whose parent is the turn's previous capture, else the session's last commit) and writes a bundle of it. When the tree is unchanged, there is no commit and no bundle.
+   - The client fetches the bundle under a ref of its own and takes the changed paths with `git diff-tree -r -z --no-renames`. It applies each path on its own. Deletions go first, each removing the folders it leaves empty. Then each write, streamed from its blob, receipts before the outputs they describe (2.3).
+   - **While the turn runs**, the client MAY collect, for example every few seconds. Such a collection writes the files changed since the previous capture into the folder and stages them, so the person sees the turn's results as they come; a path the person edited by hand is not written over. It makes no commit, and the session's last commit stays.
+   - **Once the turn has ended on Pine, however it ended**, a last collection writes every path the turn changed since the session's last commit, and what changed since the previous capture. A path the person edited by hand is first recorded as `client-found-changes-on-disk`, so history keeps their version. Then the client records exactly what landed of the turn's changes since the session's last commit as the turn's **one** `pine-computer` change, with its trailers (2.1). The change is built from the result's files, whatever the folder holds now. In the same step it moves the session's last commit to the result, so a collection again finds nothing new.
    - A path is **left out**, and the person is told once, when it:
      - is no path of the project (section 1);
      - is a link or a gitlink;

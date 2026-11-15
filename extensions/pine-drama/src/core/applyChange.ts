@@ -9,7 +9,7 @@ import { mkdir, rm, rmdir } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { throughNoLink, writeWhole } from './placement';
 import { commitEntriesToHistory, commitIndexPaths, commitPathsToHistory, listPathsOfIndex, runInProjectWriteQueue, stagePaths, turnTrailers, unstagedPaths, writeBlob, type PineTurnIds, type TreeEntry } from './projectHistory';
-import { matches, RECEIPT_SUFFIX } from './protocol';
+import { isProtocolPath, RECEIPT_SUFFIX } from './protocol';
 import { sha256, sha256OfFile } from './sha256';
 
 /** What landing a person's change did. */
@@ -182,5 +182,5 @@ const RESERVED = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i;
  * segment is a Windows reserved name or ends with `.` or a space.
  */
 export function validPath(path: string): boolean {
-	return path.normalize('NFC') === path && matches('path', path) && path.split('/').every(segment => !RESERVED.test(segment) && !/[. ]$/.test(segment));
+	return path.normalize('NFC') === path && isProtocolPath(path) && path.split('/').every(segment => !RESERVED.test(segment) && !/[. ]$/.test(segment));
 }

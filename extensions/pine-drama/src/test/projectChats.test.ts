@@ -17,7 +17,7 @@ function fixture() {
 	const path = join(dir, 'studio.sqlite');
 	const store = new Store(path);
 	for (const key of ['main', 'ep1', 'ep2', 'history', 'other']) {
-		store.insertChat({ key, env: 'pine', endpoint: 'https://pine.test', label: 'same label', secret_ref: key });
+		store.insertChat({ key, endpoint: 'https://pine.test', label: 'same label', secret_ref: key });
 	}
 	return { dir, root, path, store };
 }

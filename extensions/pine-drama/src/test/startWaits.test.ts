@@ -31,7 +31,7 @@ async function drain(updates: AsyncGenerator<Update>): Promise<Update[]> {
 	}
 	return out;
 }
-const send = (service: ChatService, text: string) => drain(service.submit(KEY, text, text));
+const send = (service: ChatService, text: string) => drain(service.submit(KEY, text, text, []));
 const markdown = (updates: Update[]) => updates.filter(u => u.kind !== 'progress').map(u => u.text).join('\n');
 
 test('the start says how long Pine may wait', async () => {

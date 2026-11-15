@@ -1,9 +1,9 @@
 // The episode canvas's glue: one webview panel per episode, fed the drama's lineage
-// for that episode (core/lineage.ts), and the global assets canvas. A click shows the object in the Versions view; a
-// double-click opens exactly the file the card shows in the native viewer. Production logic is in core (lineage.ts,
+// for that episode (core/lineage.ts), and the global assets canvas. A click shows the object in the Versions view.
+// Production logic is in core (lineage.ts,
 // canvasLayout.ts, canvasProtocol.ts); the webview is canvas/canvas.tsx, on React Flow (spike S11).
 import * as vscode from 'vscode';
-import { CANVAS_COMMANDS, CANVAS_PROTOCOL, readFromCanvas, type CanvasDetail, type CanvasLayout, type CanvasViewport, type Shown, type ToCanvas } from './core/canvasProtocol';
+import { CANVAS_COMMANDS, CANVAS_PROTOCOL, readFromCanvas, type CanvasDetail, type CanvasLayout, type CanvasViewport, type ToCanvas } from './core/canvasProtocol';
 import { unchangedLine, type EntryDone } from './core/entryActions';
 import { recordOf } from './core/assetStatus';
 import { shootRequest } from './core/segEditor';
@@ -59,7 +59,7 @@ export function registerEpisodeCanvas(context: vscode.ExtensionContext, views: P
 		} catch (error) {
 			const e = error as Error;
 			output.appendLine(`canvas ${episode}: ${e.message}, after ${took()} (project ${project.root})`);
-			message = { v: CANVAS_PROTOCOL, type: 'error', episode, message: e.message, code: null, action: null };
+			message = { v: CANVAS_PROTOCOL, type: 'error', episode, message: e.message };
 		}
 		// A message the webview does not take (closed, or not yet loaded) is said, never lost in silence.
 		if (!await panel.webview.postMessage(message)) {
@@ -72,21 +72,21 @@ export function registerEpisodeCanvas(context: vscode.ExtensionContext, views: P
 	 * a variant's card, its record too; the box's prompt (prompt.md) for an object that has one to edit; what its next draw
 	 * sends; and its picture's history for Use.
 	 */
-	const detailReply = async (webview: vscode.Webview, episode: string, shown: Shown): Promise<ToCanvas> => {
+	const detailReply = async (webview: vscode.Webview, episode: string, stageId: string): Promise<ToCanvas> => {
 		try {
 			const drama = await project.drama();
-			const object = drama.objects.get(shown.stageId);
+			const object = drama.objects.get(stageId);
 			const src = fileAddressByVersion(project.root, rel => webview.asWebviewUri(fileUri(rel)).toString());
 			const detail: CanvasDetail | null = object ? await receiptDetail(project.root, drama, object, src) : null;
 			const prompt = object && object.prompt !== null ? { object: object.id, text: object.prompt } : null;
-			return { v: CANVAS_PROTOCOL, type: 'detail', stageId: shown.stageId, detail, record: recordOf(drama, shown.stageId),
+			return { v: CANVAS_PROTOCOL, type: 'detail', stageId: stageId, detail, record: recordOf(drama, stageId),
 				prompt, nextDraw: object ? nextDrawRequest(drama, object, src) : [],
 				picture: object ? await pictureHistory(project.root, object, globalStorageFolder(context).fsPath, file => webview.asWebviewUri(vscode.Uri.file(file)).toString()) : null,
-				error: object ? null : `${shown.stageId} is not in the project any more` };
+				error: object ? null : `${stageId} is not in the project any more` };
 		} catch (error) {
 			const text = (error as Error).message;
 			output.appendLine(`canvas ${episode}: ${text} (project ${project.root})`);
-			return { v: CANVAS_PROTOCOL, type: 'detail', stageId: shown.stageId, detail: null, error: text };
+			return { v: CANVAS_PROTOCOL, type: 'detail', stageId: stageId, detail: null, error: text };
 		}
 	};
 
@@ -120,7 +120,7 @@ export function registerEpisodeCanvas(context: vscode.ExtensionContext, views: P
 				if (!applied) {
 					return; // An unpick or a newer pick arrived while the lineage loaded.
 				}
-				await panel.webview.postMessage(await detailReply(panel.webview, episode, message));
+				await panel.webview.postMessage(await detailReply(panel.webview, episode, message.stageId));
 			} else if (message?.type === 'layout' && message.episode === episode) {
 				await context.workspaceState.update(layoutKey(episode), message.positions);
 			} else if (message?.type === 'viewport' && message.episode === episode) {
@@ -143,7 +143,7 @@ export function registerEpisodeCanvas(context: vscode.ExtensionContext, views: P
 				await panel.webview.postMessage({ v: CANVAS_PROTOCOL, type: 'actionEnded', key: message.key, error, unchanged } satisfies ToCanvas);
 				// The canvas reads the project again, and the panel then shows the record as written.
 				await send(panel, episode);
-				await panel.webview.postMessage(await detailReply(panel.webview, episode, { stageId: message.stageId, file: null }));
+				await panel.webview.postMessage(await detailReply(panel.webview, episode, message.stageId));
 			} else if (message?.type === 'generate') {
 				// Put in the open chat's input for the person to send, never sent from here: an asset's picture or a
 				// keyframe's is drawn; a take is shot, asked as the seg editor's Generate asks it (segEditor.ts; shootRequest; amended 2026-11-11). Sending it is the person's explicit

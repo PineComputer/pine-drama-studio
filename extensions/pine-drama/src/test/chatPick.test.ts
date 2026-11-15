@@ -9,9 +9,9 @@ import { Store } from '../core/store';
 test('the conversation written to last is the first row, though the store lists the oldest first', () => {
 	const clock = { now: Date.parse('2026-11-01T09:00:00Z') };
 	const store = new Store(join(mkdtempSync(join(tmpdir(), 'pine-pick-')), 'studio.sqlite'), () => clock.now);
-	store.insertChat({ key: 'pine-computer:/yesterday', env: 'dev', endpoint: 'https://pine.test', label: 'Double life', secret_ref: 'a' });
+	store.insertChat({ key: 'pine-computer:/yesterday', endpoint: 'https://pine.test', label: 'Double life', secret_ref: 'a' });
 	clock.now = Date.parse('2026-11-02T10:00:00Z');
-	store.insertChat({ key: 'pine-computer:/today', env: 'dev', endpoint: 'https://pine.test', label: 'New drama', secret_ref: 'b' });
+	store.insertChat({ key: 'pine-computer:/today', endpoint: 'https://pine.test', label: 'New drama', secret_ref: 'b' });
 	clock.now = Date.parse('2026-11-02T10:05:00Z');
 	store.updateChat('pine-computer:/today', { state: 'running' });
 

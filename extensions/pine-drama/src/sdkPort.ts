@@ -61,8 +61,8 @@ export class SdkPort implements PinePort {
 		return (await this.computer(env, s.credentials, s.binding)).adoptSession(s.name, s.token);
 	}
 
-	/** Maps SDK errors to the port's; `unconfirmed` lists the ones that leave a send's outcome unknown. */
-	private async mapped<T>(call: () => Promise<T>, unconfirmed: 'run' | 'send' | 'none'): Promise<T> {
+	/** Maps SDK errors to the port's; `unconfirmed` is 'run' when the call can leave a run's outcome unknown. */
+	private async mapped<T>(call: () => Promise<T>, unconfirmed: 'run' | 'none'): Promise<T> {
 		const s = await sdk();
 		try {
 			return await call();

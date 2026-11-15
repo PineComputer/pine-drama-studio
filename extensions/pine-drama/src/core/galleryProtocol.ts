@@ -20,17 +20,15 @@ export interface GalleryTile {
 	/** The object's id: its folder. */
 	readonly stagePath: string;
 	readonly name: string;
-	readonly note: string | null;
 	/** Its shown file when it is a picture, project-relative, or null. */
 	readonly file: string | null;
 	/** Its description.md, which the card's actions change. */
 	readonly description: string;
-	/** The asset grid: how many of the asset's objects show a file, and how many are still to be made (assetStatus.ts). */
-	readonly visuals?: { readonly made: number; readonly needed: number };
+	/** The asset grid: how many of the asset's objects are still to be made (assetStatus.ts). */
+	readonly visuals?: { readonly needed: number };
 }
 
 export interface GallerySection {
-	readonly title: string;
 	readonly tiles: readonly GalleryTile[];
 	/** The asset grid: the type its last card, Create New, adds. */
 	readonly add?: AddType;
@@ -46,7 +44,7 @@ export interface PageTile extends GalleryTile {
 
 export type ToGallery =
 	/** A page; an asset grid's names its kind, which the cards' icon and the editor's state follow. */
-	| { readonly v: typeof GALLERY_PROTOCOL; readonly type: 'page'; readonly title: string; readonly kind?: Collection; readonly note: string | null; readonly sections: readonly { readonly title: string; readonly tiles: readonly PageTile[]; readonly add?: AddType }[] }
+	| { readonly v: typeof GALLERY_PROTOCOL; readonly type: 'page'; readonly kind?: Collection; readonly note: string | null; readonly sections: readonly { readonly tiles: readonly PageTile[]; readonly add?: AddType }[] }
 	| { readonly v: typeof GALLERY_PROTOCOL; readonly type: 'error'; readonly message: string }
 	/** A card action ended (C1): the card's busy line clears, and shows the failure, or `unchanged` when it wrote nothing (unchangedLine). */
 	| { readonly v: typeof GALLERY_PROTOCOL; readonly type: 'actionEnded'; readonly key: string; readonly error: string | null; readonly unchanged: string | null };

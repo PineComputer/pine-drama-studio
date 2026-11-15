@@ -76,19 +76,16 @@ export interface Edge {
 
 /**
  * A document of protocol major 2 as it was read (`raw`, parsed JSON), named `name` for the person: one of another major
- * is refused whole, since a client applies nothing of a major it does not speak (doc/protocol.md section 7), by
- * `refuse` when its caller knows what the major means, and otherwise as a document this Studio does not read, a newer
- * one with the Studio's update.
+ * is refused whole, since a client applies nothing of a major it does not speak (doc/protocol.md section 6), as a
+ * document this Studio does not read, a newer one with the Studio's update.
  */
-export function majorTwo(name: string, raw: unknown, refuse = (schema: unknown): never => {
-	const unread = `${name} is a document of protocol major ${JSON.stringify(schema)}, which this Studio does not read`;
-	return typeof schema === 'number' && schema > MAJOR
+export function majorTwo(name: string, raw: unknown): Record<string, any> {
+	const document = Object(raw);
+	if (document.schema === MAJOR) { return document; }
+	const unread = `${name} is a document of protocol major ${JSON.stringify(document.schema)}, which this Studio does not read`;
+	return typeof document.schema === 'number' && document.schema > MAJOR
 		? refuseWithUpgradeInstructions(`${unread}. Update Pine Drama Studio to its newest version.`, { downloadUrl: STUDIO_RELEASES_URL })
 		: refuseWithUpgradeInstructions(unread);
-}): Record<string, any> {
-	const document = Object(raw);
-	if (document.schema !== MAJOR) { refuse(document.schema); }
-	return document;
 }
 
 /**
@@ -99,27 +96,17 @@ export function majorTwo(name: string, raw: unknown, refuse = (schema: unknown):
 // A require, not an import: tsc refuses to import a file outside rootDir (src/).
 const SCHEMA = require('../../protocol/v2/protocol.schema.json') as { readonly $id: string };
 
-let ajv: Ajv2020 | undefined;
-let schemaId = '';
+let pathValidator: ((value: unknown) => boolean) | undefined;
 
-function validator(def: string) {
-	if (!ajv) {
-		ajv = new Ajv2020({ allErrors: true, strict: false });
+/** Whether `value` is a path of the project as the schema's `$defs/path` defines one (doc/protocol.md, section 1). */
+export function isProtocolPath(value: unknown): boolean {
+	if (!pathValidator) {
+		const ajv = new Ajv2020({ allErrors: true, strict: false });
 		addFormats(ajv);
 		ajv.addSchema(SCHEMA);
-		schemaId = SCHEMA.$id;
+		const validate = ajv.getSchema(`${SCHEMA.$id}#/$defs/path`);
+		if (!validate) { throw new Error(`protocol schema has no $defs/path (${SCHEMA.$id})`); }
+		pathValidator = value => validate(value) as boolean;
 	}
-	const validate = ajv.getSchema(`${schemaId}#/$defs/${def}`);
-	if (!validate) {
-		throw new Error(`protocol schema has no $defs/${def} (${schemaId})`);
-	}
-	return validate;
-}
-
-/**
- * Whether `value` matches the part of the schema at `pointer` under its `$defs` (a JSON Pointer, RFC 6901, such as
- * `path`): how the install checks that a returned path is a path of the project (doc/protocol.md, section 1).
- */
-export function matches(pointer: string, value: unknown): boolean {
-	return validator(pointer)(value) as boolean;
+	return pathValidator(value);
 }

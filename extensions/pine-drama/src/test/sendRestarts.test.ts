@@ -33,9 +33,9 @@ function fixture() {
 test('a send to an ended session starts one new session and sends the message there once, with no "not sent"', async () => {
 	const f = fixture();
 	try {
-		await drain(f.service.submit('main', 'first', 'Project Chat', f.root));
+		await drain(f.service.submit('main', 'first', 'Project Chat', [], f.root));
 		await idleStopAndDiscover(f.pine, f.store, 'main');
-		const updates = await drain(f.service.submit('main', 'Keep the cast small, please.', 'Project Chat', f.root));
+		const updates = await drain(f.service.submit('main', 'Keep the cast small, please.', 'Project Chat', [], f.root));
 		const said = updates.map(u => u.text).join('\n');
 		assert.equal(f.pine.calls.createSession, 2, 'one new session');
 		assert.equal(f.sent('Keep the cast small, please.'), 1, 'the message sent once, in it');
@@ -48,10 +48,10 @@ test('a send to an ended session starts one new session and sends the message th
 test('a restart that fails gives the message back and says what failed, in one line', async () => {
 	const f = fixture();
 	try {
-		await drain(f.service.submit('main', 'first', 'Project Chat', f.root));
+		await drain(f.service.submit('main', 'first', 'Project Chat', [], f.root));
 		await idleStopAndDiscover(f.pine, f.store, 'main');
 		f.pine.fail('ensureComputer', new Error('OFFLINE: no Computer free'));
-		const updates = await drain(f.service.submit('main', 'Keep the cast small, please.', 'Project Chat', f.root));
+		const updates = await drain(f.service.submit('main', 'Keep the cast small, please.', 'Project Chat', [], f.root));
 		const lines = updates.filter(u => u.kind !== 'progress');
 		assert.equal(lines.length, 1, lines.map(u => u.text).join(' | '));
 		assert.match(lines[0].text, /was not sent: the agent could not be started again: OFFLINE: no Computer free[^]*```text\nKeep the cast small, please\.\n```/);
@@ -66,12 +66,12 @@ test('a restart that fails gives the message back and says what failed, in one l
 test('two quick sends after the session ended start one restart; the second goes as its own turn in the new session', async () => {
 	const f = fixture();
 	try {
-		await drain(f.service.submit('main', 'first', 'Project Chat', f.root));
+		await drain(f.service.submit('main', 'first', 'Project Chat', [], f.root));
 		await idleStopAndDiscover(f.pine, f.store, 'main');
 		const starts = f.pine.calls.ensureComputer ?? 0;
 		const [a, b] = await Promise.all([
-			drain(f.service.submit('main', 'Keep the cast small.', 'Project Chat', f.root)),
-			drain(f.service.submit('main', 'And make it rain.', 'Project Chat', f.root)),
+			drain(f.service.submit('main', 'Keep the cast small.', 'Project Chat', [], f.root)),
+			drain(f.service.submit('main', 'And make it rain.', 'Project Chat', [], f.root)),
 		]);
 		assert.equal((f.pine.calls.ensureComputer ?? 0) - starts, 1, 'the Computer was started once');
 		assert.equal(f.pine.calls.createSession, 2, 'one new session, not two');
@@ -88,12 +88,12 @@ test('two quick sends after the session ended start one restart; the second goes
 test('a send whose restart Pine did not confirm gives the message back, retries nothing, and the next send goes', async () => {
 	const f = fixture();
 	try {
-		await drain(f.service.submit('main', 'first', 'Project Chat', f.root));
+		await drain(f.service.submit('main', 'first', 'Project Chat', [], f.root));
 		await idleStopAndDiscover(f.pine, f.store, 'main');
 		const starts = f.pine.calls.ensureComputer ?? 0;
 		const runs = f.pine.calls.run ?? 0;
 		const release = f.pine.hold('ensureComputer');
-		const send = drain(f.service.submit('main', 'Keep the cast small, please.', 'Project Chat', f.root));
+		const send = drain(f.service.submit('main', 'Keep the cast small, please.', 'Project Chat', [], f.root));
 		for (let i = 0; (f.pine.calls.ensureComputer ?? 0) === starts && i < 500; i++) { await new Promise(resolve => setTimeout(resolve, 5)); }
 		// Another start of this Computer is accepted first: the binding revision moves on.
 		const computer = f.pine.computers.get(f.store.chat('main')!.computer_id!)!;
@@ -108,7 +108,7 @@ test('a send whose restart Pine did not confirm gives the message back, retries 
 		assert.equal(f.pine.calls.createSession, 1, 'no new session');
 		assert.equal(f.store.chat('main')!.computer_state, 'creating', 'the unconfirmed start stays reserved');
 		// The person sends it again (copied from the line): the same Computer is reconciled and it goes.
-		const again = await drain(f.service.submit('main', 'Keep the cast small, please.', 'Project Chat', f.root));
+		const again = await drain(f.service.submit('main', 'Keep the cast small, please.', 'Project Chat', [], f.root));
 		assert.doesNotMatch(again.map(u => u.text).join('\n'), /not sent/);
 		assert.equal(f.sent('Keep the cast small, please.'), 1);
 		assert.equal(f.pine.calls.createSession, 2);
@@ -123,15 +123,15 @@ test('two quick sends to a session that ended waiting for an answer: one restart
 	const f = fixture();
 	try {
 		f.pine.plans.push({ state: 'needs_input', text: 'Which episode?' });
-		await drain(f.service.submit('main', 'first', 'Project Chat', f.root));
+		await drain(f.service.submit('main', 'first', 'Project Chat', [], f.root));
 		assert.equal(f.store.chat('main')!.state, 'needs_input');
 		// Pine's idle stop, not yet seen by the Studio.
 		const computer = f.pine.computers.get(f.store.chat('main')!.computer_id!)!;
 		computer.state = 'stopped'; computer.sessions.clear();
 		const starts = f.pine.calls.ensureComputer ?? 0;
 		const [a, b] = await Promise.all([
-			drain(f.service.submit('main', 'Keep the cast small.', 'Project Chat', f.root)),
-			drain(f.service.submit('main', 'And make it rain.', 'Project Chat', f.root)),
+			drain(f.service.submit('main', 'Keep the cast small.', 'Project Chat', [], f.root)),
+			drain(f.service.submit('main', 'And make it rain.', 'Project Chat', [], f.root)),
 		]);
 		const said = [...a, ...b].map(u => u.text).join('\n');
 		assert.doesNotMatch(said, /not sent/);
@@ -148,12 +148,12 @@ test('a message whose question changed, sent to a session that then ended, goes 
 	const f = fixture();
 	try {
 		f.pine.plans.push({ state: 'needs_input', text: 'Which episode?' }, { state: 'needs_input', text: 'Which scene?' });
-		await drain(f.service.submit('main', 'draw the storyboard', 'Project Chat', f.root));
+		await drain(f.service.submit('main', 'draw the storyboard', 'Project Chat', [], f.root));
 		const release = f.pine.hold('run');
-		const first = drain(f.service.submit('main', 'EP001', 'Project Chat', f.root));
+		const first = drain(f.service.submit('main', 'EP001', 'Project Chat', [], f.root));
 		for (let i = 0; (f.pine.calls.run ?? 0) < 2 && i < 500; i++) { await new Promise(r => setTimeout(r, 10)); }
 		// Written for "Which episode?", which EP001 is answering: it waits behind it in the window's queue.
-		const second = drain(f.service.submit('main', 'EP002 instead', 'Project Chat', f.root));
+		const second = drain(f.service.submit('main', 'EP002 instead', 'Project Chat', [], f.root));
 		await new Promise(resolve => setImmediate(resolve));
 		// Its keychain read waits, and meanwhile Pine stops the Computer: the send finds the session ended.
 		(f.options.vault as MemoryVault).getDelay = 200;

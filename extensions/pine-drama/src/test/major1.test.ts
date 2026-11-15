@@ -43,7 +43,7 @@ test('a choices.json hand-edited, synced or written by another Studio is read as
 
 test('a choice without the words it needs, or naming a version the client lacks, is no choice', () => {
 	const version = (id: string, reviewed: boolean) => ({ id, record: { schema: 1 as const, made_at: '2026-11-12T09:00:00Z', file: null, inputs: [], prompt: null, from_import: null },
-		reviews: reviewed ? [{ schema: 1 as const, accepted_at: '2026-11-12T09:01:00Z', reason: 'ok' }] : [] });
+		reviewed });
 	const versions = [version('v1', true), version('v2', false), version('v3', false)];
 	const choices = (chosen: Choices['objects'][string]['chosen']): Choices => ({ schema: 1, objects: { o: { chosen } } });
 	assert.equal(currentVersion(versions, choices({ version: 'v2' }), 'o'), 'v3', 'v2 needs words: no choice, so the newest');

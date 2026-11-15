@@ -16,7 +16,7 @@ function fixture() {
 	const root = join(dir, 'North Harbor'); mkdirSync(root);
 	const other = join(dir, 'other', 'North Harbor'); mkdirSync(other, { recursive: true });
 	const store = new Store(join(dir, 'studio.sqlite'));
-	for (const key of ['main', 'ep1', 'other']) { store.insertChat({ key, env: 'test', endpoint: 'https://pine.test', label: 'Work', secret_ref: key }); }
+	for (const key of ['main', 'ep1', 'other']) { store.insertChat({ key, endpoint: 'https://pine.test', label: 'Work', secret_ref: key }); }
 	return { dir, root, other, store };
 }
 
@@ -24,7 +24,7 @@ for (const existing of [false, true]) {
 	test(`a project's first send survives synchronous UI refresh${existing ? ' after an interrupted unbound insertion' : ''}`, async () => {
 		const { dir, root, store } = fixture();
 		const key = 'pine-computer:/session-first';
-		if (existing) { store.insertChat({ key, env: 'offline', endpoint: 'http://pine.test', label: 'First send', secret_ref: 'offline' }); }
+		if (existing) { store.insertChat({ key, endpoint: 'http://pine.test', label: 'First send', secret_ref: 'offline' }); }
 		const pine = new FakePine(); pine.plans = [{ state: 'completed' }];
 		const seen: string[] = [];
 		let unboundNotifications = 0;
@@ -41,7 +41,7 @@ for (const existing of [false, true]) {
 		const script = join(dir, 'script.txt'); writeFileSync(script, 'OFFLINE screenplay');
 		try {
 			assert.doesNotThrow(() => projectSessions(root, store.chats()));
-			for await (const _update of service.submitWithFiles(key, 'Read the script', 'First send', [{ kind: 'file', path: script }], root)) { /* drain fake transport */ }
+			for await (const _update of service.submit(key, 'Read the script', 'First send', [{ kind: 'file', path: script }], root)) { /* drain fake transport */ }
 			assert(seen.length > 0); assert.equal(store.chat(key)!.folder, root);
 			if (!existing) { assert.equal(unboundNotifications, 0, 'new-row notification follows folder admission'); }
 			assert.deepEqual(projectSessions(root, store.chats()).chats.map(c => c.key), [key]); assert.equal(pine.calls.run, 1);
@@ -52,7 +52,7 @@ for (const existing of [false, true]) {
 test('an unbound row is not project history, and a row bound elsewhere is that project\'s', () => {
 	const { root, other, store } = fixture();
 	const key = 'pine-computer:/session-pending';
-	store.insertChat({ key, env: 'offline', endpoint: 'http://pine.test', label: 'Pending', secret_ref: 'offline' });
+	store.insertChat({ key, endpoint: 'http://pine.test', label: 'Pending', secret_ref: 'offline' });
 	try {
 		assert.deepEqual(projectSessions(root, store.chats()).chats, []);
 		associateProject(store, key, other);

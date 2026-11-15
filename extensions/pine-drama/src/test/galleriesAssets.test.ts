@@ -79,8 +79,8 @@ test('characters, scenes and props share one editor: another kind replaces its c
 		const panel = panels.at(-1)!;
 		assert.equal(panel.title, 'scenes');
 		await panel.receive!({ v: 2, type: 'ready' });
-		const page = panel.posted.at(-1) as { type: string; title: string; sections: { tiles: { stagePath: string }[] }[] };
-		assert.deepEqual([page.type, page.title, page.sections[0].tiles.map(tile => tile.stagePath)], ['page', 'scenes', ['assets/scenes/office', 'assets/scenes/street']], 'it reads the kind it shows now');
+		const page = panel.posted.at(-1) as { type: string; kind: string; sections: { tiles: { stagePath: string }[] }[] };
+		assert.deepEqual([page.type, page.kind, page.sections[0].tiles.map(tile => tile.stagePath)], ['page', 'scenes', ['assets/scenes/office', 'assets/scenes/street']], 'it reads the kind it shows now');
 		// 2. Assets is no page: the command opens nothing for it.
 		await commands.get('pineDrama.openGallery')!('assets');
 		assert.equal(panels.length, before + 1);

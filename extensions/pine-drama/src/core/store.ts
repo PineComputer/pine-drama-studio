@@ -17,7 +17,6 @@ export type MessageKind = 'prompt' | 'instructions' | 'progress' | 'activity' | 
 
 export interface Chat {
 	key: string;
-	env: string;
 	endpoint: string;
 	label: string;
 	secret_ref: string;
@@ -47,7 +46,6 @@ export interface SavedSend {
 	text: string;
 	state: SavedSendState;
 	turn_id: string | null;
-	error: string | null;
 	created_at: string;
 }
 
@@ -60,14 +58,12 @@ export interface Message {
 	text: string;
 	cost: number | null;
 	currency: string | null;
-	at: string;
 }
 
-const SCHEMA_VERSION = 19;
+const SCHEMA_VERSION = 20;
 const SCHEMA = `
 create table if not exists chats (
   key text primary key,               -- the chat session resource
-  env text not null,
   endpoint text not null,             -- the environment's endpoint when the Chat began
   label text not null,
   secret_ref text not null,           -- the vault entries' prefix
@@ -92,9 +88,7 @@ create table if not exists saved_sends (
   text text not null,
   state text not null,                -- pending | sent | unknown | failed
   turn_id text,                       -- the turn it opened
-  error text,
-  created_at text not null,
-  updated_at text not null
+  created_at text not null
 );
 create table if not exists messages (
   id integer primary key,
@@ -104,21 +98,12 @@ create table if not exists messages (
   kind text not null,                 -- prompt | instructions | progress | activity | result | question | usage | failed | notice
   text text not null,
   cost real,
-  currency text,
-  at text not null
+  currency text
 );
 -- One prompt per saved send; one final result, question, usage or failure per turn.
 create unique index if not exists messages_prompt on messages (saved_send_id) where kind = 'prompt';
 create unique index if not exists messages_final on messages (chat_key, turn_id, kind)
   where turn_id is not null and kind in ('result', 'question', 'usage', 'failed');
--- Turns in the order Pine started them: the first run or event that names one fixes its place, so a record that
--- is saved late never overtakes a newer turn's.
-create table if not exists turns (
-  seq integer primary key,
-  chat_key text not null,
-  turn_id text not null,
-  unique (chat_key, turn_id)
-);
 -- Applied events, so a replayed event changes nothing.
 create table if not exists events (
   chat_key text not null,
@@ -133,10 +118,6 @@ create table if not exists chat_reveal_requests (
   token text not null unique,
   requested_at integer not null
 );
--- A task's record (doc/architecture/local-first-remote-execution.md, 6.1): committed before anything is dispatched, since
--- Pine keeps no task record beyond a Computer (11.1). One open record per stage. A record ends only on completion,
--- charged-not-selected (including a result that can never be installed, 6.2) or lost-charged; nothing else ends it. The completion record is the one
--- replay keys on (6.2). Producing-runtime attribution is immutable from schema 11 onward.
 `;
 
 
@@ -241,10 +222,10 @@ export class Store {
 		return this.db.prepare('select * from chats order by created_at').all() as unknown as Chat[];
 	}
 
-	insertChat(c: Pick<Chat, 'key' | 'env' | 'endpoint' | 'label' | 'secret_ref'>): void {
+	insertChat(c: Pick<Chat, 'key' | 'endpoint' | 'label' | 'secret_ref'>): void {
 		const at = this.iso();
-		this.db.prepare(`insert into chats (key, env, endpoint, label, secret_ref, computer_state, pine_session_state, state, created_at, updated_at)
-			values (?, ?, ?, ?, ?, 'none', 'none', 'idle', ?, ?)`).run(c.key, c.env, c.endpoint, c.label, c.secret_ref, at, at);
+		this.db.prepare(`insert into chats (key, endpoint, label, secret_ref, computer_state, pine_session_state, state, created_at, updated_at)
+			values (?, ?, ?, ?, 'none', 'none', 'idle', ?, ?)`).run(c.key, c.endpoint, c.label, c.secret_ref, at, at);
 	}
 
 	/** Missing folder metadata is not proof that earlier runtime work belongs to a newly selected project. */
@@ -288,16 +269,14 @@ export class Store {
 	// ---- operations ----
 
 	insertSavedSend(op: Pick<SavedSend, 'id' | 'chat_key' | 'text'>): void {
-		const at = this.iso();
-		this.db.prepare(`insert into saved_sends (id, chat_key, text, state, created_at, updated_at)
-			values (?, ?, ?, 'pending', ?, ?)`).run(op.id, op.chat_key, op.text, at, at);
+		this.db.prepare(`insert into saved_sends (id, chat_key, text, state, created_at)
+			values (?, ?, ?, 'pending', ?)`).run(op.id, op.chat_key, op.text, this.iso());
 	}
 
-	updateSavedSend(id: string, patch: Partial<Pick<SavedSend, 'state' | 'turn_id' | 'error'>>): void {
+	updateSavedSend(id: string, patch: Partial<Pick<SavedSend, 'state' | 'turn_id'>>): void {
 		const entries = Object.entries(patch);
 		const sets = entries.map(([column]) => `${column} = ?`).join(', ');
-		this.db.prepare(`update saved_sends set ${sets}, updated_at = ? where id = ?`)
-			.run(...entries.map(([, value]) => value as string | number | null), this.iso(), id);
+		this.db.prepare(`update saved_sends set ${sets} where id = ?`).run(...entries.map(([, value]) => value as string | number | null), id);
 	}
 
 	/** The runs and answers whose turn is `turnId`: each is a task of its own (local-first, 6.1). */
@@ -316,21 +295,17 @@ export class Store {
 
 	// ---- messages and events ----
 
-	/** Adds a message; false when its unique slot (a prompt's operation, a turn's final kind) is taken. */
 	/** Adds a message; returns its id, or undefined when a unique index already holds one like it. */
-	addMessage(m: Omit<Message, 'id' | 'at'>): number | undefined {
-		const result = this.db.prepare(`insert into messages (chat_key, turn_id, saved_send_id, kind, text, cost, currency, at)
-			values (?, ?, ?, ?, ?, ?, ?, ?) on conflict do nothing`)
-			.run(m.chat_key, m.turn_id, m.saved_send_id, m.kind, m.text, m.cost, m.currency, this.iso());
+	addMessage(m: Omit<Message, 'id'>): number | undefined {
+		const result = this.db.prepare(`insert into messages (chat_key, turn_id, saved_send_id, kind, text, cost, currency)
+			values (?, ?, ?, ?, ?, ?, ?) on conflict do nothing`)
+			.run(m.chat_key, m.turn_id, m.saved_send_id, m.kind, m.text, m.cost, m.currency);
 		return result.changes > 0 ? Number(result.lastInsertRowid) : undefined;
 	}
 
-
-	/** Moves one operation's messages of these kinds to another operation; returns the kinds moved. */
-	moveMessages(from: string, to: string, kinds: readonly MessageKind[]): MessageKind[] {
-		const moved = this.db.prepare(`select distinct kind from messages where saved_send_id = ? and kind in (${kinds.map(() => '?').join(', ')})`).all(from, ...kinds) as unknown as { kind: MessageKind }[];
-		this.db.prepare(`update messages set saved_send_id = ? where saved_send_id = ? and kind in (${kinds.map(() => '?').join(', ')})`).run(to, from, ...kinds);
-		return moved.map(row => row.kind);
+	/** Moves one operation's prompt to another operation; true when there was one to move. */
+	movePrompt(from: string, to: string): boolean {
+		return this.db.prepare(`update messages set saved_send_id = ? where saved_send_id = ? and kind = 'prompt'`).run(to, from).changes > 0;
 	}
 
 	messages(key: string): Message[] {
@@ -342,18 +317,13 @@ export class Store {
 	 * snapshots and a repeated final change nothing. True when the record changed.
 	 */
 	setTurnCost(key: string, turnId: string, cost: number | null, currency: string, final: boolean): boolean {
-		const result = this.db.prepare(`insert into messages (chat_key, turn_id, saved_send_id, kind, text, cost, currency, at)
-			values (?, ?, null, 'usage', ?, ?, ?, ?)
+		const result = this.db.prepare(`insert into messages (chat_key, turn_id, saved_send_id, kind, text, cost, currency)
+			values (?, ?, null, 'usage', ?, ?, ?)
 			on conflict (chat_key, turn_id, kind) where turn_id is not null and kind in ('result', 'question', 'usage', 'failed')
-			do update set text = excluded.text, cost = excluded.cost, currency = excluded.currency, at = excluded.at
+			do update set text = excluded.text, cost = excluded.cost, currency = excluded.currency
 			where messages.text <> 'final'`)
-			.run(key, turnId, final ? 'final' : 'snapshot', cost, currency, this.iso());
+			.run(key, turnId, final ? 'final' : 'snapshot', cost, currency);
 		return result.changes > 0;
-	}
-
-	/** Fixes the turn's place in Pine's order the first time it is named; later calls change nothing. */
-	noteTurn(key: string, turnId: string): void {
-		this.db.prepare('insert into turns (chat_key, turn_id) values (?, ?) on conflict do nothing').run(key, turnId);
 	}
 
 	/** Records an event as applied; false when it already was. Must run in the transaction that applies it. */
@@ -362,12 +332,4 @@ export class Store {
 			.run(key, taskId, eventId);
 		return result.changes > 0;
 	}
-
-	// ---- settling ----
-
-	/** Opens the settle of an ended turn; a repeat keeps the steps already done. */
-
-	// ---- task claims (local-first, 6.1) ----
-
-
 }

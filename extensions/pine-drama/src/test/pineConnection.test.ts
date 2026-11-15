@@ -77,7 +77,7 @@ test('credential changes block new Computer admissions without discarding saved 
 	let current = true;
 	const service = new ChatService({ holdsProject: () => true, turnEndGraceMs: 0, store, port: pine, vault: new MemoryVault(), pine: savedConnection(KEY), connectionCurrent: () => current });
 	current = false;
-	await assert.rejects(async () => { for await (const update of service.submit('pine-computer:/fixture', 'make a drama', 'fixture')) { void update; } }, /connection changed/);
+	await assert.rejects(async () => { for await (const update of service.submit('pine-computer:/fixture', 'make a drama', 'fixture', [])) { void update; } }, /connection changed/);
 	assert.equal(service.chats().length, 0);
 	store.close();
 });
@@ -96,7 +96,7 @@ test('credential invalidation keeps admitted turns followable and blocks a new s
 	const service = new ChatService({ holdsProject: () => true, turnEndGraceMs: 0, store, port: pine, vault: new MemoryVault(), pine: savedConnection(KEY), connectionCurrent: () => current });
 	pine.plans = [{ state: 'running' }];
 	const id = 'pine-computer:/admitted';
-	const run = service.submit(id, 'make the drama', 'fixture');
+	const run = service.submit(id, 'make the drama', 'fixture', []);
 	while (store.chat(id)?.state !== 'running') { await run.next(); }
 	await run.return(undefined);
 	current = false;
@@ -104,7 +104,17 @@ test('credential invalidation keeps admitted turns followable and blocks a new s
 	for await (const update of service.attachChatToPineTurn(id)) { void update; }
 	assert.equal(store.chat(id)!.state, 'idle');
 	assert.equal(pine.calls.run, 1);
-	await assert.rejects(async () => { for await (const update of service.startNewSession(id)) { void update; } }, /connection changed/);
+	// A send whose first attempt finds the session gone (its run) starts the agent again; the connection changed
+	// meanwhile, so the restart gives the message back and no successor starts.
+	current = true;
+	pine.computers.get(store.chat(id)!.computer_id!)!.sessions.clear();
+	const firstRun = pine.run.bind(pine);
+	pine.run = async (...args) => { current = false; return firstRun(...args); };
+	const creates = pine.calls.createSession;
+	const said: string[] = [];
+	for await (const update of service.submit(id, 'again', 'again', [])) { said.push(update.text); }
+	assert.match(said.join('\n'), /could not be started again: The Pine connection changed/);
+	assert.equal(pine.calls.createSession, creates, 'no successor on a changed connection');
 	store.close();
 });
 

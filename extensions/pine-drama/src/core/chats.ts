@@ -29,13 +29,13 @@ import { sha256 } from './sha256';
 import { CHANGED_TARGET_NOTE } from './instructions';
 import { randomUUID } from 'node:crypto';
 import { AccountError, ConnectionLostError, PINE_ACCOUNT_URL, IDLE_WAITING_SECONDS, IDLE_WORKING_SECONDS, MissingError, NoPineError, OtherPineError, START_WAIT_SECONDS, StartNotConfirmedError, StartTimeoutError, UnconfirmedError, endpointHost, type ComputerSecrets, type IdlePolicy, type PineConnection, type PineEvent, type PinePort, type SecretVault, type PineSession, type TurnView } from './pinePort';
-import { projectIdentity, projectPlaceOf, projectRootOf } from './projectPlace';
+import { projectBoundaryOf, projectIdentity, projectRootOf } from './projectPlace';
 import { entryFor, type Entry } from './binding';
 import { givenBack, refusalLine } from './refusal';
 import { collectTurn, forgetCaptures, putTurnFiles, turnRecordOf, type ComputerSession, type SentTurn, type TurnRecord } from './turn';
 import { applyPersonChange } from './applyChange';
 import { DRAMA_FOLDER, PERSON_ATTACHMENTS_FOLDER } from './protocol';
-import { type ProjectPlace, unusedName, within } from './placement';
+import { unusedName, within } from './placement';
 import { existsSync, mkdirSync, readFileSync, statSync } from 'node:fs';
 import { basename, extname, join } from 'node:path';
 import { withoutRepeatedQuestion } from './askedOnce';
@@ -54,7 +54,6 @@ export type Update =
 	| { kind: 'usage'; text: string }
 	/** The session ended; the person decides whether a new one starts. */
 	| { kind: 'sessionEnded'; text: string }
-	/** A result that is not used: one native warning with its reason, its detail in Output (D43). */
 	/** The Computer did not start in time; `text` says what was observed. A send gives its message back (unsentLine). */
 	| { kind: 'notStarted'; text: string }
 	/** Pine could not be reached for the follow's whole limit: the line offers Reload Window, which attaches again. */
@@ -116,11 +115,6 @@ export interface ChatServiceOptions {
 type SendResult = { kind: 'sent'; turn: TurnView } | { kind: 'unknown' } | { kind: 'failed' } | { kind: 'ended' };
 
 const LABEL = 'pine-drama-studio';
-/**
- * The `env` column of a new Chat. It held an environment's name until 2026-11-02; with one Pine it is a code name
- * only, shown nowhere: a session is matched by its stored endpoint.
- */
-const PINE_ENV = 'pine';
 /** How long one wait for a turn's end lasts before the generation is checked and the wait repeats. */
 const TURN_WAIT_MS = 10_000;
 /** The event stream's time to deliver what it has left once a turn has ended (since M0). */
@@ -264,17 +258,9 @@ export class ChatService {
 		return entryFor(chats, projectsRoot ?? '', key, folder);
 	}
 
-	/**
-	 * Sends the person's message: a run, or the answer to a waiting question. `folder` is the window's one folder: the
-	 * first message binds a new session to it. Only the person's Stop (`signal`) stops its work: a send not yet admitted
-	 * starts no turn, and a turn that runs is cancelled; the history shows how it ended.
-	 */
-	submit(key: string, text: string, label: string, folder?: string, signal?: AbortSignal): AsyncGenerator<Update> {
-		return this.submitOnce(key, text, label, folder, [], signal);
-	}
 
 	/** `signal`: the person's Stop of this send; once aborted, nothing more goes up and no turn is started (sendTask). */
-	private async *submitOnce(key: string, text: string, label: string, folder: string | undefined, files: readonly ChatFile[] = [], signal?: AbortSignal): AsyncGenerator<Update> {
+	private async *submitOnce(key: string, text: string, label: string, folder: string | undefined, files: readonly ChatFile[], signal?: AbortSignal): AsyncGenerator<Update> {
 		// Capture the question/turn before waiting in the local send queue; a preceding reply may ask a new question.
 		const atSend = this.store.chat(key);
 		const intendedAtSend = atSend ? intent(atSend) : { kind: 'run' as const, target: null };
@@ -340,7 +326,7 @@ export class ChatService {
 			return;
 		}
 		if (!conv) {
-			this.store.tx(() => this.store.insertChat({ key, env: PINE_ENV, endpoint: env.endpoint, label, secret_ref: secretRef(key) }));
+			this.store.tx(() => this.store.insertChat({ key, endpoint: env.endpoint, label, secret_ref: secretRef(key) }));
 		}
 		if (folder && entry?.kind === 'go' && entry.bind) {
 			if (!this.store.bindFolder(key, folder)) {
@@ -438,12 +424,11 @@ export class ChatService {
 			yield unsentLine(text, files, `the project could not be sent to the Computer (${(error as Error).message.replace(/[.\s]+$/, '')})`);
 			return;
 		}
-		const op: SavedSend = { id: opId, chat_key: key, text: noted, state: 'pending', turn_id: null, error: null, created_at: '' };
+		const op: SavedSend = { id: opId, chat_key: key, text: noted, state: 'pending', turn_id: null, created_at: '' };
 		this.write(key, epoch, () => {
 			this.store.insertSavedSend(op);
 			// The person's message is recorded as typed; the Studio's notes, in messages of their own.
-			const moved = resends ? this.store.moveMessages(resends, op.id, ['prompt']) : [];
-			if (!moved.includes('prompt')) {
+			if (!(resends && this.store.movePrompt(resends, op.id))) {
 				this.store.addMessage({ chat_key: key, turn_id: null, saved_send_id: op.id, kind: 'prompt', text, cost: null, currency: null });
 			}
 			if (note) {
@@ -554,12 +539,6 @@ export class ChatService {
 		yield unsentLine(text, files, `the agent could not be started again: ${why.replace(/[.\s]+$/, '')}`);
 	}
 
-	/** A new session on the same Computer, started again if stopped: the restart a send performs (replacePineSessionAndSend). */
-	async *startNewSession(key: string): AsyncGenerator<Update> {
-		const release = await this.queueExecution(key);
-		try { yield* this.replaceEndedPineSession(key); }
-		finally { release(); }
-	}
 
 	private async *replaceEndedPineSession(key: string): AsyncGenerator<Update> {
 		if (this.options.connectionCurrent?.() === false) { throw new Error('The Pine connection changed. Reload the window before sending more work.'); }
@@ -658,7 +637,7 @@ export class ChatService {
 		const notice = `The agent starts again on Computer ${conv.computer_id}. It does not remember earlier turns of this session, and its working folder is empty: your next message brings the project in from your folder.`;
 		await this.publish(key, epoch, secrets, { computer_state: 'running', pine_session_name: created.name, pine_session_state: 'open', task_id: null, last_applied_event_id: null, state: 'idle', current_turn_id: null, question_turn_id: null }, () => {
 			for (const op of this.store.unconfirmedSavedSends(key)) {
-				this.store.updateSavedSend(op.id, { state: 'failed', error: 'the session it was sent to ended' });
+				this.store.updateSavedSend(op.id, { state: 'failed' });
 			}
 			this.store.addMessage({ chat_key: key, turn_id: null, saved_send_id: null, kind: 'notice', text: notice, cost: null, currency: null });
 		});
@@ -905,7 +884,7 @@ export class ChatService {
 		this.write(key, epoch, () => {
 			this.store.updateChat(key, { pine_session_state: 'ended', state: 'idle', current_turn_id: null, question_turn_id: null, ...(computerStopped ? { computer_state: 'stopped' as const } : {}) });
 			for (const op of this.store.unconfirmedSavedSends(key)) {
-				this.store.updateSavedSend(op.id, { state: 'failed', error: 'the session ended' });
+				this.store.updateSavedSend(op.id, { state: 'failed' });
 			}
 			this.store.addMessage({ chat_key: key, turn_id: null, saved_send_id: null, kind: 'notice', text: `The original session ended: ${why}.`, cost: null, currency: null });
 		});
@@ -938,7 +917,7 @@ export class ChatService {
 			return { kind: 'sent', turn };
 		} catch (error) {
 			if (error instanceof UnconfirmedError) {
-				this.write(key, epoch, () => this.store.updateSavedSend(op.id, { state: 'unknown', error: error.message }));
+				this.write(key, epoch, () => this.store.updateSavedSend(op.id, { state: 'unknown' }));
 				yield { kind: 'markdown', text: `_Pine did not confirm the run; it is resent safely before the next message._` };
 				return { kind: 'unknown' };
 			}
@@ -950,7 +929,7 @@ export class ChatService {
 				return { kind: 'ended' };
 			}
 			this.write(key, epoch, () => {
-				this.store.updateSavedSend(op.id, { state: 'failed', error: (error as Error).message });
+				this.store.updateSavedSend(op.id, { state: 'failed' });
 				this.store.addMessage({ chat_key: key, turn_id: null, saved_send_id: null, kind: 'notice', text: `The run failed: ${(error as Error).message}`, cost: null, currency: null });
 			});
 			yield { kind: 'markdown', text: `**The run failed:** ${(error as Error).message}` };
@@ -971,10 +950,10 @@ export class ChatService {
 		return files && projectRootOf(files.projectsRoot, this.store.chat(key) ?? { key, folder: null });
 	}
 
-	/** The session's project root and the folder nothing may leave; undefined without a project store. */
-	projectPlace(key: string): ProjectPlace | undefined {
+	/** The folder nothing the session settles may leave; undefined without a project store. */
+	private projectBoundary(key: string): string | undefined {
 		const files = this.options.files;
-		return files && projectPlaceOf(files.projectsRoot, this.store.chat(key) ?? { key, folder: null });
+		return files && projectBoundaryOf(files.projectsRoot, this.store.chat(key) ?? { key, folder: null });
 	}
 
 
@@ -982,18 +961,13 @@ export class ChatService {
 
 
 	/**
-	 * Keeps local files to send with the next run. A file over Pine's limit is skipped and named, as main's `attach`
-	 * does (runs.ts, `skipped`); the others are kept whatever the number.
+	 * The person's message, with the files they added in the chat input (Add Context; `ChatRequest.references`, which the
+	 * glue maps to `ChatFile`s): each local file goes into the drama's folder by the path `attachFiles` takes, and then the
+	 * message goes, a new session's first message included. What is not placed is said, by name and why: a folder, or
+	 * anything that is not a file on this computer. Issue: a .docx added this way never left the desktop, and the agent
+	 * found its attachments empty.
 	 */
-	/**
-	 * A message with the files the person added in the chat input (Add Context; `ChatRequest.references`, which the glue
-	 * maps to `ChatFile`s): each local file goes up by the uplink path `attachFiles` takes, with the same 64 MB limit, the
-	 * same note and once only, and then the message goes as `submit` sends it, a run or an answer, a new session's first
-	 * message included. What is not sent is said, by name and why: a file over the limit, a folder (Send
-	 * Project packs one), anything that is not a file on this computer. Issue: a .docx added this way never left the
-	 * desktop, and the agent found its attachments empty.
-	 */
-	submitWithFiles(key: string, text: string, label: string, files: readonly ChatFile[], folder?: string, signal?: AbortSignal): AsyncGenerator<Update> {
+	submit(key: string, text: string, label: string, files: readonly ChatFile[], folder?: string, signal?: AbortSignal): AsyncGenerator<Update> {
 		return this.submitOnce(key, text, label, folder, files, signal);
 	}
 
@@ -1134,8 +1108,7 @@ export class ChatService {
 
 	private sent(key: string, epoch: number, op: Pick<SavedSend, 'id'>, turn: TurnView): void {
 		this.write(key, epoch, () => {
-			this.store.noteTurn(key, turn.turnId);
-			this.store.updateSavedSend(op.id, { state: 'sent', turn_id: turn.turnId, error: null });
+			this.store.updateSavedSend(op.id, { state: 'sent', turn_id: turn.turnId });
 			this.store.updateChat(key, { state: 'running', current_turn_id: turn.turnId, question_turn_id: null });
 		});
 		this.log(`${key}: run ${op.id} -> turn ${turn.turnId} ${turn.state}`);
@@ -1397,9 +1370,6 @@ export class ChatService {
 			// turn would otherwise take the current turn's slot. The turn's own result and cost come
 			// from agent.wait, which names the turn. Only the followed turn's events are shown.
 			const turnId = event.turnId || null;
-			if (turnId) {
-				this.store.noteTurn(key, turnId);
-			}
 			const shown = turnId === conv.current_turn_id;
 			const updates: Update[] = [];
 			const message = (kind: Message['kind'], text: string) =>
@@ -1507,11 +1477,6 @@ export class ChatService {
 	}
 
 	/**
-	 * The idle timeout a start asks for. Where the project has no lifetime policy it cannot change once started, so the
-	 * waiting one from the start (open-pinedrama docs/IMPLEMENTATION_PLAN.md, "Idle timeout"); otherwise the working
-	 * one, which `tendIdle` raises while the agent waits. 
-	 */
-	/**
 	 * A restart whose start Pine did not confirm (timed out, or another start won or committed without completing): the
 	 * Computer stays reserved as "creating", whose outcome only the person's next send reconciles (replaceEndedPineSession,
 	 * retryingStart); the send that asked gives its message back (replacePineSessionAndSend). Nothing is retried here
@@ -1530,6 +1495,11 @@ export class ChatService {
 		return started;
 	}
 
+	/**
+	 * The idle timeout a start asks for. Where the project has no lifetime policy it cannot change once started, so the
+	 * waiting one from the start (open-pinedrama docs/IMPLEMENTATION_PLAN.md, "Idle timeout"); otherwise the working
+	 * one, which `tendIdle` raises while the agent waits.
+	 */
 	private async startIdle(env: PineConnection): Promise<number> {
 		const policy = await this.idlePolicy(env);
 		return this.allowedIdle(policy, policy.adjustable ? IDLE_WORKING_SECONDS : IDLE_WAITING_SECONDS);
@@ -1601,7 +1571,7 @@ export class ChatService {
 
 	/** The folder is still the bound one: a root moved away or replaced by a link receives nothing. */
 	private inBoundFolder(key: string, root: string): void {
-		if (!within(this.projectPlace(key)!.boundary, root)) { throw new Error('the project leads outside its bound folder'); }
+		if (!within(this.projectBoundary(key)!, root)) { throw new Error('the project leads outside its bound folder'); }
 	}
 
 	/**
@@ -1850,13 +1820,13 @@ export class ChatService {
 	}
 }
 
+/** What a send learns from its own attempt: the session ended before the message reached Pine, and the operation it recorded. */
+type Ending = { said: boolean; op?: string; changed?: boolean };
+
 /**
  * What a message sent now would be: a run, or the answer to the waiting question. While a turn runs it is neither yet:
  * v1 neither cancels nor steers a running turn, so the message waits for the turn to end (sendPersonMessageToPine).
  */
-/** What a send learns from its own attempt: the session ended before the message reached Pine, and the operation it recorded. */
-type Ending = { said: boolean; op?: string; changed?: boolean };
-
 function intent(conv: Chat): { kind: 'run'; target: string | null } | { kind: 'busy'; target: string } {
 	// The answer to a stop is a new task (doc/protocol.md, 4.3: "the person's answer is a new task"): a run, never Pine's
 	// answer to the waiting turn. It keeps that turn as its target, so a question that changed meanwhile is still noted.

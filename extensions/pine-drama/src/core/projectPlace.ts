@@ -3,7 +3,6 @@
 import { sha256 } from './sha256';
 import { existsSync, realpathSync, statSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
-import type { ProjectPlace } from './placement';
 
 /** One shared identity even when two windows reach the same folder through different aliases. */
 export function projectIdentity(root: string): string {
@@ -31,10 +30,10 @@ export function projectRootOf(projectsRoot: string, conv: { readonly key: string
 	return conv.folder ?? projectFolder(projectsRoot, conv.key);
 }
 
-/** The session's project root, and the folder nothing it settles may leave: the bound folder, else the root itself. */
-export function projectPlaceOf(projectsRoot: string, conv: { readonly key: string; readonly folder: string | null }): ProjectPlace {
+/** The folder nothing the session settles may leave: its project root, checked when the session is bound to a folder. */
+export function projectBoundaryOf(projectsRoot: string, conv: { readonly key: string; readonly folder: string | null }): string {
 	const root = projectRootOf(projectsRoot, conv);
 	if (conv.folder) { assertProjectRoot(root, root); }
-	return { root, boundary: root };
+	return root;
 }
 

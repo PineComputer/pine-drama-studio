@@ -13,11 +13,10 @@ import type { ProjectViews } from './projectViews';
 import { closeUnrevived, globalStorageFolder, webviewHtml } from './webviewHtml';
 
 const VIEW_TYPE = 'pineDrama.gallery';
-type Page = { kind: 'collection'; collection: Collection };
+type Page = { collection: Collection };
 const COLLECTIONS: readonly Collection[] = ['characters', 'scenes', 'props'];
-// The three kinds share one editor: its key is the same for each (open, below).
-// One editor for the three grids (open, below).
-const keyOf = (_page: Page) => 'assets';
+// One editor for the three grids, under one key (open, below).
+const KEY = 'assets';
 
 export function registerGalleries(context: vscode.ExtensionContext, views: ProjectViews, output: vscode.OutputChannel): { refresh(): void } {
 	const { project } = views;
@@ -50,7 +49,7 @@ export function registerGalleries(context: vscode.ExtensionContext, views: Proje
 			}
 		} catch (error) {
 			const text = (error as Error).message;
-			output.appendLine(`gallery ${keyOf(page)}: ${text} (project ${project.root})`);
+			output.appendLine(`gallery ${KEY}: ${text} (project ${project.root})`);
 			// A page read before stays, with the failure and the time it was read.
 			const last = shown.get(panel);
 			message = last
@@ -83,7 +82,7 @@ export function registerGalleries(context: vscode.ExtensionContext, views: Proje
 		panel.iconPath = new vscode.ThemeIcon('library');
 	};
 	const setUp = (panel: vscode.WebviewPanel, page: Page, title: string) => {
-		const key = keyOf(page);
+		const key = KEY;
 		panels.set(key, panel);
 		panel.webview.options = { enableScripts: true, localResourceRoots: [media, root, globalStorageFolder(context)] };
 		show(panel, page, title);
@@ -134,9 +133,9 @@ export function registerGalleries(context: vscode.ExtensionContext, views: Proje
 	};
 
 	const open = async (page: Page) => {
-		const existing = panels.get(keyOf(page));
+		const existing = panels.get(KEY);
 		if (existing) {
-			// Another kind replaces the grid's content in the same editor (keyOf), as the preview editor's does.
+			// Another kind replaces the grid's content in the same editor (KEY), as the preview editor's does.
 			const was = pages.get(existing);
 			if (was && was.collection !== page.collection) {
 				shown.delete(existing);
@@ -148,7 +147,7 @@ export function registerGalleries(context: vscode.ExtensionContext, views: Proje
 		}
 		const title = titleOf(page);
 		await closeUnrevived(VIEW_TYPE, title);
-		setUp(vscode.window.createWebviewPanel(VIEW_TYPE, keyOf(page), { viewColumn: vscode.ViewColumn.Active, preserveFocus: true }, { retainContextWhenHidden: false }), page, title);
+		setUp(vscode.window.createWebviewPanel(VIEW_TYPE, KEY, { viewColumn: vscode.ViewColumn.Active, preserveFocus: true }, { retainContextWhenHidden: false }), page, title);
 	};
 
 	// A restored tab is revived only when shown, so one this build cannot serve (the removed Production assets page or
@@ -163,14 +162,14 @@ export function registerGalleries(context: vscode.ExtensionContext, views: Proje
 	context.subscriptions.push(
 		vscode.commands.registerCommand('pineDrama.openGallery', (which: unknown) => {
 			if (COLLECTIONS.includes(which as Collection)) {
-				return open({ kind: 'collection', collection: which as Collection });
+				return open({ collection: which as Collection });
 			}
 			return undefined;
 		}),
 		vscode.window.registerWebviewPanelSerializer(VIEW_TYPE, {
 			async deserializeWebviewPanel(panel: vscode.WebviewPanel, state: unknown) {
 				const s = (state ?? {}) as Record<string, unknown>;
-				const page: Page | undefined = COLLECTIONS.includes(s.gallery as Collection) ? { kind: 'collection', collection: s.gallery as Collection }
+				const page: Page | undefined = COLLECTIONS.includes(s.gallery as Collection) ? { collection: s.gallery as Collection }
 					: undefined;
 				if (page) {
 					setUp(panel, page, titleOf(page));

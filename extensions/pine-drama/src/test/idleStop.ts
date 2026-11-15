@@ -14,6 +14,6 @@ export async function idleStopAndDiscover(pine: FakePine, store: Store, key: str
 	computer.sessions.clear();
 	store.tx(() => {
 		store.updateChat(key, { pine_session_state: 'ended', state: 'idle', current_turn_id: null, question_turn_id: null, computer_state: 'stopped' });
-		for (const op of store.unconfirmedSavedSends(key)) { store.updateSavedSend(op.id, { state: 'failed', error: 'the session ended' }); }
+		for (const op of store.unconfirmedSavedSends(key)) { store.updateSavedSend(op.id, { state: 'failed' }); }
 	});
 }

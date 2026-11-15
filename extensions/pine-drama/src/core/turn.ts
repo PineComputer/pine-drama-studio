@@ -29,7 +29,7 @@ export interface SentTurn {
 	readonly session: string;
 }
 
-/** A turn settled at its Pine turn's end, with the files that landed from it. A settled turn is never read again. */
+/** A turn settled at its Pine turn's end, with the files that landed from it. */
 export interface SettledTurn {
 	readonly files: readonly string[];
 }
@@ -56,8 +56,8 @@ export class TurnRecord {
 	sentTurn(turn: string): SentTurn | undefined { return this.read<SentTurn>('sent', turn); }
 
 	/** Records `turn` sent, to `session`, once its files are on the Computer. */
-	send(turn: string, chat: string, session: string, at = new Date()): Promise<void> {
-		return this.write('sent', turn, { turn, sent: at.toISOString(), chat, session } satisfies SentTurn);
+	send(turn: string, chat: string, session: string): Promise<void> {
+		return this.write('sent', turn, { turn, sent: new Date().toISOString(), chat, session } satisfies SentTurn);
 	}
 
 	settled(turn: string): SettledTurn | undefined { return this.read<SettledTurn>('settled', turn); }

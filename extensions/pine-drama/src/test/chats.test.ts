@@ -49,7 +49,7 @@ test('a database of another schema is set aside with its journal files, once, an
 	assert.deepEqual(readFileSync(`${aside}-wal`), wal, 'its -wal goes with it, unchanged');
 	assert.equal(existsSync(`${aside}-shm`), true);
 	assert.equal(setAsideNotice(store.setAside!), `Earlier Chat history from an older version of Pine Drama Studio was set aside at ${aside}. Open your project folder and continue in a chat: your work is in the folder.`);
-	store.insertChat({ key: 'k', env: 'dev', endpoint: 'https://pine.test', label: 'k', secret_ref: 'k' });
+	store.insertChat({ key: 'k', endpoint: 'https://pine.test', label: 'k', secret_ref: 'k' });
 	store.close();
 	held.close();
 	// The second start finds this schema: nothing is set aside again.
@@ -82,7 +82,7 @@ function currentSecret(store: Store): string {
 	return `${conv.secret_ref}.${conv.secret_gen}`;
 }
 
-const send = (service: ChatService, text: string) => drain(service.submit(KEY, text, text));
+const send = (service: ChatService, text: string) => drain(service.submit(KEY, text, text, []));
 const markdown = (updates: Update[]) => updates.filter(u => u.kind !== 'progress').map(u => u.text).join('\n');
 const kinds = (store: Store) => store.messages(KEY).map(m => m.kind);
 
@@ -227,7 +227,7 @@ test('a reply whose view ended stops reading; the next message follows the turn,
 	const { window, pine } = setup();
 	const { store, service } = window();
 	pine.plans = [{ state: 'running' }];
-	const first = service.submit(KEY, 'make the drama', 'make the drama');
+	const first = service.submit(KEY, 'make the drama', 'make the drama', []);
 	const end = Date.now() + 10_000;
 	while (store.chat(KEY)?.state !== 'running') {
 		assert.ok(Date.now() < end, 'the turn runs');
@@ -246,7 +246,7 @@ test('a message waiting for a turn whose session is lost goes to a new session, 
 	await send(service, 'start');
 	// The turn it waits for is gone, as Pine answers when the session is (MissingError).
 	store.tx(() => store.updateChat(KEY, { state: 'running', current_turn_id: 'turn-gone' }));
-	const said = await drain(service.submit(KEY, 'make it darker', 'make it darker', FOLDER));
+	const said = await drain(service.submit(KEY, 'make it darker', 'make it darker', [], FOLDER));
 	assert.ok(said.every(u => u.kind !== 'sessionEnded'), markdown(said));
 	assert.match(markdown(said), /done: make it darker/);
 	assert.equal(store.db.prepare("select count(*) n from saved_sends where text like 'make it darker%' and state = 'sent'").get()!.n, 1);
@@ -260,7 +260,7 @@ test('a message whose session ends during the recovery of an earlier send goes t
 	pine.lose('run');
 	await send(service, 'second'); // unconfirmed: resent before the next message
 	pine.stop(JSON.parse(vault.values.get(currentSecret(store))!).credentials);
-	const said = await drain(service.submit(KEY, 'third', 'third', FOLDER));
+	const said = await drain(service.submit(KEY, 'third', 'third', [], FOLDER));
 	assert.ok(said.every(u => u.kind !== 'sessionEnded'));
 	assert.equal(store.db.prepare("select count(*) n from saved_sends where text like 'third%' and state = 'sent'").get()!.n, 1, 'delivered once');
 	assert.doesNotMatch(markdown(said), /was not sent/);
@@ -271,7 +271,7 @@ test('a message that finds its session already ended is sent in a new session, w
 	const { store, service } = window();
 	await send(service, 'first');
 	pine.stop(JSON.parse(vault.values.get(currentSecret(store))!).credentials);
-	const sent = await drain(service.submit(KEY, 'second', 'second', FOLDER));
+	const sent = await drain(service.submit(KEY, 'second', 'second', [], FOLDER));
 	assert.ok(sent.every(u => u.kind !== 'sessionEnded'));
 	assert.match(markdown(sent), /done: second/);
 	// The first try found the session gone at Pine (MissingError: not delivered); only the new session's send went.
@@ -348,7 +348,7 @@ test('a send whose credentials the keychain refuses gives the message back once,
 	const { window, pine, vault } = setup();
 	const { service } = window();
 	vault.failStore = true;
-	const said = await drain(service.submit(KEY, 'make the poster', 'x', FOLDER));
+	const said = await drain(service.submit(KEY, 'make the poster', 'x', [], FOLDER));
 	assert.match(markdown(said), /Could not save the Computer's credentials to the keychain/);
 	const back = said.filter(u => u.kind === 'unsent');
 	assert.equal(back.length, 1, markdown(said));
@@ -361,10 +361,10 @@ test('review P2: gateway timeouts leave a send unknown, as the SDK defines them'
 	const port = new SdkPort();
 	for (const status of [408, 502, 503, 504]) {
 		const error = Object.assign(Object.create(ApiError.prototype), { status, message: `HTTP ${status}` });
-		await assert.rejects(port['mapped'](() => Promise.reject(error), 'send'), UnconfirmedError);
+		await assert.rejects(port['mapped'](() => Promise.reject(error), 'run'), UnconfirmedError);
 	}
 	const notFound = Object.assign(Object.create(ApiError.prototype), { status: 400, message: 'bad' });
-	await assert.rejects(port['mapped'](() => Promise.reject(notFound), 'send'), (e: Error) => !(e instanceof UnconfirmedError) && !(e instanceof MissingError));
+	await assert.rejects(port['mapped'](() => Promise.reject(notFound), 'run'), (e: Error) => !(e instanceof UnconfirmedError) && !(e instanceof MissingError));
 });
 
 test('a session no message has reached has no Task: task-not-found reads as none, a session Pine no longer has is gone, other problems still fail', async () => {
@@ -573,7 +573,7 @@ async function reloadedWhileRunning() {
 	const a = make();
 	pine.plans = [{ state: 'needs_input', text: 'Which look?' }, { state: 'running' }];
 	await send(a.service, 'first');
-	const inflight = a.service.submit(KEY, 'the red one', 'x');
+	const inflight = a.service.submit(KEY, 'the red one', 'x', []);
 	for await (const update of inflight) {
 		if (update.kind === 'activity' && /working on the red one/.test(update.text)) {
 			break; // the window goes away mid-turn; nothing cancels the turn on Pine

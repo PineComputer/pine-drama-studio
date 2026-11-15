@@ -38,7 +38,7 @@ async function drain(updates: AsyncGenerator<Update>): Promise<string> {
 	}
 	return out.join('\n');
 }
-const send = (service: ChatService, text: string, folder: string, key = KEY) => drain(service.submit(key, text, text, folder));
+const send = (service: ChatService, text: string, folder: string, key = KEY) => drain(service.submit(key, text, text, [], folder));
 
 const SAID = (root: string) => `This project's root is \`${root}\`. Its files go to the Pine Computer with each turn, and the turn's results land here as they finish; the project's history keeps whatever they replace.`;
 
@@ -101,7 +101,7 @@ test('a send whose Chat is bound elsewhere is refused at the send with the messa
 	await send(service, 'make a drama', night);
 	const runs = pine.calls.run;
 	const seen: Update[] = [];
-	for await (const update of service.submit(KEY, 'and the [poster](drama/poster.md)', 'x', folder('other'))) { seen.push(update); }
+	for await (const update of service.submit(KEY, 'and the [poster](drama/poster.md)', 'x', [], folder('other'))) { seen.push(update); }
 	const back = seen.filter(u => u.kind === 'unsent');
 	assert.equal(back.length, 1, JSON.stringify(seen));
 	assert.match(back[0].text, /^_Not sent: this session's drama is in another folder, `[^`]*Night Ward`\. Your message is below, to send again\._\n\n```text\nand the \[poster\]\(drama\/poster\.md\)\n```\n\n$/);
@@ -113,7 +113,7 @@ test('bindFolder: every Chat of a folder joins it as a peer, even from another w
 	const { dir, store, folder } = setup();
 	const root = folder('Night Ward');
 	const other = new Store(join(dir, 'studio.sqlite'));
-	for (const key of ['main', 'a', 'b', 'bound']) { store.insertChat({ key, env: 'pine', endpoint: 'http://test', label: key, secret_ref: key }); }
+	for (const key of ['main', 'a', 'b', 'bound']) { store.insertChat({ key, endpoint: 'http://test', label: key, secret_ref: key }); }
 	assert.equal(store.bindFolder('main', root), true);
 	assert.equal(store.bindFolder('a', root), true);
 	assert.equal(other.bindFolder('b', root), true, 'a second window binds through the same transaction');

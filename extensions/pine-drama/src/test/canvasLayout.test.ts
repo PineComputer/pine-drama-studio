@@ -304,12 +304,11 @@ test('places keep full precision: frames that touch at fractional places are not
 	assert.deepEqual(positionsFor(onScreen, {}, onScreen, all, size), onScreen);
 });
 
-test('messages from the webview are checked; inspect carries the card and its shown file; the canvas opens no file', () => {
-	const shown = { stageId: 'assets/characters/cassie', file: 'assets/characters/cassie/look.jpg' };
-	assert.equal(readFromCanvas({ v: CANVAS_PROTOCOL, type: 'open', ...shown }), undefined, 'a file opens only from the tree');
-	assert.deepEqual(readFromCanvas({ v: CANVAS_PROTOCOL, type: 'inspect', ...shown }), { v: 1, type: 'inspect', ...shown });
-	assert.deepEqual(readFromCanvas({ v: CANVAS_PROTOCOL, type: 'inspect', ...shown, file: null }), { v: 1, type: 'inspect', ...shown, file: null }, 'a planned card shows no file');
-	assert.equal(readFromCanvas({ v: 1, type: 'inspect', stageId: 'x' }), undefined, 'no file named');
+test('messages from the webview are checked; inspect carries the card; the canvas opens no file', () => {
+	const card = { stageId: 'assets/characters/cassie', file: 'assets/characters/cassie/look.jpg' };
+	assert.equal(readFromCanvas({ v: CANVAS_PROTOCOL, type: 'open', ...card }), undefined, 'a file opens only from the tree');
+	assert.deepEqual(readFromCanvas({ v: CANVAS_PROTOCOL, type: 'inspect', ...card }), { v: 1, type: 'inspect', stageId: card.stageId }, 'the card, whatever else the message carries');
+	assert.equal(readFromCanvas({ v: 1, type: 'inspect' }), undefined, 'no card named');
 	assert.equal(readFromCanvas({ v: 2, type: 'ready' }), undefined);
 	assert.deepEqual(readFromCanvas({ v: 1, type: 'unpick', stageId: 'ignored' }), { v: 1, type: 'unpick' }, 'no card picked any more');
 	assert.equal(readFromCanvas('ready'), undefined);

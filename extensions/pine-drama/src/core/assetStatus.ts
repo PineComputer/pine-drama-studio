@@ -19,18 +19,16 @@ function family(drama: ProjectReadModel, asset: ProjectObject): ProjectObject[] 
 	return out;
 }
 
-/** One asset and its counts: how many of its objects show a file, and how many are still to be made. */
+/** One asset and how many of its objects are still to be made. */
 export interface AssetVisuals {
 	readonly object: ProjectObject;
-	readonly made: number;
 	readonly needed: number;
 }
 
 /** The assets of a kind, in id order, each with its own and its variants' counts (Pippit's "4 visuals · 3 visuals needed"). */
 export function assetsOf(drama: ProjectReadModel, kind: Collection): AssetVisuals[] {
 	return [...drama.objects.values()].filter(o => o.type === TYPE_OF[kind]).sort((a, b) => (a.id < b.id ? -1 : 1)).map(object => {
-		const all = family(drama, object);
-		return { object, made: all.filter(o => o.shownFile).length, needed: all.filter(o => !o.shownFile).length };
+		return { object, needed: family(drama, object).filter(o => !o.shownFile).length };
 	});
 }
 
@@ -45,12 +43,12 @@ export function kindCount(drama: ProjectReadModel, kind: Collection): { assets: 
  * description is its tooltip and what its actions change. Create New comes last.
  */
 export function assetGrid(drama: ProjectReadModel, kind: Collection): GallerySection {
-	const tiles: GalleryTile[] = assetsOf(drama, kind).map(({ object, made, needed }) => ({
-		stagePath: object.id, name: object.name, note: null,
+	const tiles: GalleryTile[] = assetsOf(drama, kind).map(({ object, needed }) => ({
+		stagePath: object.id, name: object.name,
 		file: object.shownFile && mediaOf(object.shownFile) === 'image' ? object.shownFile : null, description: object.description ?? '',
-		visuals: { made, needed },
+		visuals: { needed },
 	}));
-	return { title: kind, tiles, add: TYPE_OF[kind] };
+	return { tiles, add: TYPE_OF[kind] };
 }
 
 /** The record panel's data for an asset's or a variant's card; null for any other object. */
@@ -59,5 +57,5 @@ export function recordOf(drama: ProjectReadModel, id: string): CanvasRecord | nu
 	if (!object || !['character', 'scene', 'prop', 'variant'].includes(object.type)) {
 		return null;
 	}
-	return { object: id, type: object.type, description: object.description ?? '', from: object.variantOf };
+	return { description: object.description ?? '' };
 }

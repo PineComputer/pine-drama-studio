@@ -22,8 +22,8 @@ export async function galleryPageMessage(read: GalleryRead): Promise<Extract<ToG
 		src: t.file && await exists(t.file) ? read.src(t.file) : null,
 	})));
 	return {
-		v: GALLERY_PROTOCOL, type: 'page', title: read.kind, kind: read.kind,
+		v: GALLERY_PROTOCOL, type: 'page', kind: read.kind,
 		note: null,
-		sections: [{ title: grid.title, ...(grid.add ? { add: grid.add } : {}), tiles }],
+		sections: [{ ...(grid.add ? { add: grid.add } : {}), tiles }],
 	};
 }

@@ -10,7 +10,6 @@ button { font: inherit; color: inherit; }
 .empty { padding: calc(var(--origin-top) + var(--origin-height) + 12px) 24px 24px; color: var(--vscode-descriptionForeground); }
 .error { padding: 24px; max-width: 760px; }
 .error p { white-space: pre-wrap; word-break: break-word; }
-.error .detail { color: var(--vscode-descriptionForeground); }
 
 /* Where the data came from: a quiet chip, full source in its tooltip. */
 /* drama-cli status not read: below the source label, never over it, in the warning colour. */

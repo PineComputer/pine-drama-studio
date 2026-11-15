@@ -9,7 +9,7 @@ import { dirname, join } from 'node:path';
 import { writeWhole } from './placement';
 import { episodeIn, isEpisode } from './project';
 import { projectIdentity } from './projectPlace';
-import { matches, type Edge, type ObjectType } from './protocol';
+import { isProtocolPath, type Edge, type ObjectType } from './protocol';
 import { sha256 } from './sha256';
 
 /** The one major these documents are. */
@@ -50,15 +50,6 @@ export interface VersionRecord {
 	readonly inputs: readonly VersionRef[];
 	readonly prompt: string | null;
 	readonly from_import: string | null;
-	/** The version of the same object this one goes on from (doc/protocol.md 2.1); absent when it redoes its object as a whole, and in older records. */
-	readonly continues?: string;
-}
-
-export interface Review {
-	readonly schema: 1;
-	readonly accepted_at: string;
-	readonly reason: string;
-	readonly person?: string;
 }
 
 export interface Request {
@@ -130,7 +121,8 @@ export async function readChoices(root: string): Promise<Choices | null> {
 export interface Version {
 	readonly id: string;
 	readonly record: VersionRecord;
-	readonly reviews: readonly Review[];
+	/** Whether it holds a review of its own (its reviews/ folder): an accepted version needs no words to be chosen. */
+	readonly reviewed: boolean;
 }
 
 async function dirs(path: string): Promise<string[]> {
@@ -163,14 +155,9 @@ export async function readVersions(root: string, object: string): Promise<Versio
 		const raw = await json(join(folder, id, VERSION_FILE));
 		if (raw === undefined) { continue; }
 		const record = versionRecordOf(raw);
-		const reviews: Review[] = [];
-		const reviewDir = join(folder, id, REVIEWS);
 		let names: string[] = [];
-		try { names = (await readdir(reviewDir)).filter(n => n.endsWith('.json') && !n.startsWith('.')); } catch (error) { if (!missing(error)) { throw error; } }
-		for (const name of names.sort()) {
-			reviews.push(Object(await json(join(reviewDir, name))) as Review);
-		}
-		out.push({ id, record, reviews });
+		try { names = (await readdir(join(folder, id, REVIEWS))).filter(n => n.endsWith('.json') && !n.startsWith('.')); } catch (error) { if (!missing(error)) { throw error; } }
+		out.push({ id, record, reviewed: names.length > 0 });
 	}
 	return out.sort((a, b) => a.record.made_at < b.record.made_at ? -1 : a.record.made_at > b.record.made_at ? 1 : byId(a.id, b.id));
 }
@@ -182,7 +169,7 @@ export async function readVersions(root: string, object: string): Promise<Versio
  */
 export function versionRecordOf(raw: unknown): VersionRecord {
 	const record = Object(raw) as Partial<VersionRecord>;
-	return { ...record, file: matches('path', record.file) ? record.file : null, inputs: Object.values(record.inputs ?? {}).filter(i => typeof i?.object === 'string' && typeof i?.version === 'string') } as VersionRecord;
+	return { ...record, file: isProtocolPath(record.file) ? record.file : null, inputs: Object.values(record.inputs ?? {}).filter(i => typeof i?.object === 'string' && typeof i?.version === 'string') } as VersionRecord;
 }
 
 /** Version ids in order: letters as strings, then digits as numbers, so v9 comes before v10. */
@@ -205,7 +192,7 @@ export function currentVersion(versions: readonly Version[], choices: Choices | 
 	const chosenId = entry.chosen?.version
 		?? (entry.chosen?.import !== undefined ? versions.find(v => v.record.from_import === entry.chosen!.import)?.id : undefined);
 	const named = entry.removed === true || chosenId === undefined || discarded.has(chosenId) ? undefined : versions.find(v => v.id === chosenId);
-	const chosen = named && (entry.chosen?.words || named.reviews.length > 0 || own(named)) ? named : undefined;
+	const chosen = named && (entry.chosen?.words || named.reviewed || own(named)) ? named : undefined;
 	return (chosen ?? versions.filter(v => !discarded.has(v.id)).at(-1))?.id ?? null;
 }
 

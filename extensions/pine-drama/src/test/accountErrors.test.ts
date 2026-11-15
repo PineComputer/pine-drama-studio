@@ -59,7 +59,7 @@ test('a message that meets an account problem is given back once with its line, 
 		try {
 			pine.fail(op, new AccountError(problem));
 			const said: Update[] = [];
-			for await (const update of service.submit('main', 'make the drama', 'Project Chat', root)) { said.push(update); }
+			for await (const update of service.submit('main', 'make the drama', 'Project Chat', [], root)) { said.push(update); }
 			const given = said.filter(u => u.kind === 'unsent');
 			assert.equal(given.length, 1, `${op} ${problem}: ${said.map(u => u.text).join(' | ')}`);
 			assert.ok(given[0].text.includes(new AccountError(problem).message), given[0].text);

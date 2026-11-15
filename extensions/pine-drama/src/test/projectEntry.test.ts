@@ -6,7 +6,7 @@ import { test } from 'node:test';
 import { readProjectMajor } from '../core/project';
 import { projectAt, ProjectOfAnotherMajorError, ProjectsInsideError } from '../core/projectEntry';
 import { RefusedWithUpgradeInstructions, STUDIO_RELEASES_URL } from '../core/protocol';
-import { projectIdentity, projectPlaceOf } from '../core/projectPlace';
+import { projectIdentity, projectBoundaryOf } from '../core/projectPlace';
 import { entryFor } from '../core/binding';
 import { Store } from '../core/store';
 
@@ -102,21 +102,21 @@ test('a drama of another format is never taken for a new one: a format-1 folder 
 test('binding is atomic across windows, canonicalizes aliases, creates no wrapper and changes no schema', () => {
 	const dir = temp(); const root = made(dir, 'My Film'); const alias = join(dir, 'alias'); symlinkSync(root, alias);
 	const path = join(dir, 'studio.sqlite'); const a = new Store(path); const b = new Store(path);
-	for (const key of ['a', 'b']) { a.insertChat({ key, env: 'test', endpoint: 'http://test', label: key, secret_ref: key }); }
+	for (const key of ['a', 'b']) { a.insertChat({ key, endpoint: 'http://test', label: key, secret_ref: key }); }
 	assert.equal(a.bindFolder('a', alias), true);
 	// The later Chat joins as a peer.
 	assert.equal(b.bindFolder('b', root), true);
 	assert.equal(a.chat('b')!.folder, projectIdentity(root));
 	assert.equal(a.chat('a')!.folder, projectIdentity(root));
-	assert.deepEqual(projectPlaceOf(dir, a.chat('a')!), { root, boundary: root });
+	assert.equal(projectBoundaryOf(dir, a.chat('a')!), root);
 	assert.deepEqual(readdirSync(root), []);
-	assert.equal(a.db.prepare('pragma user_version').get()!.user_version, 19);
+	assert.equal(a.db.prepare('pragma user_version').get()!.user_version, 20);
 	a.close(); b.close();
 });
 
 test('an owned input-only root can continue intake before init has enough information', () => {
 	const dir = temp(); const root = made(dir, 'My Film'); const store = new Store(join(dir, 'studio.sqlite'));
-	store.insertChat({ key: 'a', env: 'test', endpoint: 'http://test', label: 'a', secret_ref: 'a' });
+	store.insertChat({ key: 'a', endpoint: 'http://test', label: 'a', secret_ref: 'a' });
 	assert.equal(store.bindFolder('a', root), true);
 	mkdirSync(join(root, 'inputs')); writeFileSync(join(root, 'inputs/screenplay.fountain'), 'the attached screenplay');
 	assert.deepEqual(entryFor(store.chats(), dir, 'a', root), { kind: 'go', bind: false });

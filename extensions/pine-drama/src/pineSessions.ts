@@ -186,8 +186,8 @@ export function registerPineSessions(
 				throw new Error(`Unknown project admission: ${JSON.stringify(unreachable)}`);
 			}
 		}
-		// Files added with the chat input's own Add Context go up with the message (core/chats.ts, submitWithFiles).
-		await reply(key, stream, token, signal => service.submitWithFiles(key, request.prompt, firstLine(request.prompt), request.references.map(chatFile), entry.folder, signal));
+		// Files added with the chat input's own Add Context go up with the message (core/chats.ts, submit).
+		await reply(key, stream, token, signal => service.submit(key, request.prompt, firstLine(request.prompt), request.references.map(chatFile), entry.folder, signal));
 		return {};
 	};
 	const participant = vscode.chat.createChatParticipant(SESSION_TYPE, handler);

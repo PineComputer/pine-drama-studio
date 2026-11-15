@@ -93,12 +93,12 @@ function fixture(windowRoot?: string) {
 		resumeUnfinishedTurnFollowUps: async () => {}, hasUnfinishedTurnFollowUp: () => false,
 		history: (key: string) => { calls.push(['history', key]); return []; },
 		entry: (key: string, folder: string) => { calls.push(['entry', key, folder]); return { kind: 'go' }; },
-		submitWithFiles: async function* (key: string, ...args: unknown[]): AsyncGenerator<Update> { calls.push(['send', key, ...args]); },
+		submit: async function* (key: string, ...args: unknown[]): AsyncGenerator<Update> { calls.push(['send', key, ...args]); },
 	} as unknown as ChatService;
 	const config: PineConfig = { kind: 'set', file: 'offline', pine: { endpoint: 'https://pine.test', apiKey: 'offline-not-a-key' } };
 	const api = registerPineSessions({ subscriptions: [] } as unknown as vscode.ExtensionContext, { appendLine() {} } as unknown as vscode.OutputChannel, config, service);
 	const add = (key: string, folder: string) => {
-		store.insertChat({ key, label: 'OFFLINE fixture', env: 'offline', endpoint: 'https://pine.test', secret_ref: 'offline' });
+		store.insertChat({ key, label: 'OFFLINE fixture', endpoint: 'https://pine.test', secret_ref: 'offline' });
 		associateProject(store, key, folder);
 	};
 	return { root, other, store, service, api, add, turnFiles };
@@ -203,7 +203,7 @@ test('a refused no-project send gives its text back and names its files, without
 
 test('an interrupted first send leaves an unbound row that is not listed, shows no history and follows no runtime', async () => {
 	const f = fixture(); const key = 'pine-computer:/session-interrupted';
-	f.store.insertChat({ key, env: 'offline', endpoint: 'https://pine.test', label: 'Interrupted', secret_ref: 'offline' });
+	f.store.insertChat({ key, endpoint: 'https://pine.test', label: 'Interrupted', secret_ref: 'offline' });
 	try {
 		f.store.updateChat(key, { state: 'running', computer_id: 'unattributed-computer' });
 		await refreshList();

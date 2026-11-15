@@ -23,7 +23,7 @@ function setup() {
 }
 async function send(service: ChatService, text = 'go'): Promise<string> {
 	const out: Update[] = [];
-	for await (const update of service.submit(KEY, text, text)) {
+	for await (const update of service.submit(KEY, text, text, [])) {
 		out.push(update);
 	}
 	return out.filter(u => u.kind === 'markdown').map(u => u.text).join('\n');

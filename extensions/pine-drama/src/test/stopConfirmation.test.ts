@@ -29,7 +29,7 @@ test('an unconfirmed SDK Stop keeps the existing session and Computer active (de
 	const logs: string[] = [];
 	const service = new ChatService({ holdsProject: () => true, store, port: pine, vault: new MemoryVault(), pine: env, log: s => logs.push(s) });
 	try {
-		for await (const _ of service.submit(key, 'offline fixture', 'offline fixture')) { /* drain */ }
+		for await (const _ of service.submit(key, 'offline fixture', 'offline fixture', [])) { /* drain */ }
 		const before = store.chat(key)!;
 		const sdk = new SdkPort();
 		sdk['computer'] = async () => ({ stop: async () => false }) as never;
@@ -49,7 +49,7 @@ test('restarting a lost session cannot create a successor while its Computer Sto
 	const pine = new FakePine();
 	const service = new ChatService({ holdsProject: () => true, store, port: pine, vault: new MemoryVault(), pine: env });
 	try {
-		for await (const _ of service.submit(key, 'offline fixture', 'offline fixture')) { /* drain */ }
+		for await (const _ of service.submit(key, 'offline fixture', 'offline fixture', [])) { /* drain */ }
 		store.updateChat(key, { pine_session_state: 'ended' }); // independently confirmed session loss
 		const creates = pine.calls.createSession;
 		const confirmedStop = pine.stopComputer.bind(pine);
@@ -57,13 +57,13 @@ test('restarting a lost session cannot create a successor while its Computer Sto
 		sdk['computer'] = async () => ({ stop: async () => false }) as never;
 		pine.stopComputer = (connection, credentials) => sdk.stopComputer(connection, credentials, 'offline');
 		const updates = [];
-		for await (const update of service.startNewSession(key)) { updates.push(update); }
+		for await (const update of service.submit(key, 'again', 'again', [])) { updates.push(update); }
 		assert.equal(pine.calls.createSession, creates);
 		assert.equal(store.chat(key)!.pine_session_state, 'ended');
 		assert.equal(store.chat(key)!.computer_state, 'creating', 'unconfirmed restart keeps serial admission reserved');
 		assert.ok(updates.some(update => update.text.includes('not confirmed')));
 		pine.stopComputer = confirmedStop;
-		for await (const _ of service.startNewSession(key)) { /* explicit retry after confirmed Stop */ }
+		for await (const _ of service.submit(key, 'again', 'again', [])) { /* the person's send again, after a confirmed Stop */ }
 		assert.equal(pine.calls.createSession, creates + 1);
 		assert.equal(store.chat(key)!.pine_session_state, 'open');
 	} finally { store.close(); }

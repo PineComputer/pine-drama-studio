@@ -12,7 +12,7 @@ test('initial restore and the exact destination are serialized across focus even
 	const root = realpathSync(mkdtempSync(join(tmpdir(), 'pine-window-restore-')));
 	const store = new Store(':memory:');
 	for (const key of ['main', 'episode']) {
-		store.insertChat({ key, label: key, env: 'offline', endpoint: 'https://pine.test', secret_ref: 'offline' });
+		store.insertChat({ key, label: key, endpoint: 'https://pine.test', secret_ref: 'offline' });
 		associateProject(store, key, root);
 	}
 	store.requestChatReveal('episode');
@@ -41,7 +41,7 @@ test('initial restore and the exact destination are serialized across focus even
 test('no Chat is chosen by default: a draft or a Chat of this project stays, another project\'s is replaced by a fresh Chat', async () => {
 	const root = realpathSync(mkdtempSync(join(tmpdir(), 'pine-window-default-none-')));
 	const store = new Store(':memory:');
-	store.insertChat({ key: 'here', label: 'here', env: 'offline', endpoint: 'https://pine.test', secret_ref: 'offline' });
+	store.insertChat({ key: 'here', label: 'here', endpoint: 'https://pine.test', secret_ref: 'offline' });
 	associateProject(store, 'here', root);
 	// Code-OSS getNewChatSessionResource('pine-computer') before first send; no provider item/history exists yet.
 	const cases: [{ resource: string; isUntitledDraft: boolean } | undefined, number][] = [
@@ -71,7 +71,7 @@ test('navigation shows a Chat of this project here; foreign destinations open th
 	const foreign = join(root, 'foreign'); mkdirSync(foreign);
 	const store = new Store(':memory:');
 	for (const [key, folder] of [['here', root], ['foreign', foreign]]) {
-		store.insertChat({ key, label: key, env: 'offline', endpoint: 'https://pine.test', secret_ref: 'offline' });
+		store.insertChat({ key, label: key, endpoint: 'https://pine.test', secret_ref: 'offline' });
 		associateProject(store, key, folder);
 	}
 	const scope = projectSessions(root, store.chats());

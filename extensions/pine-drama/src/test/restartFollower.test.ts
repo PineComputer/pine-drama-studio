@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert';
-import { mkdirSync, mkdtempSync } from 'node:fs';
+import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -7,7 +7,6 @@ import { ChatService, type Update } from '../core/chats';
 import { PineSessionReplacedError } from '../core/pineSessionGeneration';
 import { Store } from '../core/store';
 import { FakePine, MemoryVault } from './fakePine';
-import { idleStopAndDiscover } from './idleStop';
 
 const drain = async (updates: AsyncGenerator<Update>): Promise<void> => { for await (const _ of updates) { /* drain */ } };
 
@@ -21,20 +20,24 @@ for (const response of ['missing', 'missing while the old binding still answers'
 		const waiting = new Promise<void>(resolve => { release = resolve; });
 		const started = new Promise<void>(resolve => { entered = resolve; });
 		try {
-			await drain(service.submit('main', 'fixture', 'fixture'));
+			await drain(service.submit('main', 'fixture', 'fixture', []));
 			const op = store.db.prepare('select turn_id from saved_sends limit 1').get() as { turn_id: string };
 			// A reopened Chat may start a follower from its persisted running turn.
 			store.updateChat('main', { state: 'running', current_turn_id: op.turn_id });
 			const original = store.chat('main')!;
 			const turn = pine.turn.bind(pine);
+			// Only the ended runtime's reads are held: the new session's own turn goes on.
 			pine.turn = async (...args) => {
+				if (args[1].name !== original.pine_session_name) { return turn(...args); }
 				const snapshot = !response.startsWith('missing') ? await turn(...args) : undefined;
 				entered(); await waiting;
 				if (!snapshot) { return turn(...args); }
 				return response === 'question' ? { ...snapshot, state: 'needs_input', question: 'Old runtime question' } : snapshot;
 			};
 			if (response === 'event') {
-				pine.events = async function* () {
+				const events = pine.events.bind(pine);
+				pine.events = async function* (...args) {
+					if (args[1].name !== original.pine_session_name) { yield* events(...args); return; }
 					await waiting;
 					yield { kind: 'progress', eventId: 99999, taskId: original.task_id!, turnId: op.turn_id, text: 'Old runtime event' };
 				};
@@ -47,7 +50,9 @@ for (const response of ['missing', 'missing while the old binding still answers'
 			const computer = pine.computers.get(original.computer_id!)!;
 			computer.state = 'stopped'; computer.sessions.clear();
 			store.updateChat('main', { pine_session_state: 'ended', computer_state: 'stopped', state: 'idle', current_turn_id: null });
-			await drain(service.startNewSession('main'));
+			// The person's next message finds the session ended and starts the agent again (replacePineSessionAndSend), while
+			// the old follower, attached outside the send queue, still awaits the ended runtime.
+			await drain(service.submit('main', 'continue', 'continue', []));
 			const replacement = store.chat('main')!;
 			assert.notEqual(replacement.pine_session_name, original.pine_session_name);
 			assert.equal(replacement.pine_session_state, 'open');
@@ -65,39 +70,11 @@ for (const response of ['missing', 'missing while the old binding still answers'
 			assert.equal(after.pine_session_name, replacement.pine_session_name);
 			assert.equal(after.state, 'idle');
 			assert.equal(after.question_turn_id, null);
-			assert.equal(after.task_id, null);
-			assert.equal(after.last_applied_event_id, null);
+			assert.deepEqual([after.task_id, after.last_applied_event_id], [replacement.task_id, replacement.last_applied_event_id], 'the successor\'s own turn, untouched');
 			assert.equal(store.messages('main').some(m => m.text.includes('Old runtime')), false);
 			assert.equal(pine.calls.stopComputer ?? 0, 0, 'the old follower cannot stop the successor');
 			assert.ok(error instanceof PineSessionReplacedError, 'retired follower loses write and remote-call authority');
 		} finally { release(); store.close(); }
 	});
 }
-
-test('a send queued behind restart runs once, after it', async () => {
-	const dir = mkdtempSync(join(tmpdir(), 'pine-restart-queued-'));
-	const root = join(dir, 'project'); mkdirSync(root);
-	const store = new Store(join(dir, 'studio.sqlite'));
-	const pine = new FakePine();
-	const options = { holdsProject: () => true, store, port: pine, vault: new MemoryVault(),
-		pine: { endpoint: 'https://offline.invalid', apiKey: 'offline' },
-		files: { projectsRoot: join(dir, 'projects') } };
-	const service = new ChatService(options);
-	let release = () => {};
-	let restart: Promise<void> | undefined; let send: Promise<void> | undefined;
-	try {
-		await drain(service.submit('main', 'fixture', 'fixture', root));
-		await idleStopAndDiscover(pine, store, 'main');
-		release = pine.hold('ensureComputer');
-		restart = drain(service.startNewSession('main'));
-		send = drain(service.submit('main', 'queued during restart', 'fixture', root));
-		await new Promise(resolve => setImmediate(resolve));
-		assert.equal(pine.calls.ensureComputer, 2, 'restart is waiting for provisioning');
-		release();
-		await Promise.all([restart, send]);
-		assert.equal(pine.calls.run, 2, 'initial request and queued request each execute once');
-	} finally {
-		release(); await Promise.allSettled([restart, send]); store.close();
-	}
-});
 

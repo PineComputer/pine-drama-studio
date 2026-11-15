@@ -1,6 +1,6 @@
 import type { Chat } from './store';
 
-// The rows of every "which Chat?" pick: Attach Files, Send Project, Open Session's Project. The Chat
+// The rows of every "which Chat?" pick: Attach Files, Open Session's Project. The Chat
 // shown in Chat cannot be read: the one API that names it, window.activeChatPanelSessionResource (vscode.proposed.chatParticipantPrivate.d.ts), is set
 // only for local chat sessions (Code-OSS mainThreadChatAgents2.ts, _acceptActiveChatSession) and is undefined for a
 // Pine Chat. So the person always chooses, and the rows come newest activity first (the store's updated_at, set

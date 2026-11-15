@@ -34,7 +34,7 @@ async function drain(updates: AsyncGenerator<Update>): Promise<Update[]> {
 	}
 	return out;
 }
-const send = (service: ChatService, text: string, key = KEY) => drain(service.submit(key, text, text));
+const send = (service: ChatService, text: string, key = KEY) => drain(service.submit(key, text, text, []));
 const markdown = (updates: Update[]) => updates.filter(u => u.kind !== 'progress').map(u => u.text).join('\n');
 const computerOf = (pine: FakePine, store: Store, key: string) => pine.computers.get(store.chat(key)!.computer_id!)!;
 const notices = (store: Store, key: string) => store.messages(key).filter(m => m.kind === 'notice').map(m => m.text);

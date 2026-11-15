@@ -8,11 +8,6 @@ import { copyFile, open, rename, unlink } from 'node:fs/promises';
 import { basename, dirname, join, resolve, sep } from 'node:path';
 
 /** A session's project root, and the folder nothing it settles may leave: its bound folder, or the root itself. */
-export interface ProjectPlace {
-	readonly root: string;
-	readonly boundary: string;
-}
-
 /** Whether a file system error says there is no file at the path: none there, or a file where a folder of it would be. */
 export const noFileThere = (error: unknown): boolean => ['ENOENT', 'ENOTDIR'].includes((error as NodeJS.ErrnoException).code ?? '');
 

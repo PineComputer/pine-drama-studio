@@ -99,7 +99,8 @@ test('Use brings an earlier result back whole, its receipt with it, as the perso
 	await git(['-c', 'user.name=pine-computer', '-c', 'user.email=p@x', 'commit', '-q', '-m', 'a redraw'], root);
 	assert.deepEqual(await runCardAction(root, { action: 'use', object: LIN, commit: first.commit }, never), { already: false });
 	const lin = (await readProjectFromFolder(root)).objects.get(LIN)!;
-	assert.equal(lin.shownFileReceipt?.paidCallId, 'call-lin-look-0002', 'the receipt of the result brought back');
+	assert.ok(lin.shownFileReceipt, 'its shown file has its receipt');
+	assert.equal(JSON.parse(await readFile(join(root, `${look}.receipt.json`), 'utf8')).paid_call_id, 'call-lin-look-0002', 'the receipt of the result brought back');
 	assert.notEqual(await readFile(join(root, look), 'utf8'), 'a redraw');
 	assert.equal((await lastCommit(root))[0], `person|Used an earlier result of ${LIN}`);
 	assert.deepEqual((await listHistoryOfShownFile(root, LIN)).map(h => [h.commit === first.commit, h.shown]), [[false, false], [true, true]],
@@ -120,7 +121,7 @@ test("after the person's own file changed the extension, Use of an earlier resul
 		'the strip keeps the results under the name before');
 	await runCardAction(root, { action: 'use', object: umbrella, commit: history[1].commit }, never);
 	const shown = (await readProjectFromFolder(root)).objects.get(umbrella)!;
-	assert.deepEqual([shown.shownFile, shown.shownFileReceipt?.paidCallId], [`${umbrella}/picture.png`, 'call-umbrella-0001']);
+	assert.deepEqual([shown.shownFile, JSON.parse(await readFile(join(root, `${umbrella}/picture.png.receipt.json`), 'utf8')).paid_call_id], [`${umbrella}/picture.png`, 'call-umbrella-0001']);
 	assert.equal(existsSync(join(root, umbrella, 'picture.jpg')), false);
 	// A variant is an object of its own: Use of its asset's result leaves it, though the same commit wrote it.
 	await writeFile(rain, 'Rain, redrawn later.');

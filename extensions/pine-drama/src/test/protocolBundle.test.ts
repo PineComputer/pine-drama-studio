@@ -19,7 +19,7 @@ test('the protocol schema travels inside a one-file bundle, as a release ships t
 			packages: 'external', outfile, logLevel: 'silent' });
 		// A require of the bundle esbuild just wrote: its exports are the module's, typed by that module.
 		const bundled = require(outfile) as typeof import('../core/protocol');
-		assert.deepEqual([bundled.matches('path', 'assets/characters/lin'), bundled.matches('path', '../lin')], [true, false]);
+		assert.deepEqual([bundled.isProtocolPath('assets/characters/lin'), bundled.isProtocolPath('../lin')], [true, false]);
 	} finally {
 		rmSync(dir, { recursive: true, force: true });
 	}
