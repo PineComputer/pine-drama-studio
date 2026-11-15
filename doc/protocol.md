@@ -97,10 +97,18 @@ Each output of a paid call has a receipt beside it, **`<file>.receipt.json`** (`
 | `prompt_sent` | The prompt the call was sent, or `null`. |
 | `cost` | `{usd, reported_by}`, for example `"reported_by": "pine"`, or `null` when unknown. |
 
-The rest of the receipt (the request and response as sent) belongs to the Computer side. A client MAY show it, and decides nothing from it.
+The rest of the receipt (the request and response as sent) belongs to the Computer side. A client MAY show it, and decides nothing from it. It holds no copy of the output's bytes (a provider's base64 image is left out): the output is the file beside it.
 
 - **One receipt per output.** A call with several outputs (a take's video and its last frame) has a receipt beside each, all in one change.
 - **No paid call, no receipt.** A file made without a paid call (a cut, an overlay, a conversion) has none.
+
+### 2.4 Pine Computer's records
+
+Pine Computer keeps everything it needs to carry on a session's work in one folder of the drama, **`pine-computer-records/`**. These are ordinary files: they come back as changes like any other file (4.3), the client records them in history, and they travel with the seed (4.2). There is no private state, no archive of it, and no finishing step.
+- `pine-computer-records/paid-calls/<paid call id>/<state>.json`: the paid-call states (4.5), and the ledger beside them.
+- `pine-computer-records/turns/<turn id>.json` (`$defs/pineComputerTurnRecord`): the turn's own record. It is written first thing in every turn, as the turn's first change, and again whenever it grows: `{schema, turn_id, pine_computer_could_not_do: [{object_or_file, error}], pine_computer_refused_the_turn_before_running?: error}`. It holds what the turn could not do, and whether it refused before running (4.2).
+- Everything else in the folder is Pine Computer's own. A client MAY show it, decides nothing from it, and the person does not edit it.
+- **No media bytes twice.** A record, like a receipt (2.3), holds no copy of an output's bytes, such as a provider's base64 image. It names the output by its path and hash.
 
 ## 3. The person's changes (client)
 
@@ -122,20 +130,17 @@ The rest of the receipt (the request and response as sent) belongs to the Comput
 
 **The message.** A turn is one message to a session on a Pine Computer.
 - Its text begins with the line `pine-drama-turn <turn id>`, followed by the person's own words.
-- The client sends it with Pine's idempotency key set to the turn id.
-- It writes `request.json` once and keeps its bytes; a retry resends the same message with the same key.
+- Right before sending it, the client puts the turn's request into the session as the attachment `pine-drama-request.json` (Pine's `write_file`, [files and shell](https://console.pinecomputer.io/docs/files-and-shell)). Pine places it in the session before the turn starts, and an attachment is the session's own, so no other session sees it.
+- The client sends the message with Pine's idempotency key set to the turn id. A retry resends the same message with the same key, and Pine answers it with the same turn: it never runs a turn twice.
 
 **Sessions.**
-- A session runs one turn at a time and sends its next only after its previous return is resolved (4.6).
+- A session runs one turn at a time and sends its next only after its previous turn has ended on Pine and its changes are applied (4.6).
 - Any number of sessions may work on one drama. None owns any object.
 - A client that runs several turns at once opens several sessions. Which session runs what, and how many there are, is the client's to arrange.
 
 **Storage.** The keys of the Computer's artifact store, each written once:
 - `files/<hash>`: one file;
-- `session-private-states/<hash>.tar`: one session's private state;
-- `turns/<turn id>/request.json` (client), `turns/<turn id>/turn-started.json` and `turns/<turn id>/return.json` (Computer side);
-- `turns/<turn id>/changes/<change number>.json`: one change (4.3);
-- `turns/<turn id>/paid-calls/<paid call id>/<state>.json`: one state of one paid call (4.5).
+- `turns/<turn id>/changes/<change number>.json`: one change (4.3).
 
 **Bytes.**
 - A reader MUST check every file against its hash before it uses it.
@@ -143,23 +148,23 @@ The rest of the receipt (the request and response as sent) belongs to the Comput
 
 ### 4.2 Request (client → Computer side)
 
-`$defs/request`, at `turns/<turn id>/request.json`.
+`$defs/request`, the session attachment `pine-drama-request.json` (4.1).
 
 | Field | Meaning |
 |---|---|
 | `turn_id` | The turn id. |
-| `seed_files` | The seed: every file of the drama as the client holds it now, `{<path>: <hash>}`. Paths starting with `.` are left out (section 1). |
-| `session_private_state` | The hash of the session's private state from its last return, or `null`. |
+| `seed_files` | The seed: every file of the drama as the client holds it now, `{<path>: <hash>}`, Pine Computer's records (2.4) included. Paths starting with `.` are left out (section 1). |
 | `notes_for_pine_computer` | The person's feedback for Pine Computer, each `{object_id, text, attached_file?, position_in_shown_file?: {x, y}, seconds_into_video?}`. `attached_file` is a file of `seed_files` (a picture the person attached), `position_in_shown_file` gives fractions 0–1 of the shown file's width and height, and `seconds_into_video` gives seconds into a video. A note decides nothing. |
 
 - **The seed is recorded.** `seed_files` MUST be the client's complete current state, recorded in history (2.1), so every input the turn may read can be found again. A folder client first records whatever the folder holds that no record does, as `client-found-changes-on-disk`.
-- **Restore.** The Computer side writes exactly `seed_files` into its workspace, then restores the private state outside it: private state never holds a file of the drama, so it cannot overwrite the seed. A file of the tree the Computer side rewrites only for its own machine, such as a path in its configuration, is kept outside the workspace too, so it never comes back as a change.
+- **Restore.** The Computer side writes exactly `seed_files` into its workspace. Its own records come with them (2.4), so any Computer can carry on a session's work. A file of the tree the Computer side rewrites only for its own machine, such as a path in its configuration, is kept outside the workspace, so it never comes back as a change.
 - **Only what changed moves.** The workspace MUST equal `seed_files` exactly. To get there, the Computer side MAY keep its workspace and a local cache of file bytes by hash between turns on the same Computer. It then fetches only the paths whose hash changed, links them in from the cache, and deletes only the paths `seed_files` does not list. `seed_files` is the client's complete current state, so nothing the drama holds is ever deleted from the workspace. This is the remote-execution model of Bazel's REAPI, where an executor materializes an input root from its content-addressed cache. A fresh Computer fetches the whole tree once.
-- **Verified before any work.** Before the turn's first command, the Computer side checks that its workspace holds exactly `seed_files`: every path, each with its hash. If any file is absent or does not match, it does no work and writes nothing but a `pine_computer_refused_the_turn_before_running` return, with `pine_computer_found_file_missing_from_store` naming the file. A turn never runs on a partial workspace.
+- **Each command starts a newer turn itself.** There is no start command. Before it does anything, every drama-cli command compares the request's `turn_id` with the turn its workspace was last restored for. If the request is newer, that command starts the turn: it writes the old turn's leftover changes (4.3), restores and verifies the workspace, and records which turn it restored. A turn whose agent runs no drama-cli command restores nothing. It reads the workspace as the last command left it, so it may miss the person's edits made since.
+- **Verified before any work.** Before the turn's first command does its work, the Computer side checks that its workspace holds exactly `seed_files`: every path, each with its hash. If any file is absent or does not match, it does no work. It writes only the turn's record (2.4), saying `pine_computer_refused_the_turn_before_running` with `pine_computer_found_file_missing_from_store` naming the file, and sends that one file back as the turn's only change. A turn never runs on a partial workspace.
 
 ### 4.3 Changes (Computer side → client)
 
-Each result the turn finishes is one **change** (`$defs/change`) at `turns/<turn id>/changes/<change number>.json`: an output with its receipt, or a text write. `change_number` counts from 1 within the turn.
+Each result the turn finishes is one **change** (`$defs/change`) at `turns/<turn id>/changes/<change number>.json`: an output with its receipt, a text write, or a write of Pine Computer's records. `change_number` counts from 1 within the turn.
 
 ```
 change = { schema, turn_id, change_number, previous_change_sha256, files_after_change: { <path>: <hash> | null } }
@@ -171,7 +176,7 @@ change = { schema, turn_id, change_number, previous_change_sha256, files_after_c
 | `files_after_change` | Each path the change writes, with the hash of its new bytes, or `null` for a file it deletes. |
 
 - **Bytes first.** The Computer side stores every file of `files_after_change` at `files/<hash>` before it writes the change.
-- **Every changed file comes back.** A file the Computer side changes in its workspace by any means (its own commands, or its agent editing the file directly) comes back as a change. Before each of its commands and before its return, the Computer side writes a change for every workspace file that differs from `seed_files` and from what its earlier changes wrote. The baseline is the verified workspace (4.2).
+- **Every changed file comes back.** A file the Computer side changes in its workspace by any means comes back as a change: its own commands, its records (2.4), or its agent editing the file directly. At the start and at the end of each of its commands, and after each output it writes, the Computer side writes a change for every workspace file that differs from `seed_files` and from what its earlier changes wrote. The baseline is the verified workspace (4.2). No finishing step is needed, so a turn that ends any way has sent back everything its commands wrote. **The agent's direct edits arrive with the next drama-cli command**: at the latest the next turn's start, which writes them as changes before it restores the new seed.
 - **A deletion is only what the turn removed.** A path is written as `null` only if it was present in the verified workspace, or written by an earlier change of this turn, and is gone now. A file that failed to arrive can never come back as a deletion, because then the turn never started.
 
 ### 4.4 Applying a change (client)
@@ -190,7 +195,7 @@ The client applies a turn's changes in `change_number` order, through the one qu
 
 ### 4.5 Paid calls (Computer side)
 
-Each paid call that makes or changes a file of an object has its states as documents of their own (`$defs/paidCallState`) at `turns/<turn id>/paid-calls/<paid call id>/<state>.json`, each written once. They tell the client what is being made for which object. A paid call that makes no file of the drama (an observation of a picture, an upload that registers a file with a provider) has none. It is kept in the Computer side's ledger alone, under the same rule that a call whose outcome cannot be learned is never sent again.
+Each paid call that makes or changes a file of an object has its states as records of their own (`$defs/paidCallState`) at `pine-computer-records/paid-calls/<paid call id>/<state>.json`, each written once. They tell the client what is being made for which object. A paid call that makes no file of the drama (an observation of a picture, an upload that registers a file with a provider) has none. It is kept in the ledger alone, under the same rule that a call whose outcome cannot be learned is never sent again.
 
 | State | Written |
 |---|---|
@@ -201,42 +206,30 @@ Each paid call that makes or changes a file of an object has its states as docum
 The person pressing Stop is the only cause of `pine_computer_cancelled_call_after_person_pressed_stop`. A call cut off any other way (the Pine turn ending, the Computer lost) is `pine_computer_cannot_learn_call_outcome` until a later turn learns its outcome.
 
 A paid-call state carries `{schema, paid_call_id, object_id, state, state_written_at, cost?}`. It is the public summary only.
-- **The ledger stays the Computer side's.** The paid-call ledger keeps the reservation, the generation lock, the attempt identity, the request as saved and the provider's reference (drama-cli's `ledger.py`). It travels in the private state, so a later turn of the session can settle a call an earlier one started.
-- **Settling a call.** The turn that settles a call writes its terminal state under the call's own key (`turns/<turn that started it>/paid-calls/<paid call id>/`), and writes its output as a change of its own (4.3).
+- **The ledger** keeps the reservation, the generation lock, the attempt identity, the request as saved and the provider's reference (drama-cli's `ledger.py`), under `pine-computer-records/` (2.4). It travels with the drama, so any later turn, on any Computer, can settle a call an earlier one started.
+- **Settling a call.** The turn that settles a call writes its terminal state under the call's own key, and writes its output as a change of its own (4.3).
 - **Making.** An object is being made while it has a paid call sent to the provider with no terminal state. The client shows it as making.
 - **Recovery.** Pine keeps each session's provider journal with its Computer. A Computer that replaces a lost one cannot observe its calls, so their calls stay `pine_computer_cannot_learn_call_outcome`, with their receipts and charges kept.
 
-### 4.6 Return (Computer side → client)
+### 4.6 How a turn ends
 
-`$defs/return`, at `turns/<turn id>/return.json`. It is written last, after every change and paid-call document it covers.
+There is no return document. A turn ends as Pine reports its turn ([agent turns](https://console.pinecomputer.io/docs/agent)), and the client reads that:
 
-| Field | Meaning |
-|---|---|
-| `turn_id` | The turn id. |
-| `state` | `pine_computer_is_waiting_for_person_answer` (Pine Computer asks the person something), `pine_computer_finished_the_work` (the work is done), `pine_computer_broke_off_the_turn_partway` (the work stopped early, and what finished came back as changes) or `pine_computer_refused_the_turn_before_running` (nothing was done; see `error`). |
-| `last_change` | `{change_number, sha256}` of the turn's last change, or `null` when it made none. The client applies up to it before it resolves the return. |
-| `session_private_state` | The hash of the session's new private state at `session-private-states/<hash>.tar`, or `null` when the session has none. |
-| `pine_computer_could_not_do` | What the Computer side could not do, each `{object_or_file, error}`. |
-| `question_for_person` | When `pine_computer_is_waiting_for_person_answer`: Pine Computer's question. |
-| `error` | When `pine_computer_broke_off_the_turn_partway` or `pine_computer_refused_the_turn_before_running`: why (section 6). |
+| Pine's turn | The client calls it | What the client shows |
+|---|---|---|
+| `needs_input` | `pine_computer_is_waiting_for_person_answer` | Pine Computer asks the person something: the question is the turn result's `summary`. One of the five stops of the drama workflow: the person's answer is the approval of the next paid work, given before it, as a coding agent asks for approval before it acts (Codex's AskForApproval). There is no acceptance after the fact. |
+| `completed` | `pine_computer_finished_the_work` | The work is done. |
+| `canceled` | `person_stopped_the_turn` | The person stopped it (4.7). |
+| `failed` | `pine_computer_broke_off_the_turn` | The work broke off. The turn result's `terminalReason` (for example `timeout`, `budget`, `error`, `coordinator_restarted`) says why. |
 
-**Fields by state.** `pine_computer_refused_the_turn_before_running` carries `error` only. `pine_computer_is_waiting_for_person_answer`, `pine_computer_finished_the_work` and `pine_computer_broke_off_the_turn_partway` carry `last_change`, `session_private_state` and `pine_computer_could_not_do`. `pine_computer_is_waiting_for_person_answer` adds `question_for_person`, and `pine_computer_broke_off_the_turn_partway` adds `error`.
-
-- **Resolved.** A return is resolved once its changes up to `last_change` are applied. The session may then send its next turn.
-- **Private state.** The client keeps a copy of every private-state archive a return named, by hash, and the session's next request names the one its latest resolved return gave. A `pine_computer_refused_the_turn_before_running` or missing return keeps the one before.
+- **Applied, then ended.** The Computer side stores each change before the command that made it ends (4.3). So once Pine reports the turn ended, however it ended, the changes in the store are complete. The client applies them in `change_number` order, up to the first missing one, and the session may then send its next turn. A change that turns up later all the same lands the next time the client looks: at its next follow of that session, or when it opens the drama.
+- **What Pine Computer could not do, or refused,** is in the turn's record (2.4), which comes back as a change like any other file.
 - **The turn's own cost** is the one Pine reports for the turn (its turn result's `usage.cost`, `{total, currency}`). Receipts carry only the paid calls' costs (2.3).
-- **Stops are questions.** The five stops of the drama workflow are `pine_computer_is_waiting_for_person_answer` returns: the person's answer is the approval of the next paid work, given before it, as a coding agent asks for approval before it acts (Codex's AskForApproval). There is no acceptance after the fact.
 
-### 4.7 Stop, and a run that does not return
+### 4.7 Stop
 
-- **However a turn ends on Pine** (completed, failed, canceled), the client reads `return.json`. If it exists, it wins.
-- **Stop.** The client cancels the Pine turn. The Computer side sends no new paid call to a provider, and writes a `pine_computer_broke_off_the_turn_partway` return with what was stored if it can. Pine Computer loses at most the text its agent edited directly after its last command, since every command starts by writing such edits as changes (4.3).
-- **No return.** When the turn ends with no `return.json`, the client applies every change stored for it, in `change_number` order, up to the first missing one. It keeps the session's private state, and tells the person the run may have spent money. The return is then resolved, and the session may send its next turn. Paid calls in flight settle in that turn, on the same Computer (4.5).
-- **Replay.** Before any work, the Computer side writes `turns/<turn id>/turn-started.json` (`$defs/turnStarted`): `{schema, turn_id, request_sha256: <hash of request.json's bytes>, started_at}`. It reads a request in this order:
-  1. If `turn-started.json` exists with another `request_sha256`, the turn id came back with a different request. It is refused with `pine_computer_found_request_not_matching_protocol`.
-  2. If `return.json` exists, it returns it again.
-  3. If `turn-started.json` exists, the run was cut off: it runs nothing again, and returns `pine_computer_broke_off_the_turn_partway` with what was stored.
-  4. Otherwise it writes `turn-started.json` and runs.
+- **Stop.** The client cancels the Pine turn, and the Computer side sends no new paid call to a provider. Every change already stored is applied (4.6). Text its agent edited directly after its last command arrives with the next drama-cli command (4.3). It is lost only if that Computer is lost first.
+- **A run cut off midway** (Stop, the Computer lost, a timeout) runs nothing paid again by itself. Pine never reruns a turn (4.1), and the ledger never sends again a call whose outcome it could not learn (4.5). A later turn picks the work up from the records (2.4).
 
 ## 5. What the client shows
 
@@ -250,9 +243,8 @@ An error is `{code, message, action?, upgrade_needed?}`. `message` is for the pe
 | `code` | When |
 |---|---|
 | `pine_computer_found_no_such_file_or_object` | A request names a file or object that does not exist. |
-| `pine_computer_found_request_not_matching_protocol` | A request does not match this page, or a turn id came back with a different request. |
+| `pine_computer_found_request_not_matching_protocol` | A request does not match this page. |
 | `pine_computer_found_file_missing_from_store` | A file the request names is not in the store. |
-| `pine_computer_broke_off_the_work` | The work stopped early. |
 | `pine_computer_refused_request_of_unsupported_protocol_major` | Pine Computer met a request of a major it does not read. |
 | `client_refused_document_of_unsupported_protocol_major` | The client met a document of a major it does not read: a return, a change, or a project's `pine-drama-project.json`. |
 
@@ -261,7 +253,8 @@ An error is `{code, message, action?, upgrade_needed?}`. `message` is for the pe
 - **One major per reader.** A reader reads only its own major, and a document of any other major is refused whole, with `pine_computer_refused_request_of_unsupported_protocol_major` or `client_refused_document_of_unsupported_protocol_major` by whichever side refused. A major is the format itself: read by rules it does not follow, a document could write wrong data into the person's folder. Git likewise refuses a repository whose format version it does not understand ([gitrepository-layout](https://git-scm.com/docs/gitrepository-layout)).
 - **A refusal names the upgrade.** Either refusal MUST carry `upgrade_needed: {minimum_client_version, download_url?}` when the refusing side knows it: the lowest client version that reads the newer major and, for a client people install, where to download it. The client MUST tell the person.
   - When the client meets a newer major, it says which newer version of itself is needed, and where to get it when there is a download.
-  - When it meets an older Computer side (a major-1 refusal, or no answer in major 2), it says that this Computer runs an older Pine Computer side, and that a new session starts on a current one.
+  - A newer Computer side writes changes of a newer major, and the client refuses them by their `schema`.
+  - An older Computer side writes no turn record (2.4): a turn that ended on Pine without one ran on an older Pine Computer side. The client then says so, and that a new session starts on a current one.
 - **A drama of another major** is never written. The client offers to convert it (section 8).
 - **Releases.** A new major ships the client and the Computer side on the same day.
 

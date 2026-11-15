@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:pine-drama:protocol:v2",
   "title": "Pine Drama protocol, major version 2 (doc/protocol.md)",
-  "description": "Pine Drama protocol, major 2 (doc/protocol.md, which is normative). Each document is one entry of $defs: projectMarker, object, receipt, request, turnStarted, change, paidCallState, return. Patterns are ECMA-262; validators must turn on format assertion.",
+  "description": "Pine Drama protocol, major 2 (doc/protocol.md, which is normative). Each document is one entry of $defs: projectMarker, object, receipt, request, change, paidCallState, pineComputerTurnRecord. Patterns are ECMA-262; validators must turn on format assertion.",
   "$defs": {
     "path": {
       "description": "Project-relative, '/'-separated, NFC; no empty segment, none starting with '.', no backslash, no C0, DEL or C1 control. NFC, Windows reserved names, trailing dots or spaces and case collisions are checked by implementations (doc/protocol.md, section 1).",
@@ -286,7 +286,6 @@
         "schema",
         "turn_id",
         "seed_files",
-        "session_private_state",
         "notes_for_pine_computer"
       ],
       "properties": {
@@ -304,16 +303,6 @@
           "additionalProperties": {
             "$ref": "#/$defs/hash"
           }
-        },
-        "session_private_state": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/hash"
-            },
-            {
-              "type": "null"
-            }
-          ]
         },
         "notes_for_pine_computer": {
           "type": "array",
@@ -386,7 +375,6 @@
             "pine_computer_found_no_such_file_or_object",
             "pine_computer_found_request_not_matching_protocol",
             "pine_computer_found_file_missing_from_store",
-            "pine_computer_broke_off_the_work",
             "pine_computer_refused_request_of_unsupported_protocol_major",
             "client_refused_document_of_unsupported_protocol_major"
           ]
@@ -415,139 +403,6 @@
         }
       }
     },
-    "return": {
-      "description": "turns/<turn id>/return.json (4.6), written last.",
-      "type": "object",
-      "required": [
-        "schema",
-        "turn_id",
-        "state"
-      ],
-      "properties": {
-        "schema": {
-          "$ref": "#/$defs/schema"
-        },
-        "state": {
-          "enum": [
-            "pine_computer_is_waiting_for_person_answer",
-            "pine_computer_finished_the_work",
-            "pine_computer_broke_off_the_turn_partway",
-            "pine_computer_refused_the_turn_before_running"
-          ]
-        },
-        "error": {
-          "$ref": "#/$defs/error"
-        },
-        "turn_id": {
-          "$ref": "#/$defs/clientId"
-        },
-        "last_change": {
-          "anyOf": [
-            {
-              "type": "null"
-            },
-            {
-              "type": "object",
-              "required": [
-                "change_number",
-                "sha256"
-              ],
-              "properties": {
-                "change_number": {
-                  "type": "integer",
-                  "minimum": 1
-                },
-                "sha256": {
-                  "$ref": "#/$defs/hash"
-                }
-              }
-            }
-          ]
-        },
-        "session_private_state": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/hash"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "question_for_person": {
-          "type": "string"
-        },
-        "pine_computer_could_not_do": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "required": [
-              "object_or_file",
-              "error"
-            ],
-            "properties": {
-              "error": {
-                "$ref": "#/$defs/error"
-              },
-              "object_or_file": {
-                "type": "string"
-              }
-            }
-          }
-        }
-      },
-      "allOf": [
-        {
-          "if": {
-            "properties": {
-              "state": {
-                "const": "pine_computer_refused_the_turn_before_running"
-              }
-            }
-          },
-          "then": {
-            "required": [
-              "error"
-            ]
-          },
-          "else": {
-            "required": [
-              "last_change",
-              "session_private_state",
-              "pine_computer_could_not_do"
-            ]
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "state": {
-                "const": "pine_computer_is_waiting_for_person_answer"
-              }
-            }
-          },
-          "then": {
-            "required": [
-              "question_for_person"
-            ]
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "state": {
-                "const": "pine_computer_broke_off_the_turn_partway"
-              }
-            }
-          },
-          "then": {
-            "required": [
-              "error"
-            ]
-          }
-        }
-      ]
-    },
     "projectMarker": {
       "description": "pine-drama-project.json at the folder's root (2.1): the folder is a Pine Drama project of major 2.",
       "type": "object",
@@ -560,32 +415,8 @@
         }
       }
     },
-    "turnStarted": {
-      "description": "turns/<turn id>/turn-started.json (4.7): written once before any work.",
-      "type": "object",
-      "required": [
-        "schema",
-        "turn_id",
-        "request_sha256",
-        "started_at"
-      ],
-      "properties": {
-        "schema": {
-          "$ref": "#/$defs/schema"
-        },
-        "turn_id": {
-          "$ref": "#/$defs/clientId"
-        },
-        "request_sha256": {
-          "$ref": "#/$defs/hash"
-        },
-        "started_at": {
-          "$ref": "#/$defs/time"
-        }
-      }
-    },
     "paidCallState": {
-      "description": "turns/<turn id>/paid-calls/<paid call id>/<state>.json (4.5): one state of one paid call, written once.",
+      "description": "pine-computer-records/paid-calls/<paid call id>/<state>.json (4.5): one state of one paid call, written once.",
       "type": "object",
       "required": [
         "schema",
@@ -618,6 +449,44 @@
         },
         "state_written_at": {
           "$ref": "#/$defs/time"
+        }
+      }
+    },
+    "pineComputerTurnRecord": {
+      "description": "pine-computer-records/turns/<turn id>.json (2.4): written first thing in every turn and again when it grows.",
+      "type": "object",
+      "required": [
+        "schema",
+        "turn_id",
+        "pine_computer_could_not_do"
+      ],
+      "properties": {
+        "schema": {
+          "$ref": "#/$defs/schema"
+        },
+        "turn_id": {
+          "$ref": "#/$defs/clientId"
+        },
+        "pine_computer_could_not_do": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "object_or_file",
+              "error"
+            ],
+            "properties": {
+              "object_or_file": {
+                "type": "string"
+              },
+              "error": {
+                "$ref": "#/$defs/error"
+              }
+            }
+          }
+        },
+        "pine_computer_refused_the_turn_before_running": {
+          "$ref": "#/$defs/error"
         }
       }
     }
