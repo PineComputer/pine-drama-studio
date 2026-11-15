@@ -201,8 +201,11 @@ async function getFiles(at: ComputerSession, paths: readonly string[]): Promise<
 		},
 	});
 	const parsed = new Promise<void>((resolve, reject) => { parser.on('end', resolve); parser.on('error', reject); });
-	// A web ReadableStream is async-iterable in Node 20 and later.
-	for await (const chunk of await at.port.openFile(at.env, at.session, GET_TAR) as unknown as AsyncIterable<Uint8Array>) { parser.write(chunk); }
+	// A web ReadableStream is async-iterable in Node 20 and later. Its chunks are plain Uint8Arrays, and node-tar's parser
+	// reads a Buffer (a plain chunk failed "TAR_ENTRY_INVALID: checksum failure" on Pine): each is viewed as one, not copied.
+	for await (const chunk of await at.port.openFile(at.env, at.session, GET_TAR) as unknown as AsyncIterable<Uint8Array>) {
+		parser.write(Buffer.from(chunk.buffer, chunk.byteOffset, chunk.byteLength));
+	}
 	parser.end();
 	await parsed;
 	await run(at, `rm -f ${GET_TAR}`);

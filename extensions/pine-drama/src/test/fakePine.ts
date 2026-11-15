@@ -342,9 +342,10 @@ export class FakePine implements PinePort {
 		} catch {
 			throw new NoSuchFileError(`404 ${path}`);
 		}
-		// In two chunks, as a network body arrives.
-		const half = Math.floor(bytes.length / 2);
-		return new ReadableStream<Uint8Array>({ start(controller) { controller.enqueue(bytes.subarray(0, half)); controller.enqueue(bytes.subarray(half)); controller.close(); } });
+		// As the SDK's body arrives: plain Uint8Array chunks, not Buffers, cut where a network read may cut them, the first
+		// one inside a tar's second header block (7700 B, then 2540 B at a time).
+		const chunks = [bytes.subarray(0, 7700), ...Array.from({ length: Math.ceil(Math.max(0, bytes.length - 7700) / 2540) }, (_, i) => bytes.subarray(7700 + i * 2540, 7700 + (i + 1) * 2540))];
+		return new ReadableStream<Uint8Array>({ start(controller) { for (const chunk of chunks) { controller.enqueue(new Uint8Array(chunk)); } controller.close(); } });
 	}
 
 	/** A turn's state, for assertions. */
