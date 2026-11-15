@@ -173,7 +173,7 @@
     "an_object_is_kept_when": "the latest installed snapshot of its scope lists it (the Project Chat's for shared objects and episode objects, a snapshot listing its episode for an episode's objects), as major 1's 5.3 has it; an object it no longer lists is deleted in the last commit"
   },
   "object_json": {
-    "written_for": "every object the kept snapshots list, and every asset or variant with an entry stage; no other folder gets one (looks/face, plan)",
+    "written_for": "every object the kept snapshots list, every asset or variant with an entry stage, and every folder that pictures_that_become_objects names",
     "one_source_per_field": {
       "type, name, setting, variant_of, relations": "from the object's current entry version when it has an entry stage (record_stages /entry), otherwise from the latest snapshot that lists it (type, name, segment; relations from its edges inside_of, appears_in, needs; variant_of from its edge variant_of)",
       "segment": "from that snapshot",
@@ -181,5 +181,16 @@
       "objects_sent_by_draw_request": "for the version the commit describes: that version's version.json inputs, in order, keeping only inputs whose version has a shown file (the pictures the draw sent), each mapped to its object id; for a planned object with no version: the inputs of the latest snapshot that lists it, in order. Absent when the list would be empty."
     },
     "written_in": "each version's commit, describing that version, so history says which file each past result showed; and the last commit (current), describing the current version, and every object no version's commit described. Every field but shown_file and objects_sent_by_draw_request has one value in all of them, so no commit order decides it"
+  },
+  "pictures_that_become_objects": {
+    "assets/characters/*/looks/face": {
+      "type": "character_face",
+      "name": "<the character's name> face"
+    },
+    "assets/scenes/*/plan": {
+      "type": "scene_floor_plan",
+      "name": "<the scene's name> floor plan"
+    },
+    "note": "a key matches a major-1 object folder, * standing for one path segment; <the character's name> and <the scene's name> are the owner asset's object.json name; shown_file and objects_sent_by_draw_request follow object_json's rules like any object"
   }
 }
