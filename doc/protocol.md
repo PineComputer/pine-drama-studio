@@ -246,7 +246,7 @@ An error is `{code, message, action?, upgrade_needed?}`. `message` is for the pe
 | `pine_computer_found_request_not_matching_protocol` | A request does not match this page. |
 | `pine_computer_found_file_missing_from_store` | A file the request names is not in the store. |
 | `pine_computer_refused_request_of_unsupported_protocol_major` | Pine Computer met a request of a major it does not read. |
-| `client_refused_document_of_unsupported_protocol_major` | The client met a document of a major it does not read: a return, a change, or a project's `pine-drama-project.json`. |
+| `client_refused_document_of_unsupported_protocol_major` | The client met a document of a major it does not read: a change, a record of Pine Computer's (2.4), an object, a receipt, or a project's `pine-drama-project.json`. |
 
 ## 7. Majors and upgrades
 
