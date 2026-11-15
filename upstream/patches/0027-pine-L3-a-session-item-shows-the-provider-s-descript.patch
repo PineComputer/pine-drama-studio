@@ -1,0 +1,121 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Pine Drama Studio Authors <authors@example.invalid>
+Date: Sat, 14 Nov 2026 11:39:33 -0800
+Subject: [PATCH 27/27] pine(L3): a session item shows the provider's
+ description again when its turn ends
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+While a turn runs, a session item's description is the model's latest progress (getInProgressSessionDescription) and
+the provider's description once the turn ends. On every model change tryUpdateItemForModel rebuilt the item from the
+existing item rather than from the provider's, so the progress text became the provider's description and stayed
+after the turn: the Sessions list kept showing "Collecting the turn's result…" on a finished session.
+
+The item keeps the provider's item it was built from (dto), and tryUpdateItemForModel rebuilds from that. isEqual
+compares it too, so a newer provider item is kept even while a turn hides its description.
+
+diff --git a/src/vs/workbench/api/browser/mainThreadChatSessions.ts b/src/vs/workbench/api/browser/mainThreadChatSessions.ts
+index 147aaa89ab7..db8c4ca7a62 100644
+--- a/src/vs/workbench/api/browser/mainThreadChatSessions.ts
++++ b/src/vs/workbench/api/browser/mainThreadChatSessions.ts
+@@ -526,7 +526,7 @@ class MainThreadChatSessionItemController extends Disposable implements IChatSes
+ 		const resource = model.sessionResource;
+ 		const existing = this._items.get(resource);
+ 		if (existing) {
+-			this.addOrUpdateItem(existing);
++			this.addOrUpdateItem(existing.dto); // pine: from the provider's item, not the one derived from the model, whose in-progress description outlived the turn
+ 		}
+ 	}
+ 
+@@ -629,7 +629,7 @@ class MainThreadChatSessionItem implements IChatSessionItem {
+ 	readonly metadata?: { readonly [key: string]: unknown };
+ 	readonly legacyResource?: URI;
+ 
+-	constructor(dto: Dto<IChatSessionItem>, model: IChatModel | undefined, detailOverrides: IChatDetail | undefined) {
++	constructor(readonly dto: Dto<IChatSessionItem>, model: IChatModel | undefined, detailOverrides: IChatDetail | undefined) { // pine: the provider's item, to derive from again
+ 		this.resource = URI.revive(dto.resource);
+ 		this.label = dto.label;
+ 		this.timing = dto.timing;
+@@ -672,7 +672,8 @@ class MainThreadChatSessionItem implements IChatSessionItem {
+ 			&& stringOrMarkdownEqual(this.tooltip, other.tooltip)
+ 			&& this.archived === other.archived
+ 			&& equals(this.metadata, other.metadata)
+-			&& isEqual(this.legacyResource, other.legacyResource);
++			&& isEqual(this.legacyResource, other.legacyResource)
++			&& equals(this.dto, other.dto); // pine: a newer provider item is kept though it derives the same
+ 	}
+ }
+ 
+diff --git a/src/vs/workbench/api/test/browser/mainThreadChatSessions.test.ts b/src/vs/workbench/api/test/browser/mainThreadChatSessions.test.ts
+index a1009c3ecef..1d9fe50742d 100644
+--- a/src/vs/workbench/api/test/browser/mainThreadChatSessions.test.ts
++++ b/src/vs/workbench/api/test/browser/mainThreadChatSessions.test.ts
+@@ -6,11 +6,14 @@
+ import assert from 'assert';
+ import * as sinon from 'sinon';
+ import type * as vscode from 'vscode';
++import { timeout } from '../../../../base/common/async.js';
+ import { CancellationToken } from '../../../../base/common/cancellation.js';
+ import { CancellationError } from '../../../../base/common/errors.js';
+-import { Event } from '../../../../base/common/event.js';
++import { Emitter, Event } from '../../../../base/common/event.js';
++import { MarkdownString } from '../../../../base/common/htmlContent.js';
+ import { DisposableStore } from '../../../../base/common/lifecycle.js';
+ import { MarshalledId } from '../../../../base/common/marshallingIds.js';
++import { constObservable, observableValue } from '../../../../base/common/observable.js';
+ import { URI } from '../../../../base/common/uri.js';
+ import { asSinonMethodStub } from '../../../../base/test/common/sinonUtils.js';
+ import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/common/utils.js';
+@@ -28,6 +31,7 @@ import { ChatSessionsService } from '../../../contrib/chat/browser/chatSessions/
+ import { IChatProgress, IChatProgressMessage, IChatService } from '../../../contrib/chat/common/chatService/chatService.js';
+ import { IChatSessionProviderOptionGroup, IChatSessionItem, IChatSessionRequestHistoryItem, IChatSessionsService } from '../../../contrib/chat/common/chatSessionsService.js';
+ import { ChatAgentLocation } from '../../../contrib/chat/common/constants.js';
++import { IChatChangeEvent, IChatModel, IChatRequestModel } from '../../../contrib/chat/common/model/chatModel.js';
+ import { LocalChatSessionUri } from '../../../contrib/chat/common/model/chatUri.js';
+ import { IChatAgentRequest, IChatAgentResult } from '../../../contrib/chat/common/participants/chatAgents.js';
+ import { MockChatService } from '../../../contrib/chat/test/common/chatService/mockChatService.js';
+@@ -1175,6 +1179,43 @@ suite('MainThreadChatSessions', function () {
+ 
+ 		mainThread.$unregisterChatSessionItemController(controllerHandle);
+ 	});
++
++	test('an item shows the provider\'s description again when the turn that described it ends', async function () {
++		const sessionScheme = 'test-session-type';
++		const controllerHandle = 0;
++		mainThread.$registerChatSessionItemController(controllerHandle, sessionScheme, false);
++
++		const resource = URI.parse(`${sessionScheme}:/session-a`);
++		const timing = { created: 0, lastRequestStarted: undefined, lastRequestEnded: undefined };
++		await mainThread.$addOrUpdateChatSessionItem(controllerHandle, { resource, label: 'Session A', description: 'From the provider', timing });
++
++		const progress: IChatProgressMessage = { kind: 'progressMessage', content: new MarkdownString('Collecting the result') };
++		const response = { isComplete: false, isCanceled: false, response: { value: [progress] } };
++		const request = { response } as unknown as IChatRequestModel;
++		const changed = disposables.add(new Emitter<IChatChangeEvent>());
++		const model = new class extends mock<IChatModel>() {
++			override readonly sessionResource = resource;
++			override readonly onDidChange = changed.event;
++			override readonly requestInProgress = observableValue('requestInProgress', true);
++			override readonly lastRequestObs = constObservable(undefined);
++			override getRequests() { return [request]; }
++		};
++		let shown: IChatSessionItem['description'];
++		disposables.add(chatSessionsService.onDidChangeSessionItems(e => shown = e.addedOrUpdated?.[0]?.description));
++
++		// The controller's updates settle on resolved promises alone: one macrotask runs them all.
++		(instantiationService.get(IChatService) as MockChatService).addSession(model);
++		await timeout(0);
++		assert.strictEqual(shown, 'Collecting the result');
++
++		response.isComplete = true;
++		model.requestInProgress.set(false, undefined);
++		changed.fire({ kind: 'completedRequest', request });
++		await timeout(0);
++		assert.strictEqual(shown, 'From the provider');
++
++		mainThread.$unregisterChatSessionItemController(controllerHandle);
++	});
+ });
+ 
+ suite('ExtHostChatSessions', function () {
