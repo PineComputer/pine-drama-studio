@@ -1,5 +1,5 @@
 // A turn on the Studio's side, with git on both sides. Before Pine's agent runs, the drama's folder on the Computer is
-// made the project's: a snapshot commit of HEAD goes up as a bundle and is checked out there (putTurnFiles). At the
+// made the project's: a snapshot commit of the index goes up as a bundle and is checked out there (putTurnFiles). At the
 // turn's end, however it ended, what the agent changed is committed there, comes back as a bundle, and its changed paths
 // land in the project as one commit (collectTurn). Everything goes through Pine's exec, write_file and read_file, so
 // nothing assumes what the agent runs; the git on the Computer is the harness's, not the agent's. How the turn ended is

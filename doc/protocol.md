@@ -106,7 +106,6 @@ The rest of the receipt (the request and response as sent) belongs to the Comput
 
 Pine Computer keeps its own records of the drama in **`pine-computer-records/`**, as ordinary files that travel both ways like any other (4.3). They hold the **ledger** of paid calls (drama-cli's `ledger.py`): each call's reservation, generation lock, attempt identity, request as sent and provider reference. A later turn in the same session can so settle a call an earlier one started. Another session knows the call and never sends it again, but cannot learn its outcome, since Pine binds a call's reference to the session that sent it. A client MAY show these files, decides nothing from them, and the person does not edit them.
 - **Bytes.** A record of a published output, like a receipt (2.3), holds no copy of the output's bytes. An attempt not published yet keeps its media and its reply's inline bytes, the only copy a recovery can publish from.
-- **`pine-computer-records/.gen/`** holds the raw jobs of drama-cli's `gen create`. Its name starts with `.`, so it never travels (section 1): a `gen create` call is known only on the Computer that made it.
 
 ## 3. The person's changes (client)
 
