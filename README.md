@@ -16,8 +16,9 @@ storyboards, takes and the cut. You answer its questions in the Chat; the drama'
 
 - **Left:** the project, its assets and episodes. **Center:** the canvas, the galleries and the editors. **Right:** the
   Chat with the agent. **Bottom:** diagnostics.
-- The Studio and a Pine Computer speak one open, add-only [protocol](doc/protocol.md). The terms are defined, with their
-  film-industry sources, in the [vocabulary](doc/vocabulary.md).
+- The drama's folder is a git repository with one folder per object, and git keeps its history. The Studio and a Pine
+  Computer speak one open [protocol](doc/protocol.md). The terms are defined, with their film-industry sources, in the
+  [vocabulary](doc/vocabulary.md).
 
 ## Presets
 
