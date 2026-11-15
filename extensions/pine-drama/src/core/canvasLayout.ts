@@ -126,7 +126,8 @@ const isRoot = (c: CanvasCard) => c.id === c.section;
 
 /**
  * An asset group's places, relative to its frame's corner, and the frame's size (gridLayout): the asset's own card
- * first, then its variants in the pipeline's order, in as many columns as rows (the square root of the count, rounded up).
+ * first, then the group's other cards (its variants, and a scene's interiors, assetsCanvas.ts `inside_of`) by column, then
+ * id, in as many columns as rows (the square root of the count, rounded up).
  * A group of many looks stays a block, not one tall column.
  */
 function groupLayout(own: readonly CanvasCard[], size: (id: string) => Size): Grid {

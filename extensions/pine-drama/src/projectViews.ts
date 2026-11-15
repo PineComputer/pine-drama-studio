@@ -10,6 +10,7 @@ import { DramaProject, NOTE_ATTACH, NOTE_INTAKE, readProjectMajor, type OutlineN
 import { listHistoryOfShownFile, type ShownFileHistoryEntry } from './core/projectHistory';
 import { holdsNoProject } from './core/binding';
 import { decomposition, detachedStage, kindRow, lockOf, openSteps, sectionLines } from './core/threeSteps';
+import { COMMIT_ID_SHOWN } from './core/tuning';
 
 // The Production view container, after the practice of the Docker, Kubernetes, GitLens and npm
 // extensions: a project seen by what it holds rather than by its files. Project groups a
@@ -241,7 +242,7 @@ class TimelineProvider implements vscode.TreeDataProvider<TimelineEntry> {
 		const item = new vscode.TreeItem(shortDate(entry.committedAt));
 		item.description = [madeBy(entry.author), entry.shown ? 'shown' : ''].filter(Boolean).join(' · ');
 		item.iconPath = new vscode.ThemeIcon(entry.shown ? 'pass-filled' : 'circle-small');
-		item.tooltip = `${entry.file}\n${entry.commit.slice(0, 12)}${entry.turnId ? `\nTurn ${entry.turnId}` : ''}`;
+		item.tooltip = `${entry.file}\n${entry.commit.slice(0, COMMIT_ID_SHOWN)}${entry.turnId ? `\nTurn ${entry.turnId}` : ''}`;
 		// The shown file opens from its row; an earlier one is brought back by Use, on its card.
 		if (entry.shown && this.project) {
 			item.command = { command: 'vscode.open', title: 'Open', arguments: [fileUri(this.project.root, entry.file), { preview: true }] };

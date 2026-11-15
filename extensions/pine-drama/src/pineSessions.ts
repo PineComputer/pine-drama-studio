@@ -25,7 +25,7 @@ import { basename } from 'node:path';
 import { assertProjectRoot } from './core/projectPlace';
 import { projectSessions, sessionProjectRoot, type ProjectSessions } from './core/projectSessions';
 import { sessionEpisodes } from './core/sessionEpisodes';
-import { CHAT_LABEL_MAX } from './core/tuning';
+import { CHARS_PER_TOKEN, CHAT_LABEL_MAX } from './core/tuning';
 
 const SESSION_TYPE = 'pine-computer';
 /** The tool name of an agent step's row; the row's words are the step's own title (core/activityRow.ts). */
@@ -443,7 +443,7 @@ function registerPineModel(): vscode.Disposable {
 			progress.report(new vscode.LanguageModelTextPart('Pine is not a language model.'));
 		},
 		async provideTokenCount(_model, text) {
-			return Math.ceil((typeof text === 'string' ? text : JSON.stringify(text)).length / 4);
+			return Math.ceil((typeof text === 'string' ? text : JSON.stringify(text)).length / CHARS_PER_TOKEN);
 		},
 	});
 	changed.fire();

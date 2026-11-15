@@ -12,8 +12,8 @@ export const TURN_WAIT_MS = 10_000;
 export const TURN_END_GRACE_MS = 500;
 
 /**
- * How often a running turn's files are collected into the project folder (turn.ts collectTurn). Each collection is one
- * exec, which Pine runs beside the agent's own commands and counts as the Computer's activity (PineSandbox
+ * How often a running turn's files are collected into the project folder (turn.ts collectTurn). A collection runs on
+ * the Computer by exec, which Pine runs beside the agent's own commands and counts as the Computer's activity (PineSandbox
  * session-coordinator pkg/server/exec.go:85). Shorter: results land sooner and the agent shares its Computer more;
  * longer: the person waits longer to see a finished file.
  */
@@ -76,11 +76,22 @@ export const EXTRACTED_TEXT_MAX_BYTES = 64 * 1024 * 1024;
 /** The most of its first message's first line a Chat's label keeps (its name where Chats are listed). */
 export const CHAT_LABEL_MAX = 80;
 
+/** The characters of a commit's id a Versions row's tooltip shows: enough to tell two commits of one project apart. */
+export const COMMIT_ID_SHOWN = 12;
+
+/**
+ * Characters per token in the estimate the chat's model gives VS Code when asked for a count. Pine is not a language
+ * model and has no tokenizer; one token is about four characters of common English text (OpenAI's "What are tokens
+ * and how to count them?"). Only VS Code's own accounting reads it.
+ */
+export const CHARS_PER_TOKEN = 4;
+
 // ---- Canvas layout ----
 // The canvases' pixels are the Studio's: a card is as tall as its own picture at a fixed width, and a row as tall as
 // its tallest card (as open-pinedrama does). Card width, gap, group padding and group title started as drama-cli's
 // export.py WIDTH, GAP, PAD and TITLE; nothing reads one side's positions on the other, so they need not stay equal.
-// Changing any of them moves every board that the person has not arranged; an arranged board keeps its places.
+// Changing any of them moves every board that the person has not arranged; on an arranged board, a card or frame that
+// another now covers steps away from it (canvasLayout.ts stepAway).
 
 /** A card's fixed width; its picture is scaled to it. */
 export const CARD_WIDTH = 300;
