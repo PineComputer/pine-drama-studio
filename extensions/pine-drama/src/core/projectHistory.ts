@@ -57,28 +57,24 @@ export function runInProjectWriteQueue<T>(projectRoot: string, write: () => Prom
 }
 
 /**
- * Inside the project's write queue: commits `paths` (project-relative files or folders) as `author` with `message`. The
- * commit takes only those paths, so a file someone else changed or staged meanwhile keeps its change for the commit of
- * whoever made it (git commit, "--only"); with nothing changed there, it makes none. A commit that fails is thrown: a
- * version the history does not hold could be overwritten unseen.
+ * Inside the project's write queue: commits `paths` (project-relative files or folders) as `author` with `message`, by
+ * the one commit path every change takes (commitIndexPaths): each path is staged as the folder holds it (stagePaths),
+ * and the commit takes every file below it that HEAD or the index holds, a deleted one too, and nothing else, so a file
+ * someone else changed or staged meanwhile keeps its change for whoever made it, and a file and a folder may change
+ * places. With nothing changed there, it makes none. A commit that fails is thrown: a version the history does not hold
+ * could be overwritten unseen.
  */
 export async function commitPathsToHistory(projectRoot: string, author: CommitAuthor, paths: readonly string[], message: string): Promise<void> {
-	await ensureRepository(projectRoot);
-	// A path on disk is staged by `git add` (--force: even where the folder's .gitignore names it); one the write removed by
-	// `git rm --cached --ignore-unmatch`, which also takes a deletion a cut-off commit left staged. The commit then reads
-	// them with --only, against HEAD too; a removed path HEAD never held is left out, as git refuses a whole commit for one.
-	const onDisk = paths.filter(p => existsSync(join(projectRoot, p)));
-	const removed = paths.filter(p => !existsSync(join(projectRoot, p)));
-	if (onDisk.length) { await run(projectRoot, author, ['add', '-A', '--force', '--', ...onDisk]); }
-	if (removed.length) { await run(projectRoot, author, ['rm', '-r', '-q', '--cached', '--ignore-unmatch', '--', ...removed]); }
-	const inHead = removed.length && await hasHead(projectRoot) ? (await run(projectRoot, author, ['ls-tree', '-r', '-z', '--name-only', 'HEAD', '--', ...removed])).split('\0') : [];
-	const spec = [...onDisk, ...removed.filter(p => inHead.some(t => t === p || t.startsWith(`${p}/`)))];
-	if (!spec.length) { return; }
-	// --quiet exits 1 when something is staged there, 0 when there is nothing to commit (git diff, "--exit-code").
-	const staged = await exec(projectRoot, author, ['diff', '--cached', '--quiet', '--', ...spec]);
-	if (staged.exitCode !== 0 && staged.exitCode !== 1) { throw new Error(`git diff: ${staged.stderr.trim()}`); }
-	if (staged.exitCode === 0) { return; }
-	await run(projectRoot, author, ['commit', '-q', '-m', message, '--only', '--', ...spec]);
+	if (!paths.length) { await ensureRepository(projectRoot); return; }
+	await stagePaths(projectRoot, paths);
+	// A batch at a time, as stagePaths stages them, so no command line is too long.
+	const listed = async (args: string[]) => {
+		const found: string[] = [];
+		for (let i = 0; i < paths.length; i += 200) { found.push(...(await run(projectRoot, author, [...args, '--', ...paths.slice(i, i + 200)])).split('\0').filter(Boolean)); }
+		return found;
+	};
+	const files = new Set([...await listed(['ls-files', '-z']), ...await hasHead(projectRoot) ? await listed(['ls-tree', '-r', '-z', '--name-only', 'HEAD']) : []]);
+	if (files.size) { await commitIndexPaths(projectRoot, author, [...files], message, {}); }
 }
 
 /**

@@ -132,6 +132,24 @@ test('a deletion a cut-off commit left staged is still committed by the next com
 	assert.deepEqual([last.head, last.files], ['person|Delete Lin', [`${LIN}/description.md`]]);
 });
 
+// #210: git commit --only refuses a path that changed from a file to a folder ("updating files failed"), so the
+// person's change or a hand edit that swapped them could never be committed.
+test("the person's change commits a file and a folder that changed places, either way", async () => {
+	const dir = project();
+	writeFileSync(join(dir, 'notes'), 'a file\n');
+	await runInProjectWriteQueue(dir, () => commitPathsToHistory(dir, 'person', ['notes'], 'A file'));
+	rmSync(join(dir, 'notes'));
+	mkdirSync(join(dir, 'notes'));
+	writeFileSync(join(dir, 'notes', 'a.txt'), 'in a folder\n');
+	await runInProjectWriteQueue(dir, () => commitPathsToHistory(dir, 'person', ['notes'], 'A folder'));
+	assert.deepEqual((await commits(dir))[0], { head: 'person|A folder', files: ['notes', 'notes/a.txt'] });
+	rmSync(join(dir, 'notes'), { recursive: true });
+	writeFileSync(join(dir, 'notes'), 'a file again\n');
+	await runInProjectWriteQueue(dir, () => commitPathsToHistory(dir, 'person', ['notes'], 'A file again'));
+	assert.deepEqual((await commits(dir))[0], { head: 'person|A file again', files: ['notes', 'notes/a.txt'] });
+	assert.equal(await out(dir, 'status', '--porcelain'), '');
+});
+
 // Codex's production review, item A4: a running turn's results are written into the folder and staged, not committed.
 // A put that snapshotted HEAD sent another chat the files from before them, which the person no longer saw.
 test('a put\'s snapshot holds what the index holds, staged results of a running turn included, and no hidden path', async () => {
