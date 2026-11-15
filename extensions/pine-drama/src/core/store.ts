@@ -11,7 +11,6 @@ import { assertProjectRoot, projectIdentity } from './projectPlace';
 export type ComputerState = 'none' | 'creating' | 'running' | 'stopped' | 'missing_credentials';
 export type PineSessionState = 'none' | 'open' | 'ended';
 export type ChatState = 'idle' | 'running' | 'needs_input' | 'failed';
-export type SavedSendKind = 'run';
 export type SavedSendState = 'pending' | 'sent' | 'unknown' | 'failed';
 export type MessageKind = 'prompt' | 'instructions' | 'progress' | 'activity' | 'result' | 'question' | 'usage' | 'failed' | 'notice';
 
@@ -33,8 +32,6 @@ export interface Chat {
 	state: ChatState;
 	current_turn_id: string | null;
 	question_turn_id: string | null;
-	/** The run that carried the standing instructions in this session; null until one is sent (instructions.ts). */
-	standing_saved_send_id: string | null;
 	/**
 	 * The canonical local project association. Null until explicitly associated; `projectRootOf` also supports
 	 * per-Chat storage for the existing unbound core path. This field alone grants no execution authority.
@@ -52,14 +49,10 @@ export interface Chat {
 export interface SavedSend {
 	id: string;
 	chat_key: string;
-	kind: SavedSendKind;
 	text: string;
-	target_turn_id: string | null;
 	state: SavedSendState;
 	turn_id: string | null;
 	error: string | null;
-	/** The Chat's last applied event id when it was saved: its input event can only come after. */
-	after_event: number | null;
 	created_at: string;
 }
 
@@ -85,7 +78,7 @@ export interface TurnFollowUp {
 	created_at: string;
 }
 
-const SCHEMA_VERSION = 16;
+const SCHEMA_VERSION = 17;
 const SCHEMA = `
 create table if not exists chats (
   key text primary key,               -- the chat session resource
@@ -103,7 +96,6 @@ create table if not exists chats (
   state text not null,                -- idle | running | needs_input | failed
   current_turn_id text,
   question_turn_id text,
-  standing_saved_send_id text,                -- the run that carried the standing instructions in this session
   folder text,                        -- the drama's folder the session is bound to; null: its folder under the extension's storage
   project_role text check (project_role in ('main')), -- main: the pinned Project Chat; null: another session of the project
   created_at text not null,
@@ -116,13 +108,10 @@ create unique index if not exists project_main_chat on chats(folder) where proje
 create table if not exists saved_sends (
   id text primary key,
   chat_key text not null references chats(key),
-  kind text not null,                 -- run | answer (steer, before D25)
   text text not null,
-  target_turn_id text,                -- an answer: the turn it addresses
   state text not null,                -- pending | sent | unknown | failed
   turn_id text,                       -- the turn it opened
   error text,
-  after_event integer,                -- the last applied event id when it was saved
   created_at text not null,
   updated_at text not null
 );
@@ -364,10 +353,10 @@ export class Store {
 
 	// ---- operations ----
 
-	insertSavedSend(op: Pick<SavedSend, 'id' | 'chat_key' | 'kind' | 'text' | 'target_turn_id'> & { after_event?: number | null }): void {
+	insertSavedSend(op: Pick<SavedSend, 'id' | 'chat_key' | 'text'>): void {
 		const at = this.iso();
-		this.db.prepare(`insert into saved_sends (id, chat_key, kind, text, target_turn_id, state, after_event, created_at, updated_at)
-			values (?, ?, ?, ?, ?, 'pending', ?, ?, ?)`).run(op.id, op.chat_key, op.kind, op.text, op.target_turn_id, op.after_event ?? null, at, at);
+		this.db.prepare(`insert into saved_sends (id, chat_key, text, state, created_at, updated_at)
+			values (?, ?, ?, 'pending', ?, ?)`).run(op.id, op.chat_key, op.text, at, at);
 	}
 
 	updateSavedSend(id: string, patch: Partial<Pick<SavedSend, 'state' | 'turn_id' | 'error'>>): void {
@@ -379,7 +368,7 @@ export class Store {
 
 	/** The runs and answers whose turn is `turnId`: each is a task of its own (local-first, 6.1). */
 	savedSendsOfTurn(key: string, turnId: string): SavedSend[] {
-		return this.db.prepare("select * from saved_sends where chat_key = ? and turn_id = ? and kind = 'run' order by created_at").all(key, turnId) as unknown as SavedSend[];
+		return this.db.prepare("select * from saved_sends where chat_key = ? and turn_id = ? order by created_at").all(key, turnId) as unknown as SavedSend[];
 	}
 
 	savedSend(id: string): SavedSend | undefined {

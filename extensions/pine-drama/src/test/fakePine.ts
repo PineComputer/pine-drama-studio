@@ -7,7 +7,6 @@ import { execFile } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { STANDING_PARAGRAPH } from '../core/instructions';
 import { ConnectionLostError, MissingError, NoSuchFileError, StartNotConfirmedError, UnconfirmedError, type IdlePolicy, type PineConnection, type PineEvent, type PinePort, type PineSession, type SecretVault, type TurnView } from '../core/pinePort';
 
 interface FakeTurn { id: string; state: string; question: string; summary: string; next: string; cost: number }
@@ -198,7 +197,7 @@ export class FakePine implements PinePort {
 			id: `turn-${++this.seq}`, state: plan.state, next: '', cost: 0.01,
 			question: plan.state === 'needs_input' ? (plan.text ?? 'Which episode?') : '',
 			// Pine's turn result: a waiting turn's summary is its question (its SDK, parse.ts: question = summary).
-			summary: plan.state === 'completed' ? (plan.text ?? `done: ${text.replace(`\n\n${STANDING_PARAGRAPH}`, '')}`) : plan.state === 'needs_input' ? (plan.text ?? 'Which episode?') : '',
+			summary: plan.state === 'completed' ? (plan.text ?? `done: ${text}`) : plan.state === 'needs_input' ? (plan.text ?? 'Which episode?') : '',
 		};
 		write(session, plan.files);
 		session.turns.set(turn.id, turn);

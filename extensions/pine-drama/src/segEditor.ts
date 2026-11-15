@@ -1,7 +1,7 @@
 // The seg editor's glue: one webview panel per episode, the
 // episode's main view, fed the seg editor's model (core/segEditor.ts). Its toggle and the canvas's open each other: an
 // episode's two views of one model. Its takes play inside it. Generate and Regenerate put the request in its episode's session's
-// input for the person to send: sending it is their go, and BUDGET (core/instructions.ts) covers the
+// input for the person to send: sending it is their go, and the skill's budget (no cap on Pine) covers the
 // cost. Nothing here starts a paid call.
 import * as vscode from 'vscode';
 import { episodeIn, episodeOfNode, fileAddressByVersion, type OutlineNode } from './core/project';

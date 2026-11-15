@@ -5,11 +5,9 @@ import { sha256 } from './sha256';
 //    credentials are missing is reported, never silently replaced.
 // 2. Secrets are fenced like database writes: each save goes to a new vault entry, which only a
 //    write of the current Pine session generation makes current (`secret_gen`); a pass of a replaced session publishes nothing.
-// 3. Every send is saved (target, text, kind) before it is sent and recovered by its kind's
-//    contract: run is resent with the same key; answer only while its question still waits, and
-//    an answer that arrived is followed to its successor. While an earlier
-//    send's outcome is unknown, no later message is sent. A message means what it meant when the person sent it: if
-//    recovery moves the Chat on (a new question, a finished turn), it is not sent.
+// 3. Every send is saved (its text) before it is sent, and one whose outcome is unknown is run again with the same key.
+//    While an earlier send's outcome is unknown, no later message is sent. A message written for a question or turn
+//    that changed meanwhile still goes, with a note saying so (CHANGED_TARGET_NOTE).
 // 4. An event is applied once: its dedupe mark, its messages and the last applied event id move in one
 //    transaction, and the last applied event id never moves back. A turn has one cost record: snapshots replace
 //    it until the final cost settles it. An event without a turn id is never attributed to a turn.
@@ -28,7 +26,7 @@ import { sha256 } from './sha256';
 //    is recorded as the Studio's text.
 // No vscode import.
 
-import { CHANGED_TARGET_NOTE, STANDING_PARAGRAPH, withStandingInstructions } from './instructions';
+import { CHANGED_TARGET_NOTE } from './instructions';
 import { randomUUID } from 'node:crypto';
 import { AccountError, ConnectionLostError, PINE_ACCOUNT_URL, IDLE_WAITING_SECONDS, IDLE_WORKING_SECONDS, MissingError, NoPineError, OtherPineError, START_WAIT_SECONDS, StartNotConfirmedError, StartTimeoutError, UnconfirmedError, endpointHost, type ComputerSecrets, type IdlePolicy, type PineConnection, type PineEvent, type PinePort, type SecretVault, type PineSession, type TurnView } from './pinePort';
 import { projectIdentity, projectPlaceOf, projectRootOf } from './projectPlace';
@@ -43,7 +41,7 @@ import { basename, extname, join } from 'node:path';
 import { withoutRepeatedQuestion } from './askedOnce';
 import { EXTRACTED, extractText, textName, type Extraction } from './extract';
 import { PineSessionGenerations, PineSessionReplacedError } from './pineSessionGeneration';
-import { type Chat, type Message, type SavedSend, type SavedSendKind, type Store } from './store';
+import { type Chat, type Message, type SavedSend, type Store } from './store';
 
 export type Update =
 	| { kind: 'progress'; text: string }
@@ -426,15 +424,10 @@ export class ChatService {
 			yield unsentLine(text, files, 'a turn is still running');
 			return;
 		}
-		const { kind, target } = at;
-		if (kind !== intended.kind || target !== intended.target) {
+		if (at.kind !== intended.kind || at.target !== intended.target) {
 			changed = true;
 			ending.changed = true;
 		}
-		// The standing instructions ride with the session's first run only, as open-pinedrama gives them in a session's
-		// first goal and in no answer. A run that failed did not deliver them, so the next run carries them.
-		const carried = this.store.savedSend(conv.standing_saved_send_id ?? '');
-		const standing = kind === 'run' && (!carried || carried.state === 'failed');
 		// Files the person added are in the drama's folder already (placeFiles): the request carries them, the note names them.
 		const note = placedAttachments.length ? `Pine Drama Studio: the person added to the drama's folder: ${placedAttachments.join(', ')}.` : undefined;
 		const noted = [text, changed ? CHANGED_TARGET_NOTE : undefined, note].filter((part): part is string => !!part).join('\n\n');
@@ -458,11 +451,10 @@ export class ChatService {
 			yield unsentLine(text, files, `the project could not be sent to the Computer (${(error as Error).message.replace(/[.\s]+$/, '')})`);
 			return;
 		}
-		const said = standing ? withStandingInstructions(noted) : noted;
-		const op: SavedSend = { id: opId, chat_key: key, kind, text: said, target_turn_id: target, state: 'pending', turn_id: null, error: null, after_event: conv.last_applied_event_id, created_at: '' };
+		const op: SavedSend = { id: opId, chat_key: key, text: noted, state: 'pending', turn_id: null, error: null, created_at: '' };
 		this.write(key, epoch, () => {
 			this.store.insertSavedSend(op);
-			// The person's message is recorded as typed; the instructions are the Studio's, in a message of their own.
+			// The person's message is recorded as typed; the Studio's notes, in messages of their own.
 			const moved = resends ? this.store.moveMessages(resends, op.id, ['prompt']) : [];
 			if (!moved.includes('prompt')) {
 				this.store.addMessage({ chat_key: key, turn_id: null, saved_send_id: op.id, kind: 'prompt', text, cost: null, currency: null });
@@ -472,10 +464,6 @@ export class ChatService {
 			}
 			if (changed) {
 				this.store.addMessage({ chat_key: key, turn_id: null, saved_send_id: op.id, kind: 'instructions', text: CHANGED_TARGET_NOTE, cost: null, currency: null });
-			}
-			if (standing) {
-				this.store.addMessage({ chat_key: key, turn_id: null, saved_send_id: op.id, kind: 'instructions', text: STANDING_PARAGRAPH, cost: null, currency: null });
-				this.store.updateChat(key, { standing_saved_send_id: op.id });
 			}
 		});
 		ending.op = op.id;
@@ -684,7 +672,7 @@ export class ChatService {
 		secrets.workdir = created.workdir;
 		// The next message brings the drama's files in (putTurnFiles).
 		const notice = `The agent starts again on Computer ${conv.computer_id}. It does not remember earlier turns of this session, and its working folder is empty: your next message brings the project in from your folder.`;
-		await this.publish(key, epoch, secrets, { computer_state: 'running', pine_session_name: created.name, pine_session_state: 'open', task_id: null, last_applied_event_id: null, state: 'idle', current_turn_id: null, question_turn_id: null, standing_saved_send_id: null }, () => {
+		await this.publish(key, epoch, secrets, { computer_state: 'running', pine_session_name: created.name, pine_session_state: 'open', task_id: null, last_applied_event_id: null, state: 'idle', current_turn_id: null, question_turn_id: null }, () => {
 			for (const op of this.store.unconfirmedSavedSends(key)) {
 				this.store.updateSavedSend(op.id, { state: 'failed', error: 'the session it was sent to ended' });
 			}
@@ -960,14 +948,14 @@ export class ChatService {
 
 	private async *send(key: string, env: PineConnection, epoch: number, session: PineSession, op: SavedSend): AsyncGenerator<Update, SendResult> {
 		try {
-			const turn = await this.held(key, epoch, () => this.dispatch(env, session, op));
+			const turn = await this.held(key, epoch, () => this.port.run(env, session, op.text, op.id));
 			this.sent(key, epoch, op, turn);
 			yield* this.tendIdle(key, env, epoch, session);
 			return { kind: 'sent', turn };
 		} catch (error) {
 			if (error instanceof UnconfirmedError) {
 				this.write(key, epoch, () => this.store.updateSavedSend(op.id, { state: 'unknown', error: error.message }));
-				yield { kind: 'markdown', text: `_Pine did not confirm the ${op.kind}; it is resent safely before the next message._` };
+				yield { kind: 'markdown', text: `_Pine did not confirm the run; it is resent safely before the next message._` };
 				return { kind: 'unknown' };
 			}
 			if (error instanceof PineSessionReplacedError) {
@@ -979,9 +967,9 @@ export class ChatService {
 			}
 			this.write(key, epoch, () => {
 				this.store.updateSavedSend(op.id, { state: 'failed', error: (error as Error).message });
-				this.store.addMessage({ chat_key: key, turn_id: null, saved_send_id: null, kind: 'notice', text: `The ${op.kind} failed: ${(error as Error).message}`, cost: null, currency: null });
+				this.store.addMessage({ chat_key: key, turn_id: null, saved_send_id: null, kind: 'notice', text: `The run failed: ${(error as Error).message}`, cost: null, currency: null });
 			});
-			yield { kind: 'markdown', text: `**The ${op.kind} failed:** ${(error as Error).message}` };
+			yield { kind: 'markdown', text: `**The run failed:** ${(error as Error).message}` };
 			return { kind: 'failed' };
 		}
 	}
@@ -1160,30 +1148,23 @@ export class ChatService {
 
 
 
-	/** Sends `op` to Pine. */
-	private async dispatch(env: PineConnection, session: PineSession, op: Pick<SavedSend, 'kind' | 'id' | 'text' | 'target_turn_id'>): Promise<TurnView> {
-		switch (op.kind) {
-			case 'run': return this.port.run(env, session, op.text, op.id);
-		}
-	}
-
-	private sent(key: string, epoch: number, op: Pick<SavedSend, 'id' | 'kind'>, turn: TurnView): void {
+	private sent(key: string, epoch: number, op: Pick<SavedSend, 'id'>, turn: TurnView): void {
 		this.write(key, epoch, () => {
 			this.store.noteTurn(key, turn.turnId);
 			this.store.updateSavedSend(op.id, { state: 'sent', turn_id: turn.turnId, error: null });
 			this.store.updateChat(key, { state: 'running', current_turn_id: turn.turnId, question_turn_id: null });
 		});
-		this.log(`${key}: ${op.kind} ${op.id} -> turn ${turn.turnId} ${turn.state}`);
+		this.log(`${key}: run ${op.id} -> turn ${turn.turnId} ${turn.state}`);
 	}
 
 	/**
-	 * Settles sends whose outcome was not known, oldest first, each by its kind's contract, and
+	 * Settles sends whose outcome was not known, oldest first, each by resending it under its id, and
 	 * follows each to the end of its turn. False while one is still unconfirmed: nothing later may
 	 * overtake it.
 	 */
 	private async *checkUnconfirmedSendsWithPine(key: string, env: PineConnection, epoch: number, session: PineSession, signal?: AbortSignal): AsyncGenerator<Update, boolean> {
 		for (const op of this.store.unconfirmedSavedSends(key)) {
-			yield { kind: 'progress', text: `Resending the ${op.kind} Pine did not confirm…` };
+			yield { kind: 'progress', text: `Resending the run Pine did not confirm…` };
 			const result = yield* this.send(key, env, epoch, session, op);
 			if (result.kind === 'unknown') {
 				return false;
@@ -1884,7 +1865,7 @@ export class ChatService {
 /** What a send learns from its own attempt: the session ended before the message reached Pine, and the operation it recorded. */
 type Ending = { said: boolean; op?: string; changed?: boolean };
 
-function intent(conv: Chat): { kind: SavedSendKind; target: string | null } | { kind: 'busy'; target: string } {
+function intent(conv: Chat): { kind: 'run'; target: string | null } | { kind: 'busy'; target: string } {
 	// The answer to a stop is a new task (doc/protocol.md, 4.3: "the person's answer is a new task"): a run, never Pine's
 	// answer to the waiting turn. It keeps that turn as its target, so a question that changed meanwhile is still noted.
 	if (conv.state === 'needs_input' && conv.question_turn_id) {

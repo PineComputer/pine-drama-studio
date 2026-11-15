@@ -119,7 +119,7 @@ test('binding is atomic across windows, canonicalizes aliases, creates no wrappe
 	assert.equal(owningChat(a.chats(), dir, [alias])?.key, 'a');
 	assert.deepEqual(projectPlaceOf(dir, a.chat('a')!), { root, boundary: root });
 	assert.deepEqual(readdirSync(root), []);
-	assert.equal(a.db.prepare('pragma user_version').get()!.user_version, 16);
+	assert.equal(a.db.prepare('pragma user_version').get()!.user_version, 17);
 	a.close(); b.close();
 });
 

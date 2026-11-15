@@ -33,26 +33,9 @@ export interface ObjectChoice {
 	readonly removed?: true;
 }
 
-export interface Add {
-	readonly id: string;
-	readonly type: 'character' | 'scene' | 'prop' | 'variant';
-	readonly name: string;
-	readonly description: string;
-	readonly from?: string;
-	readonly setting?: 'interior' | 'exterior';
-}
-
-export interface Import {
-	readonly id: string;
-	readonly object: string;
-	readonly file: string;
-}
-
 export interface Choices {
 	readonly schema: 1;
 	readonly objects: Readonly<Record<string, ObjectChoice>>;
-	readonly added: readonly Add[];
-	readonly imports: readonly Import[];
 }
 
 export interface VersionRef {
@@ -78,25 +61,10 @@ export interface Review {
 	readonly person?: string;
 }
 
-export interface Note {
-	readonly object: string;
-	readonly version?: string;
-	readonly text: string;
-	readonly file?: string;
-	readonly at?: { readonly x: number; readonly y: number };
-	readonly time?: number;
-}
-
 export interface Request {
-	readonly schema: 1;
 	readonly turn: string;
-	readonly scope: 'project' | 'episodes';
 	readonly choices: Choices | null;
 	readonly versions: Folders;
-	readonly reviews: Folders;
-	readonly files: Folders;
-	readonly private_state: Hash | null;
-	readonly notes: readonly Note[];
 }
 
 
@@ -104,15 +72,7 @@ export interface SnapshotObject {
 	readonly type: ObjectType;
 	readonly name: string;
 	readonly segment: string | null;
-	readonly usable: boolean;
-	readonly why?: string;
-	readonly making?: boolean;
-	readonly prompt?: string;
-	readonly description?: string;
 	readonly inputs?: readonly string[];
-	readonly from_add: string | null;
-	/** Made in an `episodes` turn: later `episodes` turns may add inside it (doc/protocol.md, section 1). */
-	readonly episode_made?: true;
 }
 
 
@@ -129,12 +89,9 @@ export interface ProtocolError {
 }
 
 /**
- * A list of a document read as one, whatever it was given as, and each member as an object: a reader then finds nothing in
+ * A map of a document read as one, whatever it was given as, and each member as an object: a reader then finds nothing in
  * what it does not know, rather than failing on it (section 6.1).
  */
-export const listOf = <T>(value: unknown): T[] => Object.values(value ?? {}).map(Object) as T[];
-
-/** A map of a document read as one, each member as an object (listOf). */
 export const mapOf = <T>(value: unknown): Record<string, T> => Object.fromEntries(Object.entries(Object(value ?? {})).map(([key, member]) => [key, Object(member)]));
 
 /** A document of a major this client does not speak: `unsupported_schema`; nothing of it is applied. */
@@ -165,7 +122,7 @@ export async function readChoices(root: string): Promise<Choices | null> {
 	}
 	const given = Object(JSON.parse(text)) as Partial<Choices>;
 	if (given.schema !== MAJOR && given.schema !== undefined) { throw new UnsupportedMajor(join(root, CHOICES_FILE), given.schema); }
-	return { ...given, schema: MAJOR, objects: mapOf(given.objects), added: listOf(given.added), imports: listOf(given.imports) };
+	return { ...given, schema: MAJOR, objects: mapOf(given.objects) };
 }
 
 
@@ -256,13 +213,10 @@ export function currentVersion(versions: readonly Version[], choices: Choices | 
 export interface Installed {
 	readonly task: string;
 	readonly scope: string;
-	/** The Chat that sent it: its session's private state is the one its later tasks carry. */
-	readonly chat: string;
 	/** When its request was sent (DramaRecord.sentRequest): of two returns of a session, the later-sent one is the session's. */
 	readonly sent: string;
 	readonly versions: Folders;
 	readonly reviews: Folders;
-	readonly private_state: string | null;
 	readonly snapshot: Snapshot | null;
 	/** The choices the Computer side could not apply (4.3, `problems`), shown on their cards until the session's next return. */
 	readonly problems: readonly { readonly ref: string; readonly error: ProtocolError }[];

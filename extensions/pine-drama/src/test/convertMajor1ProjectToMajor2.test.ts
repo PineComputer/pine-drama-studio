@@ -168,7 +168,7 @@ test('a major-1 turn still owed a return refuses the conversion, naming the Stud
 	// A request a Studio of major 1 sent, as its record keeps it (major1.ts, DramaRecord.sentTask).
 	const sent = dramaRecordOf(join(storage, 'protocol'), root).requestPath('task-3');
 	mkdirSync(dirname(sent), { recursive: true });
-	writeFileSync(sent, JSON.stringify({ sent: '2026-11-13T10:00:00Z', computer: 'computer', chat: 'chat', request: { turn: 'task-3', scope: 'project' } as Request }));
+	writeFileSync(sent, JSON.stringify({ sent: '2026-11-13T10:00:00Z', computer: 'computer', chat: 'chat', request: { turn: 'task-3' } as Request }));
 	await assert.rejects(convertMajor1ProjectToMajor2(root, storage, '2026-11-14'), (error: unknown) =>
 		error instanceof RefusedWithUpgradeInstructions && error.studioVersion === LAST_MAJOR_1_STUDIO.version && error.downloadUrl === LAST_MAJOR_1_STUDIO.downloadUrl
 		&& /Nothing was changed/.test(error.message));

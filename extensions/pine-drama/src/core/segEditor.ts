@@ -11,8 +11,8 @@ export type { Seg, SegEditorModel };
 
 /**
  * The request to shoot a seg, put in its episode's session's input for the person to send: the seg editor's Generate
- * and Regenerate (`again`, a new take), and a take card's Generate on the canvas. It asks for no second yes: BUDGET
- * (instructions.ts) covers the cost.
+ * and Regenerate (`again`, a new take), and a take card's Generate on the canvas. It asks for no second yes: the skill's
+ * budget (no cap on Pine, skills/drama-workflow) covers the cost.
  */
 export function shootRequest(episode: string, seg: string, again: boolean): string {
 	return `Shoot ${again ? `a new take of ${episode} ${seg}` : `${episode} ${seg}`}.`;
