@@ -11,6 +11,7 @@ import { ChatService, type Update } from '../core/chats';
 import { StartTimeoutError } from '../core/pinePort';
 import { Store } from '../core/store';
 import { FakePine, MemoryVault } from './fakePine';
+import { testProtocol } from './protocolFixture';
 
 async function drain(updates: AsyncGenerator<Update>): Promise<Update[]> {
 	const out: Update[] = [];
@@ -26,7 +27,7 @@ async function fixture() {
 	const store = new Store(path);
 	const pine = new FakePine(); const vault = new MemoryVault();
 	const options = { holdsProject: () => true, store, port: pine, vault, pine: { endpoint: 'https://offline.invalid', apiKey: 'offline' },
-		files: { projectsRoot: join(dir, 'projects') } };
+		files: { projectsRoot: join(dir, 'projects') }, protocol: testProtocol(dir) };
 	const service = new ChatService(options);
 	return { dir, root, path, store, pine, vault, options, service };
 }

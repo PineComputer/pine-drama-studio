@@ -8,6 +8,7 @@ import { START_WAIT_SECONDS, StartTimeoutError, type PineConnection } from '../c
 import { Store } from '../core/store';
 import { SdkPort } from '../sdkPort';
 import { FakePine, MemoryVault } from './fakePine';
+import { folderOf, testService } from './protocolFixture';
 
 // A start that waits for a Computer says how long, and one that runs out of time says so with
 // Pine's last state. On pine-dev on 2026-11-03 a full pool left a new session
@@ -18,9 +19,10 @@ const KEY = 'pine-computer:/local-1';
 
 function setup() {
 	const pine = new FakePine();
-	const store = new Store(join(mkdtempSync(join(tmpdir(), 'pine-start-')), 'studio.sqlite'));
+	const dir = mkdtempSync(join(tmpdir(), 'pine-start-'));
+	const store = new Store(join(dir, 'studio.sqlite'));
 	const logs: string[] = [];
-	const service = new ChatService({ holdsProject: () => true, turnEndGraceMs: 0, store, port: pine, vault: new MemoryVault(), pine: ENV, log: line => logs.push(line) });
+	const service = testService(dir, { holdsProject: () => true, turnEndGraceMs: 0, store, port: pine, vault: new MemoryVault(), pine: ENV, log: line => logs.push(line) });
 	return { pine, store, service, logs };
 }
 
@@ -31,7 +33,7 @@ async function drain(updates: AsyncGenerator<Update>): Promise<Update[]> {
 	}
 	return out;
 }
-const send = (service: ChatService, text: string) => drain(service.submit(KEY, text, text, []));
+const send = (service: ChatService, text: string) => drain(service.submit(KEY, text, text, [], folderOf(service)));
 const markdown = (updates: Update[]) => updates.filter(u => u.kind !== 'progress').map(u => u.text).join('\n');
 
 test('the start says how long Pine may wait', async () => {
@@ -48,7 +50,8 @@ test('a start that runs out of time gives the message back with one line to try 
 	const { pine, store, service, logs } = setup();
 	pine.fail('ensureComputer', new StartTimeoutError('sbx-1', 'pending'));
 	const updates = await send(service, 'hello');
-	assert.equal(markdown(updates), "\n\n_Your message was not sent: Pine had no Computer ready in time. Try again in a minute. Here it is, to send again:_\n\n```text\nhello\n```\n\n");
+	// The first send binds the session to the window's folder and says so once, before the start runs out of time.
+	assert.match(markdown(updates), /^_This project's root is `[^`]+`\.[^\n]*\n+_Your message was not sent: Pine had no Computer ready in time\. Try again in a minute\. Here it is, to send again:_\n\n```text\nhello\n```\n\n$/);
 	assert.equal(store.chat(KEY)!.computer_state, 'creating');
 	assert.equal(pine.calls.run ?? 0, 0, 'nothing was sent');
 	assert.ok(logs.some(line => line.includes('did not start within 300s (sandbox sbx-1, last state pending)')));

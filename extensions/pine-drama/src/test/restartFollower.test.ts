@@ -3,24 +3,26 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { ChatService, type Update } from '../core/chats';
+import type { Update } from '../core/chats';
 import { PineSessionReplacedError } from '../core/pineSessionGeneration';
 import { Store } from '../core/store';
 import { FakePine, MemoryVault } from './fakePine';
+import { folderOf, testService } from './protocolFixture';
 
 const drain = async (updates: AsyncGenerator<Update>): Promise<void> => { for await (const _ of updates) { /* drain */ } };
 
 for (const response of ['missing', 'missing while the old binding still answers', 'question', 'event'] as const) {
 	test(`a delayed ${response} from an old follower cannot mutate a restarted Session`, async () => {
-		const store = new Store(join(mkdtempSync(join(tmpdir(), 'pine-restart-follower-')), 'studio.sqlite'));
+		const dir = mkdtempSync(join(tmpdir(), 'pine-restart-follower-'));
+		const store = new Store(join(dir, 'studio.sqlite'));
 		const pine = new FakePine();
-		const service = new ChatService({ holdsProject: () => true, store, port: pine, vault: new MemoryVault(),
+		const service = testService(dir, { holdsProject: () => true, store, port: pine, vault: new MemoryVault(),
 			pine: { endpoint: 'https://offline.invalid', apiKey: 'offline' } });
 		let release!: () => void; let entered!: () => void;
 		const waiting = new Promise<void>(resolve => { release = resolve; });
 		const started = new Promise<void>(resolve => { entered = resolve; });
 		try {
-			await drain(service.submit('main', 'fixture', 'fixture', []));
+			await drain(service.submit('main', 'fixture', 'fixture', [], folderOf(service)));
 			const op = store.db.prepare('select turn_id from saved_sends limit 1').get() as { turn_id: string };
 			// A reopened Chat may start a follower from its persisted running turn.
 			store.updateChat('main', { state: 'running', current_turn_id: op.turn_id });
@@ -52,7 +54,7 @@ for (const response of ['missing', 'missing while the old binding still answers'
 			store.updateChat('main', { pine_session_state: 'ended', computer_state: 'stopped', state: 'idle', current_turn_id: null });
 			// The person's next message finds the session ended and starts the agent again (replacePineSessionAndSend), while
 			// the old follower, attached outside the send queue, still awaits the ended runtime.
-			await drain(service.submit('main', 'continue', 'continue', []));
+			await drain(service.submit('main', 'continue', 'continue', [], folderOf(service)));
 			const replacement = store.chat('main')!;
 			assert.notEqual(replacement.pine_session_name, original.pine_session_name);
 			assert.equal(replacement.pine_session_state, 'open');

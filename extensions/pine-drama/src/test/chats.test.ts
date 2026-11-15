@@ -2,7 +2,7 @@ import { strict as assert } from 'node:assert';
 import { existsSync, mkdtempSync, readdirSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { DatabaseSync } from 'node:sqlite';
-import { basename, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { ChatService, type Update } from '../core/chats';
 import { CHANGED_TARGET_NOTE } from '../core/instructions';
@@ -12,11 +12,10 @@ import type { PineConnection } from '../core/pinePort';
 import { PineSessionReplacedError } from '../core/pineSessionGeneration';
 import { setAsideNotice, Store } from '../core/store';
 import { FakePine, MemoryVault } from './fakePine';
+import { folderOf, testService } from './protocolFixture';
 
 const ENV: PineConnection = { endpoint: 'http://lvh.me:18080', apiKey: 'pk_test_secret', controlHost: 'api.lvh.me:18080' };
 const KEY = 'pine-computer:/local-1';
-/** The window's one folder, as the chat handler passes it (core/binding.ts). */
-const FOLDER = '/Users/x/Pine Drama Studio/Night Ward';
 
 function setup() {
 	const path = join(mkdtempSync(join(tmpdir(), 'pine-studio-')), 'studio.sqlite');
@@ -26,7 +25,7 @@ function setup() {
 	/** A Studio window: its own store connection. A new one after a crash is a restart. */
 	const window = (log?: (line: string) => void) => {
 		const store = new Store(path, () => clock.now);
-		const service = new ChatService({ holdsProject: () => true, turnEndGraceMs: 0, store, port: pine, vault, pine: ENV, ...(log ? { log } : {}) });
+		const service = testService(dirname(path), { holdsProject: () => true, turnEndGraceMs: 0, store, port: pine, vault, pine: ENV, ...(log ? { log } : {}) });
 		return { store, service };
 	};
 	return { path, clock, pine, vault, window };
@@ -82,7 +81,7 @@ function currentSecret(store: Store): string {
 	return `${conv.secret_ref}.${conv.secret_gen}`;
 }
 
-const send = (service: ChatService, text: string) => drain(service.submit(KEY, text, text, []));
+const send = (service: ChatService, text: string) => drain(service.submit(KEY, text, text, [], folderOf(service)));
 const markdown = (updates: Update[]) => updates.filter(u => u.kind !== 'progress').map(u => u.text).join('\n');
 const kinds = (store: Store) => store.messages(KEY).map(m => m.kind);
 
@@ -227,7 +226,7 @@ test('a reply whose view ended stops reading; the next message follows the turn,
 	const { window, pine } = setup();
 	const { store, service } = window();
 	pine.plans = [{ state: 'running' }];
-	const first = service.submit(KEY, 'make the drama', 'make the drama', []);
+	const first = service.submit(KEY, 'make the drama', 'make the drama', [], folderOf(service));
 	const end = Date.now() + 10_000;
 	while (store.chat(KEY)?.state !== 'running') {
 		assert.ok(Date.now() < end, 'the turn runs');
@@ -246,7 +245,7 @@ test('a message waiting for a turn whose session is lost goes to a new session, 
 	await send(service, 'start');
 	// The turn it waits for is gone, as Pine answers when the session is (MissingError).
 	store.tx(() => store.updateChat(KEY, { state: 'running', current_turn_id: 'turn-gone' }));
-	const said = await drain(service.submit(KEY, 'make it darker', 'make it darker', [], FOLDER));
+	const said = await drain(service.submit(KEY, 'make it darker', 'make it darker', [], folderOf(service)));
 	assert.ok(said.every(u => u.kind !== 'sessionEnded'), markdown(said));
 	assert.match(markdown(said), /done: make it darker/);
 	assert.equal(store.db.prepare("select count(*) n from saved_sends where text like 'make it darker%' and state = 'sent'").get()!.n, 1);
@@ -260,7 +259,7 @@ test('a message whose session ends during the recovery of an earlier send goes t
 	pine.lose('run');
 	await send(service, 'second'); // unconfirmed: resent before the next message
 	pine.stop(JSON.parse(vault.values.get(currentSecret(store))!).credentials);
-	const said = await drain(service.submit(KEY, 'third', 'third', [], FOLDER));
+	const said = await drain(service.submit(KEY, 'third', 'third', [], folderOf(service)));
 	assert.ok(said.every(u => u.kind !== 'sessionEnded'));
 	assert.equal(store.db.prepare("select count(*) n from saved_sends where text like 'third%' and state = 'sent'").get()!.n, 1, 'delivered once');
 	assert.doesNotMatch(markdown(said), /was not sent/);
@@ -271,7 +270,7 @@ test('a message that finds its session already ended is sent in a new session, w
 	const { store, service } = window();
 	await send(service, 'first');
 	pine.stop(JSON.parse(vault.values.get(currentSecret(store))!).credentials);
-	const sent = await drain(service.submit(KEY, 'second', 'second', [], FOLDER));
+	const sent = await drain(service.submit(KEY, 'second', 'second', [], folderOf(service)));
 	assert.ok(sent.every(u => u.kind !== 'sessionEnded'));
 	assert.match(markdown(sent), /done: second/);
 	// The first try found the session gone at Pine (MissingError: not delivered); only the new session's send went.
@@ -306,7 +305,7 @@ test('review P1: a pass whose Pine session is replaced during a slow call publis
 	const pine = new FakePine();
 	const vault = new MemoryVault();
 	const store = new Store(path);
-	const a = new ChatService({ holdsProject: () => true, turnEndGraceMs: 0, store, port: pine, vault, pine: ENV });
+	const a = testService(dirname(path), { holdsProject: () => true, turnEndGraceMs: 0, store, port: pine, vault, pine: ENV });
 	const release = pine.hold('createSession');
 	const slow = send(a, 'from a').then(() => undefined, (error: Error) => error);
 	for (let waited = 0; pine.calls.createSession !== 1; waited += 5) {
@@ -348,7 +347,7 @@ test('a send whose credentials the keychain refuses gives the message back once,
 	const { window, pine, vault } = setup();
 	const { service } = window();
 	vault.failStore = true;
-	const said = await drain(service.submit(KEY, 'make the poster', 'x', [], FOLDER));
+	const said = await drain(service.submit(KEY, 'make the poster', 'x', [], folderOf(service)));
 	assert.match(markdown(said), /Could not save the Computer's credentials to the keychain/);
 	const back = said.filter(u => u.kind === 'unsent');
 	assert.equal(back.length, 1, markdown(said));
@@ -568,12 +567,12 @@ async function reloadedWhileRunning() {
 	const vault = new MemoryVault();
 	const make = () => {
 		const store = new Store(path);
-		return { store, service: new ChatService({ holdsProject: () => true, turnEndGraceMs: 0, store, port: pine, vault, pine: ENV }) };
+		return { store, service: testService(dirname(path), { holdsProject: () => true, turnEndGraceMs: 0, store, port: pine, vault, pine: ENV }) };
 	};
 	const a = make();
 	pine.plans = [{ state: 'needs_input', text: 'Which look?' }, { state: 'running' }];
 	await send(a.service, 'first');
-	const inflight = a.service.submit(KEY, 'the red one', 'x', []);
+	const inflight = a.service.submit(KEY, 'the red one', 'x', [], folderOf(a.service));
 	for await (const update of inflight) {
 		if (update.kind === 'activity' && /working on the red one/.test(update.text)) {
 			break; // the window goes away mid-turn; nothing cancels the turn on Pine
@@ -615,7 +614,7 @@ test('reload while a turn runs, and the turn ends while no window is open: the r
 test('one Pine environment: with none set up, a message is refused before anything is written or sent', async () => {
 	const { path, pine, vault } = setup();
 	const store = new Store(path);
-	const service = new ChatService({ holdsProject: () => true, turnEndGraceMs: 0, store, port: pine, vault, pine: undefined });
+	const service = testService(dirname(path), { holdsProject: () => true, turnEndGraceMs: 0, store, port: pine, vault, pine: undefined });
 	await assert.rejects(send(service, 'make the drama'), (error: Error) => error instanceof NoPineError && error.message === 'No Pine environment is set up, so nothing was sent.');
 	assert.equal(pine.calls.run ?? 0, 0);
 	assert.equal(pine.calls.ensureComputer ?? 0, 0);
@@ -629,7 +628,7 @@ test('one Pine environment: a session of another endpoint is refused in its word
 	await send(service, 'first');
 	const runs = pine.calls.run;
 	const prod: PineConnection = { endpoint: 'https://pinesandbox.io', apiKey: 'pk_prod_secret' };
-	const other = new ChatService({ holdsProject: () => true, turnEndGraceMs: 0, store: new Store(path), port: pine, vault, pine: prod });
+	const other = testService(dirname(path), { holdsProject: () => true, turnEndGraceMs: 0, store: new Store(path), port: pine, vault, pine: prod });
 	await assert.rejects(send(other, 'second'), (error: Error) => error instanceof OtherPineError && error.message ===
 		'**This session ran on `lvh.me:18080`; the Studio now connects to `pinesandbox.io`.** Its history stays here. To continue it, set the Studio back to that Pine environment and reopen it, or start a new session.');
 	assert.equal(pine.calls.run, runs);

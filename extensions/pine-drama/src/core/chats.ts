@@ -29,7 +29,7 @@ import { sha256 } from './sha256';
 import { CHANGED_TARGET_NOTE } from './instructions';
 import { randomUUID } from 'node:crypto';
 import { AccountError, ConnectionLostError, PINE_ACCOUNT_URL, IDLE_WAITING_SECONDS, IDLE_WORKING_SECONDS, MissingError, NoPineError, OtherPineError, START_WAIT_SECONDS, StartNotConfirmedError, StartTimeoutError, UnconfirmedError, endpointHost, type ComputerSecrets, type IdlePolicy, type PineConnection, type PineEvent, type PinePort, type SecretVault, type PineSession, type TurnView } from './pinePort';
-import { projectBoundaryOf, projectIdentity, projectRootOf } from './projectPlace';
+import { projectBoundaryOf, projectRootOf } from './projectPlace';
 import { entryFor, type Entry } from './binding';
 import { givenBack, refusalLine } from './refusal';
 import { collectTurn, forgetCaptures, putTurnFiles, turnRecordOf, type ComputerSession, type SentTurn, type TurnRecord } from './turn';
@@ -86,11 +86,8 @@ export interface ChatServiceOptions {
 	holdsProject(root: string): boolean;
 	log?: (line: string) => void;
 	onChange?: (key: string) => void;
-	/**
-	 * Where the files a turn returns are kept. Without it nothing is settled, as in the
-	 * tests that are not about files; the extension always gives it.
-	 */
-	files?: {
+	/** Where the files a turn returns are kept. */
+	files: {
 		/** Each Chat's project folder is made under it. */
 		projectsRoot: string;
 	};
@@ -98,7 +95,7 @@ export interface ChatServiceOptions {
 	 * The protocol client (doc/protocol.md): each run or answer is a turn. `storage` holds each project's record of its
 	 * turns (`projects/`, turn.ts), outside the project's folder.
 	 */
-	protocol?: { readonly storage: string };
+	protocol: { readonly storage: string };
 	/**
 	 * How long the event stream stays open once a turn has ended, for the events Pine sends after the turn reads ended;
 	 * TURN_END_GRACE_MS unless a test, whose fake Pine has sent them all by then, makes it 0.
@@ -229,10 +226,9 @@ export class ChatService {
 
 	/** The paths (`drama/…`) of the files the Chat's latest settled turn changed (turn.ts, TurnRecord). */
 	latestTurnFiles(key: string): string[] {
-		const root = this.projectRoot(key);
-		const record = this.options.protocol && root ? this.turnRecord(root) : undefined;
-		const latest = record?.latestSettled(key);
-		return latest ? record!.settled(latest.turn)!.files.map(path => `${DRAMA_FOLDER}/${path}`) : [];
+		const record = this.turnRecord(this.projectRoot(key));
+		const latest = record.latestSettled(key);
+		return latest ? record.settled(latest.turn)!.files.map(path => `${DRAMA_FOLDER}/${path}`) : [];
 	}
 
 	history(key: string): Message[] {
@@ -249,18 +245,12 @@ export class ChatService {
 
 	/** Whether a message in session `key` may go from a window with this one folder (core/binding.ts). */
 	entry(key: string, folder: string): Entry {
-		const projectsRoot = this.options.files?.projectsRoot;
-		const chats = this.store.chats();
-		// The existing no-files core mode has no project binding; an explicit association always fences it.
-		if (!projectsRoot && !chats.some(c => c.folder && (c.key === key || projectIdentity(c.folder) === projectIdentity(folder)))) {
-			return { kind: 'go', bind: false };
-		}
-		return entryFor(chats, projectsRoot ?? '', key, folder);
+		return entryFor(this.store.chats(), this.options.files.projectsRoot, key, folder);
 	}
 
 
 	/** `signal`: the person's Stop of this send; once aborted, nothing more goes up and no turn is started (sendTask). */
-	private async *submitOnce(key: string, text: string, label: string, folder: string | undefined, files: readonly ChatFile[], signal?: AbortSignal): AsyncGenerator<Update> {
+	private async *submitOnce(key: string, text: string, label: string, folder: string, files: readonly ChatFile[], signal?: AbortSignal): AsyncGenerator<Update> {
 		// Capture the question/turn before waiting in the local send queue; a preceding reply may ask a new question.
 		const atSend = this.store.chat(key);
 		const intendedAtSend = atSend ? intent(atSend) : { kind: 'run' as const, target: null };
@@ -299,7 +289,7 @@ export class ChatService {
 	 * person's words and decision recorded with it become this operation's, so the Chat shows one message, sent once.
 	 * `changedBefore` says that what it was written for changed before that end, so its note goes with it here too.
 	 */
-	private async *sendPersonMessageToPine(key: string, text: string, label: string, folder: string | undefined, intendedAtSend: ReturnType<typeof intent>, files: readonly ChatFile[], ending: Ending, resends?: string, changedBefore = false, signal?: AbortSignal): AsyncGenerator<Update> {
+	private async *sendPersonMessageToPine(key: string, text: string, label: string, folder: string, intendedAtSend: ReturnType<typeof intent>, files: readonly ChatFile[], ending: Ending, resends?: string, changedBefore = false, signal?: AbortSignal): AsyncGenerator<Update> {
 		if (this.options.connectionCurrent?.() === false) { throw new Error('The Pine connection changed. Reload the window before sending more work.'); }
 		let conv = this.store.chat(key);
 		const env = conv ? this.pineOf(conv) : this.thePine();
@@ -318,9 +308,8 @@ export class ChatService {
 		}
 		ending.changed = changed;
 		// Checked again here, as the window's check and this send are not one step (another window may have bound the folder).
-		const project = folder ?? conv?.folder ?? undefined;
-		const entry = project ? this.entry(key, project) : undefined;
-		if (entry && entry.kind !== 'go') {
+		const entry = this.entry(key, folder);
+		if (entry.kind !== 'go') {
 			// One line, and the message given back under it.
 			yield { kind: 'unsent', text: `_${refusalLine(entry.kind === 'moved' ? { kind: 'rootChanged' } : entry)} Your message is below, to send again._\n\n${givenBack(text, attachedNames(files))}` };
 			return;
@@ -328,7 +317,7 @@ export class ChatService {
 		if (!conv) {
 			this.store.tx(() => this.store.insertChat({ key, endpoint: env.endpoint, label, secret_ref: secretRef(key) }));
 		}
-		if (folder && entry?.kind === 'go' && entry.bind) {
+		if (entry.bind) {
 			if (!this.store.bindFolder(key, folder)) {
 				yield unsentLine(text, files, 'the session it was for has ended');
 				yield { kind: 'markdown', text: '_Not sent: this folder changed or was bound in another window; reopen the project and retry._' };
@@ -511,7 +500,7 @@ export class ChatService {
 	 * guarantees holds (replaceEndedPineSession: confirmed stop of the old binding, saved results published). A restart
 	 * that does not happen gives the message back, in one line with why (unsentLine).
 	 */
-	private async *replacePineSessionAndSend(key: string, text: string, label: string, folder: string | undefined, files: readonly ChatFile[], ending: Ending, signal?: AbortSignal): AsyncGenerator<Update> {
+	private async *replacePineSessionAndSend(key: string, text: string, label: string, folder: string, files: readonly ChatFile[], ending: Ending, signal?: AbortSignal): AsyncGenerator<Update> {
 		// The first attempt's operation, if it recorded one, and whether what the message was written for changed before it.
 		const resends = ending.op;
 		const changed = ending.changed ?? false;
@@ -942,18 +931,15 @@ export class ChatService {
 
 	/**
 	 * Where a session's project is on this desktop: its bound folder's project root, or its folder under the extension's
-	 * storage for a session made before binding (`projectRootOf`). Undefined without a
-	 * project store (tests that keep no files).
+	 * storage for a session made before binding (`projectRootOf`).
 	 */
-	projectRoot(key: string): string | undefined {
-		const files = this.options.files;
-		return files && projectRootOf(files.projectsRoot, this.store.chat(key) ?? { key, folder: null });
+	projectRoot(key: string): string {
+		return projectRootOf(this.options.files.projectsRoot, this.store.chat(key) ?? { key, folder: null });
 	}
 
-	/** The folder nothing the session settles may leave; undefined without a project store. */
-	private projectBoundary(key: string): string | undefined {
-		const files = this.options.files;
-		return files && projectBoundaryOf(files.projectsRoot, this.store.chat(key) ?? { key, folder: null });
+	/** The folder nothing the session settles may leave. */
+	private projectBoundary(key: string): string {
+		return projectBoundaryOf(this.options.files.projectsRoot, this.store.chat(key) ?? { key, folder: null });
 	}
 
 
@@ -967,7 +953,7 @@ export class ChatService {
 	 * anything that is not a file on this computer. Issue: a .docx added this way never left the desktop, and the agent
 	 * found its attachments empty.
 	 */
-	submit(key: string, text: string, label: string, files: readonly ChatFile[], folder?: string, signal?: AbortSignal): AsyncGenerator<Update> {
+	submit(key: string, text: string, label: string, files: readonly ChatFile[], folder: string, signal?: AbortSignal): AsyncGenerator<Update> {
 		return this.submitOnce(key, text, label, folder, files, signal);
 	}
 
@@ -1066,7 +1052,6 @@ export class ChatService {
 	 */
 	private async placeFiles(key: string, paths: readonly string[]): Promise<{ placed: string[]; unread: { name: string; why: string }[] }> {
 		const root = this.projectRoot(key);
-		if (!root) { throw new Error('this session has no drama folder to place the files in'); }
 		const files = new Map<string, Buffer | string>();
 		const unread: { name: string; why: string }[] = [];
 		const free = (name: string) => unusedName(join(root, 'inputs'), name, n => `${n}-${name}`, [...files.keys()].filter(path => path.startsWith('inputs/')).map(path => basename(path)));
@@ -1342,7 +1327,6 @@ export class ChatService {
 	/** collectWhileRunning's pass: each sent turn the running Pine turn carries, not settled, collected (not last). */
 	private async *collectRunningTurn(key: string, env: PineConnection, epoch: number, pineTurn: string): AsyncGenerator<Update> {
 		const root = this.projectRoot(key);
-		if (!this.options.protocol || !root) { return; }
 		const record = this.turnRecord(root);
 		for (const op of this.store.savedSendsOfTurn(key, pineTurn)) {
 			const sent = record.sentTurn(op.id);
@@ -1546,15 +1530,11 @@ export class ChatService {
 
 	/**
 	 * Puts a turn's files on the Chat's Computer before its message is sent (turn.ts putTurnFiles), and records the turn
-	 * with the drama's folder there as its agent will find it. Nothing when the Chat has no folder: its message then goes
-	 * as it is.
+	 * with the drama's folder there as its agent will find it.
 	 */
 	private async sendTask(key: string, env: PineConnection, epoch: number, session: PineSession, task: string, signal?: AbortSignal): Promise<void> {
 		signal?.throwIfAborted();
 		const root = this.projectRoot(key);
-		if (!this.options.protocol || !root) {
-			return;
-		}
 		mkdirSync(root, { recursive: true });
 		const record = this.turnRecord(root);
 		// One turn at a time per session: the next is sent only once the last one is settled, so it starts from that
@@ -1587,7 +1567,7 @@ export class ChatService {
 
 	/** The Studio's record of the project's turns at `root`, under the extension's storage (turn.ts, TurnRecord). */
 	private turnRecord(root: string): TurnRecord {
-		return turnRecordOf(this.options.protocol!.storage, root);
+		return turnRecordOf(this.options.protocol.storage, root);
 	}
 
 
@@ -1614,7 +1594,7 @@ export class ChatService {
 	private owedTurns(key: string): { readonly sent: SentTurn; readonly pineTurn: string }[] {
 		const root = this.projectRoot(key);
 		const conv = this.store.chat(key);
-		return (this.options.protocol && root ? this.turnRecord(root).unsettled(key) : []).flatMap(sent => {
+		return this.turnRecord(root).unsettled(key).flatMap(sent => {
 			const op = this.store.savedSend(sent.turn);
 			if (!op?.turn_id || op.state === 'failed') { return []; }
 			if (conv && conv.pine_session_state !== 'ended' && conv.state === 'running' && conv.current_turn_id === op.turn_id) { return []; }
@@ -1632,7 +1612,7 @@ export class ChatService {
 			? { kind: 'markdown', text: `${update.text}\n\n_Your next message answers it._` } : update);
 		const root = this.projectRoot(key);
 		const owed = this.owedTurns(key);
-		if (!root || owed.length === 0) {
+		if (owed.length === 0) {
 			yield* finalWords();
 			return;
 		}

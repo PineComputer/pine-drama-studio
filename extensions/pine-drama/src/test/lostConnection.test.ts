@@ -7,17 +7,17 @@
 import { strict as assert } from 'node:assert';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { ChatService, type Update } from '../core/chats';
 import { ConnectionLostError, MissingError, type PineConnection } from '../core/pinePort';
 import { Store } from '../core/store';
 import { SdkPort } from '../sdkPort';
 import { FakePine, MemoryVault } from './fakePine';
+import { folderOf, testService } from './protocolFixture';
 
 const ENV: PineConnection = { endpoint: 'http://lvh.me:18080', apiKey: 'pk_test_secret', controlHost: 'api.lvh.me:18080' };
 const KEY = 'pine-computer:/lost-connection';
-const FOLDER = '/Users/x/Pine Drama Studio/Bone Veil';
 
 function setup(options: { reconnectLimitMs?: number } = {}) {
 	const path = join(mkdtempSync(join(tmpdir(), 'pine-lost-')), 'studio.sqlite');
@@ -26,7 +26,7 @@ function setup(options: { reconnectLimitMs?: number } = {}) {
 	const logs: string[] = [];
 	const window = () => {
 		const store = new Store(path);
-		const service = new ChatService({
+		const service = testService(dirname(path), {
 			holdsProject: () => true, turnEndGraceMs: 0, store, port: pine, vault, pine: ENV, log: line => logs.push(line),
 			reconnectWaitsMs: [0, 20], ...options,
 		});
@@ -57,7 +57,7 @@ async function drain(updates: AsyncGenerator<Update>, said: Update[] = []): Prom
 
 /** A turn that runs, followed by the reply of the message that started it. */
 async function running(service: ChatService, store: Store): Promise<AsyncGenerator<Update>> {
-	const reply = service.submit(KEY, 'make the drama', 'make the drama', [], FOLDER);
+	const reply = service.submit(KEY, 'make the drama', 'make the drama', [], folderOf(service));
 	const end = Date.now() + 10_000;
 	while (store.chat(KEY)?.state !== 'running') {
 		assert.ok(Date.now() < end, 'the turn runs');
@@ -116,7 +116,7 @@ test('a message queued behind a turn whose follow gave up is given back, never s
 	const { store, service } = window();
 	pine.plans = [{ state: 'running' }];
 	const reply = await running(service, store);
-	const queued = drain(service.submit(KEY, 'and the poster', 'and the poster', [], FOLDER));
+	const queued = drain(service.submit(KEY, 'and the poster', 'and the poster', [], folderOf(service)));
 	pine.offline = true;
 	await drain(reply);
 	// The follow of the turn the message waits for gives up with the turn still running: nothing is sent over it.
@@ -166,7 +166,7 @@ test('a message is never queued behind a turn whose Computer is gone: it goes to
 	const reply = await running(service, store);
 	await reply.return(undefined);
 	pine.stop(`cred:${store.chat(KEY)!.computer_id}`);
-	const said = await drain(service.submit(KEY, 'and the poster', 'and the poster', [], FOLDER));
+	const said = await drain(service.submit(KEY, 'and the poster', 'and the poster', [], folderOf(service)));
 	assert.doesNotMatch(text(said), /still running this turn/, text(said));
 	assert.equal(store.db.prepare("select count(*) n from saved_sends where text like 'and the poster%' and state = 'sent'").get()!.n, 1, text(said));
 });

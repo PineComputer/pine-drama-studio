@@ -6,6 +6,7 @@ import { test } from 'node:test';
 import { ChatService, type Update } from '../core/chats';
 import { Store } from '../core/store';
 import { FakePine, MemoryVault } from './fakePine';
+import { testProtocol } from './protocolFixture';
 
 const env = { endpoint: 'https://offline.invalid', apiKey: 'offline' };
 async function drain(updates: AsyncGenerator<Update>): Promise<string> {
@@ -21,7 +22,7 @@ function fixture() {
 	const store = new Store(join(dir, 'studio.sqlite'));
 	const pine = new FakePine(); pine.plans = [{ state: 'completed', files: {} }, { state: 'completed', files: {} }];
 	const options = { holdsProject: () => true, store, port: pine, vault: new MemoryVault(), pine: env,
-		files: { projectsRoot: join(dir, 'projects') } };
+		files: { projectsRoot: join(dir, 'projects') }, protocol: testProtocol(dir) };
 	return { dir, root, store, pine, options, service: new ChatService(options) };
 }
 

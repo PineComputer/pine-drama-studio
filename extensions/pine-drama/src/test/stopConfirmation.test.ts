@@ -4,9 +4,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { SdkPort } from '../sdkPort';
-import { ChatService } from '../core/chats';
 import { Store } from '../core/store';
 import { FakePine, MemoryVault } from './fakePine';
+import { folderOf, testService } from './protocolFixture';
 
 const env = { endpoint: 'https://offline.invalid', apiKey: 'offline' };
 const key = 'pine-computer:/stop-confirmation';
@@ -24,12 +24,13 @@ for (const outcome of [false, true, new Error('offline stop timeout')]) {
 }
 
 test('an unconfirmed SDK Stop keeps the existing session and Computer active (developer Stop All, D44)', async () => {
-	const store = new Store(join(mkdtempSync(join(tmpdir(), 'pine-stop-confirmation-')), 'studio.sqlite'));
+	const dir = mkdtempSync(join(tmpdir(), 'pine-stop-confirmation-'));
+	const store = new Store(join(dir, 'studio.sqlite'));
 	const pine = new FakePine();
 	const logs: string[] = [];
-	const service = new ChatService({ holdsProject: () => true, store, port: pine, vault: new MemoryVault(), pine: env, log: s => logs.push(s) });
+	const service = testService(dir, { holdsProject: () => true, store, port: pine, vault: new MemoryVault(), pine: env, log: s => logs.push(s) });
 	try {
-		for await (const _ of service.submit(key, 'offline fixture', 'offline fixture', [])) { /* drain */ }
+		for await (const _ of service.submit(key, 'offline fixture', 'offline fixture', [], folderOf(service))) { /* drain */ }
 		const before = store.chat(key)!;
 		const sdk = new SdkPort();
 		sdk['computer'] = async () => ({ stop: async () => false }) as never;
@@ -45,11 +46,12 @@ test('an unconfirmed SDK Stop keeps the existing session and Computer active (de
 });
 
 test('restarting a lost session cannot create a successor while its Computer Stop is unconfirmed', async () => {
-	const store = new Store(join(mkdtempSync(join(tmpdir(), 'pine-stop-restart-')), 'studio.sqlite'));
+	const dir = mkdtempSync(join(tmpdir(), 'pine-stop-restart-'));
+	const store = new Store(join(dir, 'studio.sqlite'));
 	const pine = new FakePine();
-	const service = new ChatService({ holdsProject: () => true, store, port: pine, vault: new MemoryVault(), pine: env });
+	const service = testService(dir, { holdsProject: () => true, store, port: pine, vault: new MemoryVault(), pine: env });
 	try {
-		for await (const _ of service.submit(key, 'offline fixture', 'offline fixture', [])) { /* drain */ }
+		for await (const _ of service.submit(key, 'offline fixture', 'offline fixture', [], folderOf(service))) { /* drain */ }
 		store.updateChat(key, { pine_session_state: 'ended' }); // independently confirmed session loss
 		const creates = pine.calls.createSession;
 		const confirmedStop = pine.stopComputer.bind(pine);
@@ -57,13 +59,13 @@ test('restarting a lost session cannot create a successor while its Computer Sto
 		sdk['computer'] = async () => ({ stop: async () => false }) as never;
 		pine.stopComputer = (connection, credentials) => sdk.stopComputer(connection, credentials, 'offline');
 		const updates = [];
-		for await (const update of service.submit(key, 'again', 'again', [])) { updates.push(update); }
+		for await (const update of service.submit(key, 'again', 'again', [], folderOf(service))) { updates.push(update); }
 		assert.equal(pine.calls.createSession, creates);
 		assert.equal(store.chat(key)!.pine_session_state, 'ended');
 		assert.equal(store.chat(key)!.computer_state, 'creating', 'unconfirmed restart keeps serial admission reserved');
 		assert.ok(updates.some(update => update.text.includes('not confirmed')));
 		pine.stopComputer = confirmedStop;
-		for await (const _ of service.submit(key, 'again', 'again', [])) { /* the person's send again, after a confirmed Stop */ }
+		for await (const _ of service.submit(key, 'again', 'again', [], folderOf(service))) { /* the person's send again, after a confirmed Stop */ }
 		assert.equal(pine.calls.createSession, creates + 1);
 		assert.equal(store.chat(key)!.pine_session_state, 'open');
 	} finally { store.close(); }

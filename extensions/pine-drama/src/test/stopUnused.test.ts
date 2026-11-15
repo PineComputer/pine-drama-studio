@@ -1,12 +1,13 @@
 import { strict as assert } from 'node:assert';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { ChatService, stopAllSummary, type Update } from '../core/chats';
 import type { PineConnection } from '../core/pinePort';
 import { Store } from '../core/store';
 import { FakePine, MemoryVault } from './fakePine';
+import { folderOf, testService } from './protocolFixture';
 
 // Explicit developer shutdown and a lost remote session can stop a Computer.
 // Native archive is tested at the provider boundary; it never calls this shutdown path. On pine-dev on 2026-11-03 six sessions no one used held
@@ -22,7 +23,7 @@ function setup() {
 	const vault = new MemoryVault();
 	const window = (pineEnv: PineConnection = ENV) => {
 		const store = new Store(path);
-		return { store, service: new ChatService({ holdsProject: () => true, turnEndGraceMs: 0, store, port: pine, vault, pine: pineEnv }) };
+		return { store, service: testService(dirname(path), { holdsProject: () => true, turnEndGraceMs: 0, store, port: pine, vault, pine: pineEnv }) };
 	};
 	return { pine, window };
 }
@@ -34,7 +35,7 @@ async function drain(updates: AsyncGenerator<Update>): Promise<Update[]> {
 	}
 	return out;
 }
-const send = (service: ChatService, text: string, key = KEY) => drain(service.submit(key, text, text, []));
+const send = (service: ChatService, text: string, key = KEY) => drain(service.submit(key, text, text, [], folderOf(service)));
 const markdown = (updates: Update[]) => updates.filter(u => u.kind !== 'progress').map(u => u.text).join('\n');
 const computerOf = (pine: FakePine, store: Store, key: string) => pine.computers.get(store.chat(key)!.computer_id!)!;
 const notices = (store: Store, key: string) => store.messages(key).filter(m => m.kind === 'notice').map(m => m.text);
@@ -100,7 +101,10 @@ test('Stop All stops every running Computer of this connection, a working one to
 	await send(service, 'one');
 	pine.plans = [{ state: 'running' }];
 	const reply = send(service, 'draw', OTHER);
-	await new Promise(resolve => setTimeout(resolve, 100));
+	// Stop All comes once OTHER's turn runs: its project is on the Computer and Pine admitted the turn.
+	for (const end = Date.now() + 10_000; store.chat(OTHER)?.state !== 'running'; await new Promise(resolve => setTimeout(resolve, 5))) {
+		assert.ok(Date.now() < end, 'the turn runs');
+	}
 	// A whole-Computer stop can interrupt running work; it never calls agent.cancel.
 	assert.deepEqual((await service.stopAll()).map(a => a.outcome).sort(), ['confirmed', 'confirmed']);
 	assert.equal(computerOf(pine, store, KEY).state, 'stopped');

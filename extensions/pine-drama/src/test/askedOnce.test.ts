@@ -8,6 +8,7 @@ import { ChatService, type Update } from '../core/chats';
 import type { PineConnection } from '../core/pinePort';
 import { Store } from '../core/store';
 import { FakePine, MemoryVault } from './fakePine';
+import { folderOf, testService } from './protocolFixture';
 
 // When the agent stops to ask, Pine's result summary and its question are often the same text. The person reads it once.
 
@@ -18,12 +19,12 @@ const QUESTION = 'Before I start: 1. Which preset? 2. Which language?';
 function setup() {
 	const dir = mkdtempSync(join(tmpdir(), 'pine-asked-'));
 	const pine = new FakePine();
-	const service = new ChatService({ holdsProject: () => true, turnEndGraceMs: 0, store: new Store(join(dir, 'studio.sqlite')), port: pine, vault: new MemoryVault(), pine: ENV });
+	const service = testService(dir, { holdsProject: () => true, turnEndGraceMs: 0, store: new Store(join(dir, 'studio.sqlite')), port: pine, vault: new MemoryVault(), pine: ENV });
 	return { pine, service };
 }
 async function send(service: ChatService, text = 'go'): Promise<string> {
 	const out: Update[] = [];
-	for await (const update of service.submit(KEY, text, text, [])) {
+	for await (const update of service.submit(KEY, text, text, [], folderOf(service))) {
 		out.push(update);
 	}
 	return out.filter(u => u.kind === 'markdown').map(u => u.text).join('\n');

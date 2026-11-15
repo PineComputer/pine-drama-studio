@@ -3,7 +3,10 @@ import { test } from 'node:test';
 import { connectKey, connectionFailure, connectionScope, developerConnectionFile, disconnectProblem, keyProblem, PINE_KEY_SECRET, PRODUCTION_ENDPOINT, savedConnection } from '../core/pineConnection';
 import { notSetUpText, sendGate } from '../pineConfig';
 import { MemoryVault, FakePine } from './fakePine';
-import { ChatService } from '../core/chats';
+import { folderOf, testService } from './protocolFixture';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { Store } from '../core/store';
 import { refusalOf } from '../core/refusal';
 
@@ -75,9 +78,9 @@ test('credential changes block new Computer admissions without discarding saved 
 	const store = new Store(':memory:');
 	const pine = new FakePine();
 	let current = true;
-	const service = new ChatService({ holdsProject: () => true, turnEndGraceMs: 0, store, port: pine, vault: new MemoryVault(), pine: savedConnection(KEY), connectionCurrent: () => current });
+	const service = testService(mkdtempSync(join(tmpdir(), 'pine-connection-')), { holdsProject: () => true, turnEndGraceMs: 0, store, port: pine, vault: new MemoryVault(), pine: savedConnection(KEY), connectionCurrent: () => current });
 	current = false;
-	await assert.rejects(async () => { for await (const update of service.submit('pine-computer:/fixture', 'make a drama', 'fixture', [])) { void update; } }, /connection changed/);
+	await assert.rejects(async () => { for await (const update of service.submit('pine-computer:/fixture', 'make a drama', 'fixture', [], folderOf(service))) { void update; } }, /connection changed/);
 	assert.equal(service.chats().length, 0);
 	store.close();
 });
@@ -93,10 +96,10 @@ test('credential invalidation keeps admitted turns followable and blocks a new s
 	const store = new Store(':memory:');
 	const pine = new FakePine();
 	let current = true;
-	const service = new ChatService({ holdsProject: () => true, turnEndGraceMs: 0, store, port: pine, vault: new MemoryVault(), pine: savedConnection(KEY), connectionCurrent: () => current });
+	const service = testService(mkdtempSync(join(tmpdir(), 'pine-connection-')), { holdsProject: () => true, turnEndGraceMs: 0, store, port: pine, vault: new MemoryVault(), pine: savedConnection(KEY), connectionCurrent: () => current });
 	pine.plans = [{ state: 'running' }];
 	const id = 'pine-computer:/admitted';
-	const run = service.submit(id, 'make the drama', 'fixture', []);
+	const run = service.submit(id, 'make the drama', 'fixture', [], folderOf(service));
 	while (store.chat(id)?.state !== 'running') { await run.next(); }
 	await run.return(undefined);
 	current = false;
@@ -104,15 +107,15 @@ test('credential invalidation keeps admitted turns followable and blocks a new s
 	for await (const update of service.attachChatToPineTurn(id)) { void update; }
 	assert.equal(store.chat(id)!.state, 'idle');
 	assert.equal(pine.calls.run, 1);
-	// A send whose first attempt finds the session gone (its run) starts the agent again; the connection changed
-	// meanwhile, so the restart gives the message back and no successor starts.
+	// A send whose first attempt finds the session gone (the put of its files, its first call) starts the agent again;
+	// the connection changed meanwhile, so the restart gives the message back and no successor starts.
 	current = true;
 	pine.computers.get(store.chat(id)!.computer_id!)!.sessions.clear();
-	const firstRun = pine.run.bind(pine);
-	pine.run = async (...args) => { current = false; return firstRun(...args); };
+	const firstExec = pine.exec.bind(pine);
+	pine.exec = async (...args) => { current = false; return firstExec(...args); };
 	const creates = pine.calls.createSession;
 	const said: string[] = [];
-	for await (const update of service.submit(id, 'again', 'again', [])) { said.push(update.text); }
+	for await (const update of service.submit(id, 'again', 'again', [], folderOf(service))) { said.push(update.text); }
 	assert.match(said.join('\n'), /could not be started again: The Pine connection changed/);
 	assert.equal(pine.calls.createSession, creates, 'no successor on a changed connection');
 	store.close();

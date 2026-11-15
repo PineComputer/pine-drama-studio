@@ -11,6 +11,7 @@ import { ChatService, type Update } from '../core/chats';
 import type { PineConnection } from '../core/pinePort';
 import { Store } from '../core/store';
 import { FakePine, MemoryVault, type TurnPlan } from './fakePine';
+import { testProtocol } from './protocolFixture';
 
 const ENV: PineConnection = { endpoint: 'http://lvh.me:18080', apiKey: 'pk_test_secret', controlHost: 'api.lvh.me:18080' };
 const KEY = 'pine-computer:/local-1';
@@ -23,7 +24,7 @@ function setup() {
 	const store = new Store(join(dir, 'studio.sqlite'));
 	const service = new ChatService({ holdsProject: () => true,
 		turnEndGraceMs: 0, store, port: pine, vault: new MemoryVault(), pine: ENV, log: () => undefined,
-		files: { projectsRoot: join(dir, 'projects') },
+		files: { projectsRoot: join(dir, 'projects') }, protocol: testProtocol(dir),
 	});
 	const folder = (name: string) => { const f = join(dir, name); mkdirSync(f, { recursive: true }); return f; };
 	return { dir, pine, store, service, folder };
@@ -78,7 +79,7 @@ test('the first message binds the session to the window\'s folder and says once 
 	assert.match(first, /This project's root is `.*Night Ward`/);
 	assert.doesNotMatch(await send(service, 'go on', night), /arrive in/, 'said once');
 	assert.equal(pine.calls.run, 2);
-	assert.deepEqual(readdirSync(night), [], 'binding writes no project files');
+	assert.deepEqual(readdirSync(night), ['.git'], 'binding writes no project files: only the history its turns land in (doc/protocol.md 4)');
 });
 
 test('a new Chat in a project joins it as a session (D48)', async () => {
