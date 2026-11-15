@@ -53,6 +53,9 @@ To build it yourself instead, see [Build from source](#build-from-source).
 4. Talk to the agent in the Chat. Each paid step starts only after you say go there, and its results appear on the
    canvas.
 
+More: the [quick start](doc/quick-start.md) for making a drama, and the [architecture](doc/architecture.md) for
+developers.
+
 ## Build from source
 
 Requirements: macOS, git, Node.js (the version in Code-OSS's `.nvmrc`) and the Code-OSS build prerequisites
