@@ -6,7 +6,6 @@ import { Latest } from './core/latest';
 import { PROJECT_VIEW_ID, startOnProduction } from './productionStart';
 import { ProjectFinder, PROJECT_FILES } from './core/projectFinder';
 import { PROJECT_MARKER_FILE } from './core/protocol';
-import { major1ConversionPending } from './core/convertMajor1ProjectToMajor2';
 import { DramaProject, NOTE_ATTACH, NOTE_INTAKE, readProjectMajor, type OutlineNode, type ProjectReadModel, type Role } from './core/project';
 import { listHistoryOfShownFile, type ShownFileHistoryEntry } from './core/projectHistory';
 import { holdsNoProject } from './core/binding';
@@ -418,11 +417,10 @@ export async function registerProjectViews(context: vscode.ExtensionContext, out
 	);
 	/** The window's project: the first one found, kept for the window, because the pages opened from it read its files. */
 	let first: ProjectViews | undefined;
-	// The window's one folder is a drama of major 1, or one whose conversion was cut off: the Project view offers its
-	// conversion (package.json, viewsWelcome).
+	// The window's one folder is a drama of major 1: the Project view offers its conversion (package.json, viewsWelcome).
 	const showMajor1Project = (noProject: boolean) => {
 		const folders = (vscode.workspace.workspaceFolders ?? []).filter(folder => folder.uri.scheme === 'file').map(folder => folder.uri.fsPath);
-		const major1 = noProject && folders.length === 1 && (readProjectMajor(folders[0]) === 1 || major1ConversionPending(context.globalStorageUri.fsPath, folders[0]));
+		const major1 = noProject && folders.length === 1 && readProjectMajor(folders[0]) === 1;
 		return vscode.commands.executeCommand('setContext', 'pineDrama.projectOfMajor1', major1);
 	};
 	const finder = new ProjectFinder(

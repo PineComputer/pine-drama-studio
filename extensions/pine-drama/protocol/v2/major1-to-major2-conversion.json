@@ -4,7 +4,6 @@
   "version_folders": {
     "a_version_folder_is": "a folder holding records_in_a_version_folder.version_record whose name matches one of version_folder_name_patterns",
     "its_object_is": "the folder that holds it ({object})",
-    "applied_in_order": "one global order across all objects: by version.json made_at, then object id, then version id. Each version that changes a file makes one commit, authored client-found-changes-on-disk; a version that changes nothing (its files equal what is already there) makes no commit, and its bytes are already in history. So history reads as it happened, and every input a receipt names is already at its major-2 path.",
     "version_folder_name_patterns": [
       "^v\\d+$",
       "^t\\d{2,}$"
@@ -121,7 +120,6 @@
   "every_other_version": {
     "operation": "copy_outputs_into_object_folder",
     "copies": "each file records_in_a_version_folder.outputs_and_metadata lists under outputs, at {object}/{file}, except what skip_folders_in_version and skip_files_in_version name; input/ is copied, which keeps bible/input/brief.md and bible/input/screenplay.md",
-    "a_file_dropped_by_a_later_version": "is deleted in that version's commit, with its receipt, when the later version no longer lists it",
     "also_copies": {
       "episodes/*/edit": [
         "technical-check.json"
@@ -154,7 +152,7 @@
   },
   "receipt_rule": {
     "when": "the version folder holds records_in_a_version_folder.paid_call",
-    "beside": "each file the version copies (outputs), as <file>.receipt.json, in the same commit",
+    "beside": "each file the current version copies (outputs), as <file>.receipt.json",
     "fields": {
       "paid_call_id": "job.json attempt_id",
       "finished_at": "version.json made_at",
@@ -166,11 +164,10 @@
   "not_version_folders": {
     "config/<v>/drama-cli.cfg.yaml": "the newest is written to drama-cli.cfg.yaml at the root",
     "inputs/": "kept as it is",
-    "imports/": "dropped (in history)",
-    "turns/": "dropped (in history); read first for the snapshots above",
-    "understanding/": "dropped (in history)",
-    "reviews/ in any version folder": "dropped (in history)",
-    "choices.json": "dropped (in history); read first for current, discarded and the person's pending text",
+    "imports/": "dropped (kept in the backup)",
+    "turns/": "dropped (kept in the backup); read first for the snapshots above",
+    "reviews/ in any version folder": "dropped (kept in the backup)",
+    "choices.json": "dropped (kept in the backup); read first for current, discarded and the person's pending text",
     "newest_version_to_root": {
       "folder": "config",
       "file": "drama-cli.cfg.yaml",
@@ -182,12 +179,16 @@
     "dropped": [
       "imports",
       "turns",
-      "understanding",
       "choices.json"
-    ]
+    ],
+    "dropped_wherever_they_are": [
+      "understanding",
+      "asset-library"
+    ],
+    "dropped_wherever_they_are_note": "folders of these names, at any depth (the root, an episode, a variant): drama-cli's own records of major 1, its understand calls and its asset-library uploads; drama-cli of major 2 keeps such records in pine-computer-records/ and reads none of these (kept in the backup)"
   },
   "current": {
-    "rule": "after every version's commit, a last commit sets each kept object's files to the files of its major-1 current version (major 1's 3.2: the chosen version, else the newest not discarded) and writes every object.json (see object_json)",
+    "rule": "each kept object's files are the files of its major-1 current version (major 1's 3.2: the chosen version, else the newest not discarded), and every object.json is written (see object_json); earlier versions are kept in the backup only, and the converted folder is recorded as one commit, authored client-found-changes-on-disk",
     "removed_objects": "an object choices.json marks removed is deleted, with every variant under it",
     "pending_text": "choices.json prompt and description fields become {object}/prompt.md and {object}/description.md"
   },
@@ -197,17 +198,17 @@
       "when the folder has no turns/: the major-1 client's own records of that drama (for Pine Drama Studio, returns/<task>.json in its storage), the same installed snapshots"
     ],
     "when_neither_exists": "the conversion refuses, changes nothing, and asks the person to open the project once in the previous client (major 1), which writes turns/, with a link to its download",
-    "an_object_is_kept_when": "the latest installed snapshot of its scope lists it (the Project Chat's for shared objects and episode objects, a snapshot listing its episode for an episode's objects), as major 1's 5.3 has it; an object it no longer lists is deleted in the last commit"
+    "an_object_is_kept_when": "the latest installed snapshot of its scope lists it (the Project Chat's for shared objects and episode objects, a snapshot listing its episode for an episode's objects), as major 1's 5.3 has it; an object it no longer lists is deleted"
   },
   "object_json": {
     "written_for": "every object the kept snapshots list, every asset or variant with an entry stage, and every folder that pictures_that_become_objects names",
     "one_source_per_field": {
       "type, name, setting, variant_of, relations": "from the object's current entry version when it has an entry stage (record_stages /entry), otherwise from the latest snapshot that lists it (type, name, segment; relations from its edges inside_of and appears_in; a needs edge is dropped, since nothing in major 2 writes or reads it; variant_of from its edge variant_of)",
       "segment": "from that snapshot",
-      "shown_file": "the version.json file of the version the commit describes: each version's own in its commit, the current version's in the last commit",
-      "objects_sent_by_draw_request": "for the version the commit describes: that version's version.json inputs, in order, keeping only inputs whose version has a shown file (the pictures the draw sent), each mapped to its object id; for a planned object with no version: the inputs of the latest snapshot that lists it, in order. Absent when the list would be empty."
+      "shown_file": "the version.json file of the object's current version",
+      "objects_sent_by_draw_request": "the current version's version.json inputs, in order, keeping only inputs whose version has a shown file (the pictures the draw sent), each mapped to its object id; for a planned object with no version: the inputs of the latest snapshot that lists it, in order. Absent when the list would be empty."
     },
-    "written_in": "each version's commit, describing that version, so history says which file each past result showed; and the last commit (current), describing the current version, and every object no version's commit described. Every field but shown_file and objects_sent_by_draw_request has one value in all of them, so no commit order decides it"
+    "written_in": "describing each object's current version, and every object without one"
   },
   "pictures_that_become_objects": {
     "assets/characters/*/looks/face": {

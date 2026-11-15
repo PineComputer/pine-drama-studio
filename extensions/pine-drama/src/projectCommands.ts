@@ -70,7 +70,7 @@ export function registerProjectCommands(context: vscode.ExtensionContext, output
 		const today = new Date().toISOString().slice(0, 10);
 		const go = 'Back Up and Convert';
 		const asked = await vscode.window.showWarningMessage(`${basename(root)} was made by Pine Drama Studio ${LAST_MAJOR_1_STUDIO.version} or earlier. To open it here, the Studio converts it to its own format.`,
-			{ modal: true, detail: `First the folder is copied beside itself as ${basename(root)}.backup-${today}, which Studio ${LAST_MAJOR_1_STUDIO.version} still opens. Then every version is kept in the project's history, and each card shows the version it showed before. This can take a few minutes for a large project.` }, go);
+			{ modal: true, detail: `First the folder is copied beside itself as ${basename(root)}.backup-${today}, which Studio ${LAST_MAJOR_1_STUDIO.version} still opens. Then each card keeps the version it showed before; the earlier versions stay in the backup.` }, go);
 		if (asked !== go) { return; }
 		try {
 			const backup = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: `Converting ${basename(root)}…` },

@@ -46,7 +46,7 @@ const writeQueues = new Map<string, Promise<unknown>>();
 /**
  * Runs `write` after the project's earlier writes and before its later ones: the one queue every write to the project
  * folder goes through, the person's and the agent's (doc/protocol.md 4.4), so two never write at once. A write that
- * makes several commits (a conversion) runs as one `write` and calls commitPathsToHistory inside it.
+ * commits (a conversion) runs as one `write` and calls commitPathsToHistory inside it.
  */
 export function runInProjectWriteQueue<T>(projectRoot: string, write: () => Promise<T>): Promise<T> {
 	// By the project's canonical path, so a link to the folder joins the same queue.
@@ -127,7 +127,7 @@ export interface HistoryEntry {
 /**
  * The history of `path`, a file or a folder, newest first: every commit of HEAD's history that changed a file there
  * (git log -- <path>), each with the files it changed there and their blobs, from git's raw diff output (git log --raw),
- * which reads no file's bytes. The one history lister: an object's shown file and a conversion's check read it.
+ * which reads no file's bytes. The one history lister: an object's shown file reads it.
  */
 export async function listHistory(projectRoot: string, path: string): Promise<HistoryEntry[]> {
 	if (!existsSync(join(projectRoot, '.git')) || !await hasHead(projectRoot)) { return []; }

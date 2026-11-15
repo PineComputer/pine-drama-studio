@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
-import { convertMajor1ProjectToMajor2, LAST_MAJOR_1_STUDIO, major1ConversionPending } from '../core/convertMajor1ProjectToMajor2';
+import { convertMajor1ProjectToMajor2, LAST_MAJOR_1_STUDIO } from '../core/convertMajor1ProjectToMajor2';
 import { RefusedWithUpgradeInstructions } from '../core/protocol';
 import { git } from '../core/git';
 import { readProjectMajor } from '../core/project';
@@ -103,7 +103,7 @@ const out = async (dir: string, ...args: string[]) => {
 	return result.stdout.trim();
 };
 
-test('a major-1 project becomes major 2 by the table: backed up, one commit per version, each object at its major-1 current, the marker last', async () => {
+test('a major-1 project becomes major 2 by the table: backed up, each object at its major-1 current, and one commit', async () => {
 	const { root, storage } = majorOneProject();
 	const backup = await convertMajor1ProjectToMajor2(root, storage, '2026-11-14');
 
@@ -116,7 +116,7 @@ test('a major-1 project becomes major 2 by the table: backed up, one commit per 
 	assert.equal(read(root, 'inputs/screenplay.fountain'), 'INT. ROOM - DAY\n', 'inputs/ is kept as it is');
 	assert.equal(read(root, `${OLD_BIBLE}/bible.md`), 'edited by hand', 'a file edited by hand after it was made is carried as the person left it');
 	assert.ok(!existsSync(join(root, 'episodes/EP001/keyframe/seg01/shot02/image-1.jpg')), 'a picture the person renamed is not there to copy');
-	assert.equal(await out(root, 'show', `${await out(root, 'rev-list', '--max-parents=0', 'HEAD')}:episodes/EP001/keyframe/seg01/shot02/v1/shot two.jpg`), 'shot two', 'its new name stays in the commit of the folder as found');
+	assert.equal(read(backup, 'episodes/EP001/keyframe/seg01/shot02/v1/shot two.jpg'), 'shot two', 'its new name stays in the backup');
 	assert.equal(read(root, 'drama-cli.cfg.yaml'), 'budget_usd: null\n', 'the newest config at the root');
 
 	// Ann is at v1 (v2 was discarded): its file, its receipt, and v2's file gone.
@@ -145,22 +145,38 @@ test('a major-1 project becomes major 2 by the table: backed up, one commit per 
 	assert.equal(readJson(root, `${SHOT}/object.json`).shown_file, 'image-1.jpg');
 	assert.deepEqual(readJson(root, `${SHOT}/object.json`).objects_sent_by_draw_request, [ANN], 'the pictures its draw sent');
 	assert.deepEqual(readJson(root, 'episodes/EP002/keyframe/seg01/shot01/object.json').objects_sent_by_draw_request, [ANN, CUP], "a planned card's snapshot inputs");
-	// Removed by the person, and no longer listed by a later snapshot of its scope: deleted, and still in history.
+	// Removed by the person, and no longer listed by a later snapshot of its scope: deleted, and kept in the backup.
 	assert.ok(!existsSync(join(root, CUP)) && !existsSync(join(root, OLD)));
-	assert.equal(await out(root, 'show', `HEAD~2:${CUP}/image-1.jpg`), 'cup');
+	assert.equal(read(backup, `${CUP}/v1/image-1.jpg`), 'cup');
 
-	// History: the folder as found, then one commit per version in made_at order, then the last commit.
-	const subjects = (await out(root, 'log', '--reverse', '--format=%an|%s')).split('\n');
-	assert.equal(subjects[0], 'client-found-changes-on-disk|The major-1 project as found, before its conversion to major 2');
-	assert.deepEqual(subjects.slice(-2), ['client-found-changes-on-disk|Each object set to its major-1 current; the major-1 folders removed', 'client-found-changes-on-disk|A Pine Drama project of major 2']);
-	assert.deepEqual(subjects.filter(s => /^client-found-changes-on-disk\|Major-1 assets\/characters\/ann\/v\d+, converted$/.test(s)), [`client-found-changes-on-disk|Major-1 ${ANN}/v1, converted`, `client-found-changes-on-disk|Major-1 ${ANN}/v2, converted`]);
-	assert.equal(await out(root, 'show', `HEAD~2:${ANN}/image-1.png`), 'ann two', "v2's picture is in history");
-	// History describes itself: each version's commit names that version's shown file, so a past result is found by it.
-	const described = await Promise.all((await out(root, 'log', '--reverse', '--format=%H', '--', `${ANN}/object.json`)).split('\n')
-		.map(async commit => JSON.parse(await out(root, 'show', `${commit}:${ANN}/object.json`)).shown_file));
-	assert.deepEqual(described, ['image-1.jpg', 'image-1.png', 'image-1.jpg'], 'v1, then v2, then the current v1');
-	assert.deepEqual((await listHistoryOfShownFile(root, ANN)).map(r => [r.file, r.shown]), [[`${ANN}/image-1.png`, false], [`${ANN}/image-1.jpg`, true]],
-		"the strip offers v2 under its own name, and shows v1, once");
+	// History: one commit of the converted folder; earlier versions are in the backup only.
+	assert.deepEqual((await out(root, 'log', '--format=%an|%s')).split('\n'), ['client-found-changes-on-disk|Converted from major 1']);
+	assert.equal(await out(root, 'status', '--porcelain'), '', 'the commit holds the folder as converted');
+	assert.equal(read(backup, `${ANN}/v2/image-1.png`), 'ann two', "v2's picture is in the backup");
+	assert.deepEqual((await listHistoryOfShownFile(root, ANN)).map(r => [r.file, r.shown]), [[`${ANN}/image-1.jpg`, true]], 'the strip offers the current result only');
+});
+
+test("drama-cli's major-1 records go wherever they are, and a folder that already was a repository ends clean", async () => {
+	const { root, storage } = majorOneProject();
+	write(root, 'episodes/EP001/understanding/image-keyframe-1/job.json', { attempt_id: 'u2', state: 'downloaded' });
+	write(root, 'episodes/EP001/asset-library/a1/asset.json', { id: 'asset-1' });
+	write(root, `${RAIN}/understanding/image-variant-1/reply.json`, {});
+	await out(root, 'init', '-q');
+	await out(root, '-c', 'user.name=person', '-c', 'user.email=person@localhost', 'add', '-A');
+	await out(root, '-c', 'user.name=person', '-c', 'user.email=person@localhost', 'commit', '-q', '-m', 'the person\'s own');
+	const backup = await convertMajor1ProjectToMajor2(root, storage, '2026-11-14');
+	for (const gone of ['understanding', 'episodes/EP001/understanding', 'episodes/EP001/asset-library', `${RAIN}/understanding`]) {
+		assert.ok(!existsSync(join(root, gone)) && existsSync(join(backup, gone)), `${gone} is gone, and in the backup`);
+	}
+	assert.equal(await out(root, 'status', '--porcelain'), '', 'what the conversion removed is committed removed');
+	assert.equal(await out(root, 'ls-tree', '--name-only', 'HEAD', '--', 'choices.json', 'turns'), '');
+});
+
+test("a description's receipt is the describe call its entry names, though a later describe was made", async () => {
+	const { root, storage } = majorOneProject();
+	version(root, `${ANN}/describe`, 'v2', '2026-11-01T08:30:00Z', {}, { job: true, shown: null });
+	await convertMajor1ProjectToMajor2(root, storage, '2026-11-14');
+	assert.equal(readJson(root, `${ANN}/description.md.receipt.json`).paid_call_id, 'att-describe-v1');
 });
 
 test('a major-1 turn still owed a return refuses the conversion, naming the Studio to finish it in; nothing is changed', async () => {
@@ -190,55 +206,27 @@ test('a paid call not settled refuses the conversion, naming its objects and the
 	assert.ok(!existsSync(`${root}.backup-2026-11-14`) && !existsSync(join(root, '.git')) && readProjectMajor(root) === 1);
 });
 
-test('a conversion cut off at any step refuses on resume while a paid call is not settled; nothing more is changed', async () => {
-	for (const step of ['writing turns', 'backing up', 'converting versions', 'removing major-1 folders']) {
-		const { root, storage } = majorOneProject();
-		// Cut off at `step`, as its journal then reads; a take is then sent from the last major-1 Studio, still running.
-		write(dramaRecordOf(storage, root).dir, 'major1-conversion.json', { step, backup: `${root}.backup-2026-11-14`, inventory: {}, done: 0, removed: [] });
-		version(root, 'episodes/EP001/segments/seg01', 't01', '2026-11-02T10:00:00Z', { 'take.mp4': 'take' }, { job: 'running' });
-		await assert.rejects(convertMajor1ProjectToMajor2(root, storage, '2026-11-15'), (error: unknown) => error instanceof RefusedWithUpgradeInstructions
-			&& /^Nothing more was changed\./.test(error.message) && error.message.includes('episodes/EP001/segments/seg01/t01'), step);
-		assert.ok(existsSync(join(root, 'episodes/EP001/segments/seg01/t01/job.json')) && !existsSync(join(root, '.git')) && readProjectMajor(root) === 1, step);
-	}
-});
-
-test('a conversion cut off resumes after the last version it committed, with the same backup', async () => {
-	const { root, storage } = majorOneProject();
-	// The keyframe's file cannot be written (a folder in its place): the run stops there, after the versions before it.
-	mkdirSync(join(root, `${SHOT}/image-1.jpg`));
-	await assert.rejects(convertMajor1ProjectToMajor2(root, storage, '2026-11-14'), /EISDIR/);
-	const before = (await out(root, 'log', '--format=%s')).split('\n').length;
-	assert.equal(readProjectMajor(root), 1, 'still major 1: no marker');
-	assert.ok(major1ConversionPending(storage, root), 'the window offers to go on with it');
-	rmSync(join(root, `${SHOT}/image-1.jpg`), { recursive: true });
-	assert.equal(await convertMajor1ProjectToMajor2(root, storage, '2026-11-15'), `${root}.backup-2026-11-14`, 'the first run\'s backup');
-	const subjects = (await out(root, 'log', '--format=%s')).split('\n');
-	assert.equal(subjects.filter(s => s === `Major-1 ${ANN}/v1, converted`).length, 1, 'no version is converted twice');
-	assert.ok(subjects.length > before && readProjectMajor(root) === 2);
-	assert.ok(!major1ConversionPending(storage, root), 'the journal is gone once the project is major 2');
-});
-
 test('a folder with no snapshot to give its objects, or a backup name already taken, refuses the conversion; nothing is changed', async () => {
 	const { root, storage } = majorOneProject();
 	writeFileSync(join(root, 'turns/task-1.json'), JSON.stringify({ ...readJson(root, 'turns/task-1.json'), snapshot: null }));
 	writeFileSync(join(root, 'turns/task-2.json'), JSON.stringify({ ...readJson(root, 'turns/task-2.json'), snapshot: null }));
 	await assert.rejects(convertMajor1ProjectToMajor2(root, storage, '2026-11-14'), (error: unknown) => error instanceof RefusedWithUpgradeInstructions && /no record of its turns/.test(error.message));
-	assert.ok(!existsSync(join(root, '.git')) && !existsSync(`${root}.backup-2026-11-14`) && !major1ConversionPending(storage, root));
+	assert.ok(!existsSync(join(root, '.git')) && !existsSync(`${root}.backup-2026-11-14`));
 	const other = majorOneProject();
 	mkdirSync(`${other.root}.backup-2026-11-14`);
 	await assert.rejects(convertMajor1ProjectToMajor2(other.root, other.storage, '2026-11-14'), /already exists beside the project/);
 	assert.ok(!existsSync(join(other.root, '.git')) && readProjectMajor(other.root) === 1);
 });
 
-test('an object whose every version was discarded keeps none of their files: its card is empty, and history keeps them', async () => {
+test('an object whose every version was discarded keeps none of their files: its card is empty, and the backup keeps them', async () => {
 	const { root, storage } = majorOneProject();
 	const choices = readJson(root, 'choices.json');
 	choices.objects[SHOT] = { discarded: ['v1'] };
 	writeFileSync(join(root, 'choices.json'), JSON.stringify(choices));
-	await convertMajor1ProjectToMajor2(root, storage, '2026-11-14');
+	const backup = await convertMajor1ProjectToMajor2(root, storage, '2026-11-14');
 	assert.ok(!existsSync(join(root, `${SHOT}/image-1.jpg`)) && !existsSync(join(root, `${SHOT}/image-1.jpg.receipt.json`)));
 	assert.equal(readJson(root, `${SHOT}/object.json`).shown_file, null);
-	assert.equal(await out(root, 'show', `HEAD~2:${SHOT}/image-1.jpg`), 'shot');
+	assert.equal(read(backup, `${SHOT}/v1/image-1.jpg`), 'shot');
 });
 
 test('a removed variant takes the variants derived from it; the folder\'s own turns are the only snapshots read when it has them', async () => {
@@ -266,12 +254,10 @@ test('a removed variant takes the variants derived from it; the folder\'s own tu
 	assert.ok(!existsSync(join(root, 'episodes/EP009')), 'no folder for pending text of no object');
 });
 
-test("a .gitignore of the folder's keeps no major-1 source out of history: the commit of the folder as found names its entries", async () => {
+test("a .gitignore of the folder's keeps nothing the conversion wrote out of its commit", async () => {
 	const { root, storage } = majorOneProject();
-	write(root, '.gitignore', 'entry/\n*.png\nobject.json\n');
+	write(root, '.gitignore', '*.jpg\nobject.json\n');
 	await convertMajor1ProjectToMajor2(root, storage, '2026-11-14');
-	assert.equal(JSON.parse(await out(root, 'show', `HEAD:${ANN}/object.json`)).name, 'Ann', 'nor any file the conversion wrote');
-	const found = await out(root, 'rev-list', '--max-parents=0', 'HEAD');
-	assert.equal(JSON.parse(await out(root, 'show', `${found}:${ANN}/entry/v1/entry.json`)).appearance, 'Tall, in a grey coat.');
-	assert.equal(await out(root, 'show', `${found}:${ANN}/v2/image-1.png`), 'ann two');
+	assert.equal(JSON.parse(await out(root, 'show', `HEAD:${ANN}/object.json`)).name, 'Ann');
+	assert.equal(await out(root, 'show', `HEAD:${ANN}/image-1.jpg`), 'ann one');
 });
