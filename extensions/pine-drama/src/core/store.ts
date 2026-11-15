@@ -13,7 +13,7 @@ export type PineSessionState = 'none' | 'open' | 'ended';
 export type ChatState = 'idle' | 'running' | 'needs_input' | 'failed';
 export type SavedSendKind = 'run';
 export type SavedSendState = 'pending' | 'sent' | 'unknown' | 'failed';
-/** `unused`: a result that is not used, with its reason (resultImporter.ts, notUsedLine), shown as a native warning. */
+/** `unused`: a turn's outcome the person must know, with its reason (chats.ts, the turn's end), shown as a native warning. */
 export type MessageKind = 'prompt' | 'instructions' | 'progress' | 'activity' | 'result' | 'question' | 'usage' | 'failed' | 'notice' | 'unused';
 
 
@@ -43,7 +43,7 @@ export interface Chat {
 	folder: string | null;
 	/**
 	 * 'main' for the project's pinned Project Chat, set when the project is admitted (bindFolder, admitExistingProject).
-	 * Null for every other session of the project, whose results are installed under episodes/ only (sessionScoped).
+	 * Null for every other session of the project.
 	 */
 	project_role: 'main' | null;
 	created_at: string;
@@ -276,15 +276,6 @@ export class Store {
 
 	// ---- Chats ----
 
-
-	/**
-	 * Whether `key`'s results are installed under episodes/ only: a session of a project other than its Project Chat
-	 * (taskScope.ts; told so by EPISODE_SESSION, core/instructions.ts). An unattributed result, or the Project Chat's, may write the whole project.
-	 */
-	sessionScoped(key: string | null): boolean {
-		const conv = key ? this.chat(key) : undefined;
-		return !!conv?.folder && conv.project_role !== 'main';
-	}
 
 
 	chat(key: string): Chat | undefined {

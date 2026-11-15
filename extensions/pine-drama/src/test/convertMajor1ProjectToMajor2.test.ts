@@ -7,9 +7,8 @@ import { convertMajor1ProjectToMajor2, LAST_MAJOR_1_STUDIO, major1ConversionPend
 import { git } from '../core/git';
 import { readProjectMajor } from '../core/project';
 import { listHistoryOfShownFile } from '../core/projectHistory';
-import type { Request } from '../core/protocol';
+import { dramaRecordOf, type Request } from '../core/major1';
 import { sha256 } from '../core/sha256';
-import { dramaRecordOf } from '../core/taskRun';
 
 // A major-1 project as a Studio of major 1 left it (doc/protocol.md of major 1: choices.json, version folders with
 // version.json, turns/ with each installed snapshot), converted by the table (protocol/v2/major1-to-major2-conversion.json).
@@ -151,7 +150,10 @@ test('a major-1 project becomes major 2 by the table: backed up, one commit per 
 
 test('a major-1 turn still owed a return refuses the conversion, naming the Studio to finish it in; nothing is changed', async () => {
 	const { root, storage } = majorOneProject();
-	await dramaRecordOf(join(storage, 'protocol'), root).sentRequest({ turn: 'task-3', scope: 'project' } as Request, 'computer', 'chat');
+	// A request a Studio of major 1 sent, as its record keeps it (major1.ts, DramaRecord.sentTask).
+	const sent = dramaRecordOf(join(storage, 'protocol'), root).requestPath('task-3');
+	mkdirSync(dirname(sent), { recursive: true });
+	writeFileSync(sent, JSON.stringify({ sent: '2026-11-13T10:00:00Z', computer: 'computer', chat: 'chat', request: { turn: 'task-3', scope: 'project' } as Request }));
 	await assert.rejects(convertMajor1ProjectToMajor2(root, storage, '2026-11-14'), (error: unknown) =>
 		error instanceof RefusedWithUpgradeInstructions && error.studioVersion === LAST_MAJOR_1_STUDIO.version && error.downloadUrl === LAST_MAJOR_1_STUDIO.downloadUrl
 		&& /Nothing was changed/.test(error.message));

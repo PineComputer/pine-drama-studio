@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { lineageMessage } from '../core/canvasMessage';
 import { onBoard } from '../core/canvasLayout';
-import { DramaProject, episodeOfNode, fileAddressByVersion, objectTitle, readProjectFromFolder, versionTitle } from '../core/project';
+import { DramaProject, episodeOfNode, fileAddressByVersion, objectTitle, readProjectFromFolder } from '../core/project';
 import { decomposition } from '../core/threeSteps';
 
 // The project as every view reads it (core/project.ts, readProjectFromFolder), on the major-2 fixture
@@ -93,7 +93,6 @@ test("an object's name for the person: a variant after its asset, an episode's o
 	assert.equal(objectTitle(drama, 'assets/characters/lin/variants/rain'), 'Lin · In the rain');
 	assert.equal(objectTitle(drama, 'episodes/EP001/segments/seg02'), 'EP001 · seg02');
 	assert.equal(objectTitle(drama, 'episodes/EP001'), 'EP001 The Interview');
-	assert.equal(versionTitle(drama, 'episodes/EP001/segments/seg02', 't01'), 'EP001 · seg02 · take 1', 'the major-1 turn flow names a version so until it moves');
 	assert.equal(objectTitle(drama, 'assets/props/kettle'), 'kettle', 'an object the project does not hold, by its folder');
 });
 

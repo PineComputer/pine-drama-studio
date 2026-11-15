@@ -77,7 +77,7 @@ export function registerEpisodeCanvas(context: vscode.ExtensionContext, views: P
 			const drama = await project.drama();
 			const object = drama.objects.get(shown.stageId);
 			const src = fileAddressByVersion(project.root, rel => webview.asWebviewUri(fileUri(rel)).toString());
-			const detail: CanvasDetail | null = object ? receiptDetail(project.root, drama, object, src) : null;
+			const detail: CanvasDetail | null = object ? await receiptDetail(project.root, drama, object, src) : null;
 			const prompt = object && object.prompt !== null ? { object: object.id, text: object.prompt } : null;
 			return { v: CANVAS_PROTOCOL, type: 'detail', stageId: shown.stageId, detail, record: recordOf(drama, shown.stageId),
 				prompt, nextDraw: object ? nextDrawRequest(drama, object, src) : [],

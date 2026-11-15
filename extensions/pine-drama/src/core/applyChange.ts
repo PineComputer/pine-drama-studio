@@ -10,7 +10,7 @@ import { dirname, join } from 'node:path';
 import { throughNoLink, writeWhole } from './placement';
 import { commitPathsToHistory, historyHasTurnChange, runInProjectWriteQueue, turnChangeTrailers } from './projectHistory';
 import { matches, RECEIPT_SUFFIX } from './protocol';
-import { sha256, sha256OfFileOnDisk } from './sha256';
+import { sha256, sha256OfFile } from './sha256';
 
 /** Files to land: each path with the sha256 of its new bytes, or null to delete what is there (a file, or a folder whole). */
 export interface ProjectFolderChange {
@@ -62,8 +62,8 @@ async function land(projectRoot: string, change: ProjectFolderChange, readFileBy
 	if (notPaths.length) { throw new NotAProjectPathError(notPaths); }
 	const trailers = change.turnChange ? turnChangeTrailers(change.turnChange.turnId, change.turnChange.changeNumber) : {};
 	// A path to delete is as the change wants it when nothing is there, so what goes is never read (git rm -r).
-	const asWanted = (path: string) => change.filesAfterChange[path] === null ? !existsSync(join(projectRoot, path)) : sha256OfFileOnDisk(join(projectRoot, path)) === change.filesAfterChange[path];
-	if (paths.every(asWanted)) {
+	const asWanted = async (path: string) => change.filesAfterChange[path] === null ? !existsSync(join(projectRoot, path)) : await sha256OfFile(join(projectRoot, path)) === change.filesAfterChange[path];
+	if ((await Promise.all(paths.map(asWanted))).every(Boolean)) {
 		if (change.turnChange) { await commitPathsToHistory(projectRoot, change.author, paths, change.commitMessage, trailers); }
 		return 'already on disk';
 	}

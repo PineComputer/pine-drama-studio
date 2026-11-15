@@ -1,6 +1,6 @@
 import { strict as assert } from 'node:assert';
 import { test } from 'node:test';
-import { BUDGET, EPISODE_SESSION, STANDING_INSTRUCTIONS, STANDING_PARAGRAPH, UNKNOWN_CALL, standingParagraph, withStandingInstructions } from '../core/instructions';
+import { BUDGET, STANDING_INSTRUCTIONS, STANDING_PARAGRAPH, UNKNOWN_CALL, withStandingInstructions } from '../core/instructions';
 
 // The Studio's standing instructions. Each rule is pinned by the words that carry it,
 // so a rewrite that drops a rule fails here. How the driver works between the person's stops is the skill's
@@ -45,9 +45,3 @@ test('a paid call gen get leaves unknown: --retry under the go that covered it, 
 
 // No scope rule of the Studio's own: an episode session is told only
 // that it is one; what that means (its progress file) is the skill's, and no drama-needs block is asked for.
-test('an episode session is told it is one, and the skill says what that means', () => {
-	assert.equal(EPISODE_SESSION, "This is an episode's conversation, not the project's: the drama-workflow skill says what that means.");
-	assert.ok(standingParagraph(true).endsWith(EPISODE_SESSION), 'a session\'s first run carries it');
-	assert.doesNotMatch(standingParagraph(true), /drama-needs|progress\.md|--out/, 'the skill states them');
-	assert.doesNotMatch(standingParagraph(false), /episode's conversation/, 'the Project Chat is the project\'s');
-});

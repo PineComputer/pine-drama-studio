@@ -1,13 +1,12 @@
-// What a task moves through the Computers' artifact stores (doc/protocol.md, 4.1), and the Studio's own copy of it. Every
-// archive and file is named by the SHA-256 of its bytes and written once, in the store and here alike:
+// What a turn moves through the Computers' artifact stores (doc/protocol.md 4.1). Every file and private state is named
+// by the SHA-256 of its bytes and written once:
 //
-//   versions/<hash>.tar   one version folder without its reviews/, as the Computer side archived it
-//   files/<hash>          one review file or one client file
-//   state/<hash>.tar      one scope's private state
-//   tasks/<id>/request.json, tasks/<id>/return.json
+//   files/<hash>                                  one file of the drama
+//   session-private-states/<hash>.tar             one session's private state
+//   turns/<turn id>/request.json, return.json     the turn's request and return; changes/<n>.json and paid-calls/ beside them
 //
-// The Studio keeps each archive it received byte for byte (`kept`), so it can put it on another Computer unchanged; which
-// Computer is assumed to hold anything: each task lists its store, and copies or uploads what it lacks. No vscode import.
+// The Studio keeps each private state it received byte for byte (`kept`), so it can put it on another Computer unchanged;
+// no Computer is assumed to hold anything: each turn lists its store, and copies or uploads what it lacks. No vscode import.
 
 import { writeWhole } from './placement';
 import { existsSync, readFileSync } from 'node:fs';
@@ -27,11 +26,12 @@ export interface ArtifactStore {
 }
 
 
-export const versionKey = (hash: string): string => `versions/${hash}.tar`;
 export const fileKey = (hash: string): string => `files/${hash}`;
-export const stateKey = (hash: string): string => `state/${hash}.tar`;
-export const requestKey = (task: string): string => `turns/${task}/request.json`;
-export const returnKey = (task: string): string => `turns/${task}/return.json`;
+export const privateStateKey = (hash: string): string => `session-private-states/${hash}.tar`;
+export const requestKey = (turn: string): string => `turns/${turn}/request.json`;
+export const returnKey = (turn: string): string => `turns/${turn}/return.json`;
+export const changeKey = (turn: string, changeNumber: number): string => `turns/${turn}/changes/${changeNumber}.json`;
+export const paidCallsPrefix = (turn: string): string => `turns/${turn}/paid-calls/`;
 
 /** The Studio's copy of an artifact key, under `kept` (the extension's storage), or undefined when it has none. */
 export function keptBytes(kept: string, key: string): Buffer | undefined {
@@ -62,7 +62,7 @@ export class MismatchedArtifact extends Error {
 	constructor(readonly key: string) { super(`${key} does not match its hash`); }
 }
 
-/** The content hash an artifact key names: `versions/<hash>.tar`, `files/<hash>`, `state/<hash>.tar`. */
+/** The content hash an artifact key names: `files/<hash>`, `session-private-states/<hash>.tar`. */
 export const hashOf = (key: string): string => key.split('/')[1].replace(/\.tar$/, '');
 
 /**
@@ -83,13 +83,13 @@ export class Holders {
 }
 
 /**
- * Puts every key a request names into `computer`'s store before the task is sent (4.1, "Before a task"). One listing of
+ * Puts every key a request names into `computer`'s store before the turn is sent (4.1, "Bytes"). One listing of
  * its store; each key it lacks, or holds cut short (`size`, the Studio's copy's size), is copied inside Pine's storage from the Computer remembered holding it, so a project's
  * video never passes through the person's connection, and uploaded from `bytes`, the Studio's copy, when none is
  * remembered or the copy fails. Returns how many were copied and uploaded.
  */
-export async function putAll(store: ArtifactStore, computer: string, holders: Holders, keys: readonly string[], bytes: (key: string) => Buffer, size: (key: string) => number): Promise<{ copied: number; uploaded: number }> {
-	const listed = new Map((await Promise.all(['versions/', 'files/', 'state/'].map(prefix => store.list(prefix)))).flat().map(f => [f.path, f.size]));
+export async function putAll(store: ArtifactStore, computer: string, holders: Holders, keys: readonly string[], bytes: (key: string) => Promise<Buffer>, size: (key: string) => number): Promise<{ copied: number; uploaded: number }> {
+	const listed = new Map((await Promise.all(['files/', 'session-private-states/'].map(prefix => store.list(prefix)))).flat().map(f => [f.path, f.size]));
 	// A file whose size is not its bytes' is an upload cut off part way: it is put again. A listing gives sizes, not
 	// hashes, and a whole file of other bytes cannot sit under its own hash's name.
 	const whole = (key: string) => listed.has(key) && listed.get(key) === size(key);
@@ -101,7 +101,7 @@ export async function putAll(store: ArtifactStore, computer: string, holders: Ho
 		if (from && from !== computer && await store.copy(from, key).then(() => true, () => false)) {
 			copied++;
 		} else {
-			await store.upload(key, bytes(key));
+			await store.upload(key, await bytes(key));
 			uploaded++;
 		}
 		await holders.set([hashOf(key)], computer);

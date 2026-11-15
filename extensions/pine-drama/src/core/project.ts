@@ -6,32 +6,13 @@
 import { readFileSync, statSync } from 'node:fs';
 import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { CHOICES_FILE } from './choices';
+import { CHOICES_FILE } from './major1';
 import { noFileThere, writeWhole } from './placement';
 import { projectIdentity } from './projectPlace';
-import { DESCRIPTION_FILE, OBJECT_FILE, PROJECT_MARKER_FILE, PROMPT_FILE, RECEIPT_SUFFIX, type Edge, type ObjectType, type ProtocolError, type Request, type Snapshot } from './protocol';
-
-/**
- * An installed return's snapshot, with the scope of the task it came from (doc/protocol.md, section 1), its task id, when
- * its request was sent and when its return was installed (section 4.4).
- */
-export interface ScopedSnapshot {
-	readonly scope: 'project' | 'episodes';
-	readonly snapshot: Snapshot;
-	readonly task: string;
-	readonly sent: string;
-	readonly installed: string;
-}
+import { DESCRIPTION_FILE, OBJECT_FILE, PROJECT_MARKER_FILE, PROMPT_FILE, RECEIPT_SUFFIX, majorTwo, type Edge, type ObjectType } from './protocol';
 
 
-/**
- * The drama's tasks (core/taskRun.ts, tasksOf): each request as sent, with the Chat that sent it when this Studio did
- * (empty otherwise), and each return dealt with, with the problems it named.
- */
-export interface TasksOf {
-	requests(): readonly { readonly sent: string; readonly chat: string; readonly request: Pick<Request, 'turn' | 'scope' | 'choices' | 'versions'> }[];
-	returns(): readonly { readonly task: string; readonly scope: string; readonly sent: string; readonly problems?: readonly { readonly ref: string; readonly error: ProtocolError }[] }[];
-}
+
 
 /** A relation object.json states (doc/protocol.md 2.2), or a variant's derivation. */
 export interface ObjectEdge {
@@ -113,13 +94,6 @@ const readTextOrNull = (file: string): Promise<string | null> => readFile(file, 
 	throw error;
 });
 
-/** A document of protocol major 2, else refused whole (doc/protocol.md section 7: one major per reader). */
-function majorTwo(name: string, raw: unknown): Record<string, any> {
-	const document = Object(raw);
-	if (document.schema !== 2) { throw new Error(`${name} is a document of protocol major ${JSON.stringify(document.schema)}, which this Studio does not read`); }
-	return document;
-}
-
 /** A receipt's fields as protocol major 2 names them, in the Studio's names. */
 function receiptOf(raw: unknown): Receipt {
 	const r = Object(raw);
@@ -178,40 +152,6 @@ export async function readProjectFromFolder(projectRoot: string, makingNow: Read
 	return { objects, edges };
 }
 
-/**
- * What the installed snapshots say now (doc/protocol.md, 5.3): each object from the latest snapshot that lists it, and
- * the edges from it. An object a later snapshot of its scope no longer lists is removed, when that turn's request
- * knew it: a version folder of it was in the request, or a snapshot installed before then listed it (5.3).
- */
-export function snapshotState(snapshots: readonly ScopedSnapshot[], tasks?: TasksOf): { readonly listed: ReadonlyMap<string, { readonly object: Snapshot['objects'][string]; readonly at: string; readonly from: Snapshot }>; readonly edges: readonly Edge[] } {
-	const requested = new Map((tasks?.requests() ?? []).map(r => [r.request.turn, Object.keys(r.request.versions)]));
-	const listed = new Map<string, { object: Snapshot['objects'][string]; at: string; from: Snapshot }>();
-	for (const { scope, snapshot, task, sent } of snapshots) {
-		const ids = Object.keys(snapshot.objects);
-		const folders = requested.get(task) ?? [];
-		const before = snapshots.filter(s => s.installed < sent);
-		const knew = (id: string) => folders.some(f => f.startsWith(`${id}/`)) || before.some(s => id in s.snapshot.objects);
-		// The Project Chat's snapshot lists the shared objects and every episode: one it no longer lists is removed.
-		if (scope === 'project') {
-			for (const id of [...listed.keys()].filter(id => !(id in snapshot.objects) && (!episodeIn(id) || isEpisode(id)) && knew(id))) {
-				listed.delete(id);
-			}
-		}
-		// An episode session's snapshot that lists an episode lists all of that episode's objects: one it no longer lists
-		// is removed. (The Project Chat's lists every episode object, but not what lies inside them.)
-		for (const episode of scope === 'episodes' ? ids.filter(isEpisode) : []) {
-			for (const id of [...listed.keys()].filter(id => !(id in snapshot.objects) && !isEpisode(id) && episodeIn(id) === episodeIn(episode) && knew(id))) {
-				listed.delete(id);
-			}
-		}
-		for (const [id, object] of Object.entries(snapshot.objects)) {
-			listed.set(id, { object, at: snapshot.observed_at, from: snapshot });
-		}
-	}
-	// An edge goes with its `from` object: the snapshot that object comes from gives its edges.
-	const edges = snapshots.flatMap(({ snapshot }) => snapshot.edges.filter(e => listed.get(e.from)?.from === snapshot));
-	return { listed, edges };
-}
 
 /** One node of the Outline: a group, or an object of the drama. */
 export interface OutlineNode {
@@ -282,7 +222,7 @@ export function episodeOfNode(node: Partial<OutlineNode> | undefined): string | 
 	return episodeIn(node?.episode ?? node?.id ?? '');
 }
 
-/** What naming reads: each object's name and the edges (the read model, or the snapshots' state alone, snapshotState). */
+/** What naming reads: each object's name and the edges (the read model). */
 export interface Named {
 	readonly objects: ReadonlyMap<string, { readonly name: string }>;
 	readonly edges: readonly Edge[];
@@ -300,11 +240,6 @@ export function objectTitle(drama: Named, id: string): string {
 	return [episode && id !== `episodes/${episode}` ? episode : '', asset !== id ? name(asset) : '', name(id)].filter(Boolean).join(' · ');
 }
 
-/** A version's name for the person: its object's (objectTitle) and the version, a take by its number (`t02` is take 2). */
-export function versionTitle(drama: Named, object: string, version: string): string {
-	const take = /^t(\d+)$/.exec(version);
-	return `${objectTitle(drama, object)} · ${take ? `take ${Number(take[1])}` : version}`;
-}
 
 /** The object a variant derives from directly (its `variant_of` edge), or undefined. */
 function variantParent(drama: { readonly edges: readonly { readonly from: string; readonly to: string; readonly kind: string }[] }, id: string): string | undefined {
@@ -460,7 +395,7 @@ export function variantsOf(drama: ProjectReadModel, id: string): ProjectObject[]
 }
 
 /** Whether `id` is an episode object itself (`episodes/<id>`), not an object inside one. */
-function isEpisode(id: string): boolean {
+export function isEpisode(id: string): boolean {
 	return /^episodes\/[^/]+$/.test(id);
 }
 

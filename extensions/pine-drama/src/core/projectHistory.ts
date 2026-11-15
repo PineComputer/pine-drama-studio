@@ -8,10 +8,11 @@ import { existsSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { devNull } from 'node:os';
 import { basename, dirname, join } from 'node:path';
-import { git } from './git';
+import { git, gitStream } from './git';
 import { writeWhole } from './placement';
 import { projectIdentity } from './projectPlace';
 import { OBJECT_FILE } from './protocol';
+import { sha256OfStream } from './sha256';
 
 /**
  * A commit's author (doc/protocol.md 2.1): a turn's result, the person's own change through the Studio, or what the
@@ -222,6 +223,35 @@ export async function readChangeOfObject(projectRoot: string, commit: string, ob
 	return files;
 }
 
+/** Every file HEAD holds, by path, with its blob and size: regular files only, since a link is no file of the project (section 1). */
+export async function listFilesOfHead(projectRoot: string): Promise<{ readonly path: string; readonly blob: string; readonly size: number }[]> {
+	if (!existsSync(join(projectRoot, '.git')) || !await hasHead(projectRoot)) { return []; }
+	// "<mode> <type> <blob> <size>\t<path>", the size padded, NUL-terminated (git ls-tree -l -z).
+	return (await run(projectRoot, 'person', ['ls-tree', '-r', '-l', '-z', '--full-tree', 'HEAD'])).split('\0').filter(Boolean).flatMap(line => {
+		const tab = line.indexOf('\t');
+		const [mode, , blob, size] = line.slice(0, tab).split(/ +/);
+		return mode === '100644' || mode === '100755' ? [{ path: line.slice(tab + 1), blob, size: Number(size) }] : [];
+	});
+}
+
+/** The SHA-256 of each blob hashed so far, by git's blob id: a blob id names immutable bytes, so an entry never goes stale. */
+const sha256ByBlob = new Map<string, string>();
+
+/**
+ * The SHA-256 of the blob `blob`, streamed from the repository the first time and known by its id after (git cat-file):
+ * a seed hashes only the files no earlier one did.
+ */
+export async function sha256OfBlob(projectRoot: string, blob: string): Promise<string> {
+	const known = sha256ByBlob.get(blob);
+	if (known) { return known; }
+	const child = gitStream([...ISOLATED_CONFIG, 'cat-file', 'blob', blob], projectRoot, isolatedEnv('person'));
+	// A process that cannot start (EMFILE, EAGAIN) emits `error`, never `close`.
+	const [hash, code] = await Promise.all([sha256OfStream(child.stdout), new Promise<number | null>((resolve, reject) => { child.on('close', resolve); child.on('error', reject); })]);
+	if (code !== 0) { throw new Error(`git cat-file: blob ${blob} could not be read`); }
+	sha256ByBlob.set(blob, hash);
+	return hash;
+}
+
 /** Writes the blob `blob` to `file`, once: a past version's picture, for a thumbnail outside the project's folder. */
 export async function writeBlobToFile(projectRoot: string, blob: string, file: string): Promise<void> {
 	if (existsSync(file)) { return; }
@@ -230,7 +260,7 @@ export async function writeBlobToFile(projectRoot: string, blob: string, file: s
 }
 
 /** A blob's bytes, by any name git resolves to one (`<commit>:<path>` or its id); latin1 maps each byte to one character. */
-async function blobBytes(projectRoot: string, name: string): Promise<Buffer> {
+export async function blobBytes(projectRoot: string, name: string): Promise<Buffer> {
 	return Buffer.from(await run(projectRoot, 'person', ['cat-file', 'blob', name], { encoding: 'latin1' }), 'latin1');
 }
 
@@ -248,10 +278,12 @@ async function hasHead(projectRoot: string): Promise<boolean> {
  * literal, never patterns (git, --literal-pathspecs).
  */
 function exec(projectRoot: string, author: CommitAuthor, args: readonly string[], call: { readonly stdin?: string; readonly encoding?: BufferEncoding } = {}) {
-	const env = { ...REPOSITORY_UNSET, GIT_CONFIG_GLOBAL: devNull, GIT_LITERAL_PATHSPECS: '1', GIT_AUTHOR_NAME: author,
-		GIT_AUTHOR_EMAIL: `${author}@pine-drama.invalid`, GIT_COMMITTER_NAME: author, GIT_COMMITTER_EMAIL: `${author}@pine-drama.invalid` };
-	return git(['-c', 'commit.gpgsign=false', '-c', `core.hooksPath=${devNull}`, ...args], projectRoot, { env, ...call });
+	return git([...ISOLATED_CONFIG, ...args], projectRoot, { env: isolatedEnv(author), ...call });
 }
+
+const ISOLATED_CONFIG = ['-c', 'commit.gpgsign=false', '-c', `core.hooksPath=${devNull}`];
+const isolatedEnv = (author: CommitAuthor) => ({ ...REPOSITORY_UNSET, GIT_CONFIG_GLOBAL: devNull, GIT_LITERAL_PATHSPECS: '1', GIT_AUTHOR_NAME: author,
+	GIT_AUTHOR_EMAIL: `${author}@pine-drama.invalid`, GIT_COMMITTER_NAME: author, GIT_COMMITTER_EMAIL: `${author}@pine-drama.invalid` });
 
 /** exec, its stdout; a non-zero exit is thrown. */
 async function run(projectRoot: string, author: CommitAuthor, args: readonly string[], call: Parameters<typeof exec>[3] = {}): Promise<string> {

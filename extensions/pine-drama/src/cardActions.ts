@@ -1,5 +1,5 @@
 // The card actions on the asset grid's cards and the canvas's record panel: what
-// each asks the person, then the one choices.json write (core/entryActions.ts). One runner, so the two places never differ.
+// each asks the person, then the person's change through the one landing (core/entryActions.ts). One runner, so the two places never differ.
 import { sha256 } from './core/sha256';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';

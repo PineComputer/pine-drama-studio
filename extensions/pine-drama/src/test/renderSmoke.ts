@@ -763,7 +763,7 @@ async function gridClickCase(source: Source): Promise<Case> {
 }
 
 async function segCase(source: Source, episode: string): Promise<Case> {
-	const model = segEditorModel(source.root, source.drama, episode, fileSrc);
+	const model = await segEditorModel(source.root, source.drama, episode, fileSrc);
 	return { name: `${source.name}: seg editor ${episode}`, page: 'seg', data: { episode }, root: source.root, message: { v: SEG_PROTOCOL, type: 'model', model },
 		expect: { selector: '.strip .seg', count: model.segs.length + 1 } };
 }

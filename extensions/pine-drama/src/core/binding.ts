@@ -1,9 +1,9 @@
 // One explicit project root; no child-layout discovery or migration. No vscode import.
 
-import { existsSync, statSync } from 'node:fs';
+import { existsSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
 import { projectIdentity, projectRootOf } from './projectPlace';
 import { readProjectMajor } from './project';
-import { CLIENT_FOLDERS, clientFileList, transportedTree } from './taskRun';
 
 export type Entry =
 	/** An explicit send may adopt this initialized root only after local CLI validation. */
@@ -28,13 +28,18 @@ interface Conv {
 	readonly project_role?: 'main' | null;
 }
 
+/** Every folder below `dir`, outside hidden ones, which no turn carries (doc/protocol.md 4.2); a link is not followed. */
+function foldersBelow(dir: string): string[] {
+	return readdirSync(dir, { withFileTypes: true }).filter(e => e.isDirectory() && !e.name.startsWith('.')).flatMap(e => [join(dir, e.name), ...foldersBelow(join(dir, e.name))]);
+}
+
 /**
- * The dramas below `folder`, by their roots: every folder a task would carry (transportedTree) that is a drama as Open
+ * The dramas below `folder`, by their roots: every folder a turn would carry (foldersBelow) that is a drama as Open
  * Project tells one, of any format (project.ts readProjectMajor: a marker that is a file, a linked one too), so its files would be
  * swept into this one's upload and get a second writer.
  */
 export function projectsBelow(folder: string): string[] {
-	return transportedTree(folder).folders.filter(dir => readProjectMajor(dir) !== undefined).map(projectIdentity).sort();
+	return foldersBelow(folder).filter(dir => readProjectMajor(dir) !== undefined).map(projectIdentity).sort();
 }
 
 /**
@@ -44,15 +49,9 @@ export function projectsBelow(folder: string): string[] {
  */
 export function holdsNoProject(folder: string): boolean { return readProjectMajor(folder) === undefined && !projectsBelow(folder).length; }
 
-/** The first send's one note: where results arrive, and what of the folder goes with each task: its client files alone
- * (taskRun.ts, CLIENT_FOLDERS; doc/protocol.md, 3.3 and 4.2). */
+/** The first send's one note: where the project is, and that its files go with each turn (doc/protocol.md 4.2). */
 function bindingNote(root: string): string {
-	const files = clientFileList(root).map(f => ({ rel: f.rel, bytes: statSync(f.path).size }));
-	const said = `This project's root is \`${root}\`. The Pine Computer's returned results are published here.`;
-	if (!files.length) { return said; }
-	const mb = files.reduce((sum, f) => sum + f.bytes, 0) / 1e6; // decimal megabytes
-	const one = files.length === 1;
-	return `${said} Its ${one ? '1 file' : `${files.length} files`} under ${CLIENT_FOLDERS.map(top => `${top}/`).join(', ')} (${mb < 0.1 ? 'under 0.1' : mb.toFixed(1)} MB) ${one ? 'goes' : 'go'} to the Pine Computer with each task, and no result replaces ${one ? 'it' : 'them'}.`;
+	return `This project's root is \`${root}\`. Its files go to the Pine Computer with each turn, and the turn's results land here as they finish; the project's history keeps whatever they replace.`;
 }
 
 /** What the window's one folder means for a message in session `key`. */

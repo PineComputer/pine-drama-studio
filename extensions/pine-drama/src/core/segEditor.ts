@@ -20,18 +20,18 @@ export function shootRequest(episode: string, seg: string, again: boolean): stri
 
 
 /** The episode's (`EP001`) segs of the project at `projectRoot`. `uri` is a project file's webview address. */
-export function segEditorModel(projectRoot: string, drama: ProjectReadModel, episode: string, uri: (file: string) => string): SegEditorModel {
-	const segs: Seg[] = episodeSegs(drama, episode).map(seg => {
+export async function segEditorModel(projectRoot: string, drama: ProjectReadModel, episode: string, uri: (file: string) => string): Promise<SegEditorModel> {
+	const segs: Seg[] = await Promise.all(episodeSegs(drama, episode).map(async seg => {
 		const object = seg.take;
 		const video = object?.shownFile ?? null;
 		const frame = seg.keyframes.map(k => k.shownFile).find(Boolean) ?? null;
 		const poster: Poster | null = video ? { media: 'video', src: uri(video) } : frame ? { media: 'image', src: uri(frame) } : null;
 		return {
 			id: seg.id, take: object?.id ?? null, src: video ? uri(video) : null,
-			request: object ? receiptDetail(projectRoot, drama, object, uri) : null, prompt: object?.prompt ?? null,
+			request: object ? await receiptDetail(projectRoot, drama, object, uri) : null, prompt: object?.prompt ?? null,
 			badge: video ? '' : notMadeText('take', object?.makingNow ?? false), poster,
 		};
-	});
+	}));
 	const cut = episodeCut(drama, episode)?.shownFile ?? null;
 	return { episode, segs, cut: cut ? { src: uri(cut) } : null };
 }

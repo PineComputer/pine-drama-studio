@@ -6,13 +6,12 @@
 import { constants, existsSync, readdirSync, readFileSync } from 'node:fs';
 import { cp, mkdir, readFile, rm } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
-import { CHOICES_FILE, readChoices, readVersions, resolve, versionRecordOf } from './choices';
 import { copyWhole, writeWhole } from './placement';
-import { readProjectMajor, snapshotState, writeProjectMarker } from './project';
+import { CHOICES_FILE, dramaRecordOf, dramaRecordsOf, publishKeptTurns, readChoices, readVersions, currentVersion, scopedSnapshots, snapshotState, tasksOf, turnsOf, versionRecordOf, type Choices, type VersionRecord } from './major1';
+import { readProjectMajor, writeProjectMarker } from './project';
 import { commitPathsToHistory, listHistory, runInProjectWriteQueue } from './projectHistory';
-import { sha256OfFileOnDisk } from './sha256';
-import { DESCRIPTION_FILE, OBJECT_FILE, PROJECT_MARKER_FILE, PROMPT_FILE, RECEIPT_SUFFIX, type Choices, type Edge, type VersionRecord } from './protocol';
-import { dramaRecordOf, dramaRecordsOf, publishKeptTurns, scopedSnapshots, tasksOf, turnsOf } from './taskRun';
+import { sha256OfFile } from './sha256';
+import { DESCRIPTION_FILE, OBJECT_FILE, PROJECT_MARKER_FILE, PROMPT_FILE, RECEIPT_SUFFIX, type Edge } from './protocol';
 
 const TABLE = require('../../protocol/v2/major1-to-major2-conversion.json') as ConversionTable;
 
@@ -168,10 +167,10 @@ function readVersion(root: string, object: string, id: string): Major1Version {
  * Everything the conversion reads, by content: every file of every version folder, the configs (a project drama-cli never
  * set up has none), choices.json, which makes the folder major 1, and the turns, which the snapshot refusal ensures.
  */
-function inventoryOf(root: string, versions: readonly Major1Version[]): Record<string, string> {
+async function inventoryOf(root: string, versions: readonly Major1Version[]): Promise<Record<string, string>> {
 	const sources = [...versions.flatMap(v => filesUnder(root, `${v.object}/${v.id}`)), ...existsSync(join(root, CONFIG.folder)) ? filesUnder(root, CONFIG.folder) : [],
 		CHOICES_FILE, ...filesUnder(root, 'turns')];
-	return Object.fromEntries(sources.map(path => [path, sha256OfFileOnDisk(join(root, path))!]));
+	return Object.fromEntries(await Promise.all(sources.map(async path => [path, (await sha256OfFile(join(root, path)))!] as const)));
 }
 const sameInventory = (a: Readonly<Record<string, string>>, b: Readonly<Record<string, string>>) =>
 	JSON.stringify(Object.entries(a).sort()) === JSON.stringify(Object.entries(b).sort());
@@ -190,7 +189,7 @@ export function convertMajor1ProjectToMajor2(projectRoot: string, globalStorage:
 		const step = async (next: Journal) => { await mkdir(dirname(journalPath), { recursive: true }); await writeWhole(journalPath, JSON.stringify(next)); journal = next; };
 		// The versions and their inventory, read once: when this run reads them first, there is nothing to compare them with.
 		let versions: Major1Version[] | undefined;
-		const inventoried = async (from: Journal) => { versions = findMajor1Versions(projectRoot); await step({ ...from, step: 'backing up', inventory: inventoryOf(projectRoot, versions) }); };
+		const inventoried = async (from: Journal) => { versions = findMajor1Versions(projectRoot); await step({ ...from, step: 'backing up', inventory: await inventoryOf(projectRoot, versions) }); };
 		if (!journal) {
 			if (readProjectMajor(projectRoot) !== 1) { throw new Error(`${projectRoot} is not a major-1 project; nothing was changed.`); }
 			if (dramaRecordsOf(globalStorage, projectRoot).some(r => r.requests().some(t => !r.handled(t.request.turn)))) {
@@ -213,7 +212,7 @@ export function convertMajor1ProjectToMajor2(projectRoot: string, globalStorage:
 		}
 		if (!versions && journal!.step !== 'removing major-1 folders') {
 			versions = findMajor1Versions(projectRoot);
-			if (!sameInventory(inventoryOf(projectRoot, versions), journal!.inventory)) {
+			if (!sameInventory(await inventoryOf(projectRoot, versions), journal!.inventory)) {
 				throw new Error(`${projectRoot} changed while its conversion was cut off; nothing more was changed. Its backup is ${journal!.backup}.`);
 			}
 		}
@@ -272,16 +271,16 @@ class Conversion {
 
 	static async of(root: string, versions: readonly Major1Version[], choices: Choices | null, inventory: Readonly<Record<string, string>>): Promise<Conversion> {
 		// Major 1's 3.2 current: the chosen version, else the newest not discarded, as major 1's own reader resolves it
-		// (choices.ts, readVersions and resolve), reviews included.
+		// (major1.ts, readVersions and currentVersion), reviews included.
 		const current = new Map<string, Major1Version>();
 		for (const object of new Set(versions.map(v => v.object))) {
-			const id = resolve(await readVersions(root, object), choices, object).current;
+			const id = currentVersion(await readVersions(root, object), choices, object);
 			const version = versions.find(v => v.object === object && v.id === id);
 			if (version) { current.set(object, version); }
 		}
 		// Kept as major 1's 5.3 reads them: an object is kept while the latest snapshot of its scope lists it.
 		const snapshots = scopedSnapshots(turnsOf(root));
-		return new Conversion(root, versions, choices, current, snapshotState(snapshots, tasksOf(undefined, root)), snapshots, inventory);
+		return new Conversion(root, versions, choices, current, snapshotState(snapshots, tasksOf(root)), snapshots, inventory);
 	}
 
 	/** Records what an already committed version left in its object's folder, for a resumed run. */
@@ -461,7 +460,7 @@ class Conversion {
 		const kept = `the major-1 folders were kept, and the backup is beside the project`;
 		for (const [object, version] of this.current) {
 			for (const file of stageOf(object) ? [] : version.outputs) {
-				if (sha256OfFileOnDisk(join(this.root, object, file)) !== this.inventory[`${object}/${version.id}/${file}`]) {
+				if (await sha256OfFile(join(this.root, object, file)) !== this.inventory[`${object}/${version.id}/${file}`]) {
 					throw new Error(`${object}/${file} is not its current version's file after conversion; ${kept}.`);
 				}
 			}

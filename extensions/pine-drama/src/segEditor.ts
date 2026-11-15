@@ -31,7 +31,7 @@ export function registerSegEditor(context: vscode.ExtensionContext, views: Proje
 	const send = async (panel: vscode.WebviewPanel, episode: string) => {
 		let message: ToSegEditor;
 		try {
-			message = { v: SEG_PROTOCOL, type: 'model', model: segEditorModel(project.root, await project.drama(), episode, fileAddressByVersion(project.root, rel => panel.webview.asWebviewUri(fileUri(rel)).toString())) };
+			message = { v: SEG_PROTOCOL, type: 'model', model: await segEditorModel(project.root, await project.drama(), episode, fileAddressByVersion(project.root, rel => panel.webview.asWebviewUri(fileUri(rel)).toString())) };
 		} catch (error) {
 			output.appendLine(`seg editor ${episode}: ${(error as Error).message} (project ${project.root})`);
 			message = { v: SEG_PROTOCOL, type: 'error', episode, message: (error as Error).message };

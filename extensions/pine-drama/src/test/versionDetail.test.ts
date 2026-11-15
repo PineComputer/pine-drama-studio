@@ -21,7 +21,7 @@ const src = (rel: string) => `webview:${rel}`;
 test("a take's receipt gives its prompt, when it was finished, and its pictures as Image 1..N in the order they were sent", async () => {
 	const root = copy();
 	const drama = await readProjectFromFolder(root);
-	const detail = receiptDetail(root, drama, drama.objects.get('episodes/EP001/segments/seg01')!, src)!;
+	const detail = (await receiptDetail(root, drama, drama.objects.get('episodes/EP001/segments/seg01')!, src))!;
 	assert.equal(detail.prompt, 'Image 1 is the first frame. Lin turns from the window.');
 	assert.equal(detail.madeAt, '2026-11-12T11:10:00Z');
 	assert.deepEqual(detail.pictures.map(p => [p.n, p.label, p.src, p.stageId]), [
@@ -35,7 +35,7 @@ test("a picture redrawn since shows no thumbnail of its new bytes under an earli
 	const root = copy();
 	writeFileSync(join(root, 'assets/characters/lin/look.png'), 'a new look');
 	const drama = await readProjectFromFolder(root);
-	const detail = receiptDetail(root, drama, drama.objects.get('episodes/EP001/segments/seg01')!, src)!;
+	const detail = (await receiptDetail(root, drama, drama.objects.get('episodes/EP001/segments/seg01')!, src))!;
 	assert.deepEqual(detail.pictures.map(p => [p.n, p.label, p.src]), [
 		[1, 'EP001 · seg01 shot01', 'webview:episodes/EP001/keyframe/seg01/shot01/frame.png'],
 		[2, 'Lin (changed since)', null],
@@ -47,12 +47,12 @@ test("a text it was sent is listed by name and numbers no picture; the person's 
 	writeFileSync(join(root, 'assets/props/umbrella/picture.png.receipt.json'), JSON.stringify({ schema: 2, paid_call_id: 'call-umbrella-0002', finished_at: '2026-11-12T10:08:00Z',
 		inputs_sent_in_order: [{ path: 'bible/bible.md', sha256: '0'.repeat(64) }, { path: 'assets/characters/lin/look.png', sha256: '1'.repeat(64) }], prompt_sent: null, cost: null }));
 	const drama = await readProjectFromFolder(root);
-	const detail = receiptDetail(root, drama, drama.objects.get('assets/props/umbrella')!, src)!;
+	const detail = (await receiptDetail(root, drama, drama.objects.get('assets/props/umbrella')!, src))!;
 	assert.deepEqual(detail.madeFrom.map(m => [m.label, m.stageId, m.n]), [['Story bible', 'bible', undefined]]);
 	assert.deepEqual(detail.pictures.map(p => [p.n, p.label, p.src]), [[1, 'Lin (changed since)', null]], 'the bytes it was sent are not the ones the project holds');
 	assert.equal(detail.prompt, null);
-	assert.equal(receiptDetail(root, drama, drama.objects.get('assets/scenes/office')!, src), null);
-	assert.equal(receiptDetail(root, drama, drama.objects.get('assets/scenes/street')!, src), null, 'a planned object shows nothing');
+	assert.equal(await receiptDetail(root, drama, drama.objects.get('assets/scenes/office')!, src), null);
+	assert.equal(await receiptDetail(root, drama, drama.objects.get('assets/scenes/street')!, src), null, 'a planned object shows nothing');
 });
 
 test("the episode canvas draws every line from what each draw request sends, drawn or not, never from a receipt", async () => {

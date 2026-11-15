@@ -3,12 +3,11 @@
 // and the files it was sent, in their order, as the prompt's Image 1..N. And what its next draw request will send
 // (object.json `objects_sent_by_draw_request`), the composer's references. No vscode import.
 
-import { statSync } from 'node:fs';
 import { extname, join } from 'node:path';
 import { madeBy, shortDate, type CanvasDetail, type CanvasPicture, type MadeFrom } from './canvasProtocol';
 import { objectOwningFile, objectTitle, type ProjectObject, type ProjectReadModel } from './project';
 import { listHistoryOfShownFile, writeBlobToFile } from './projectHistory';
-import { sha256OfFileOnDisk } from './sha256';
+import { sha256OfFile } from './sha256';
 
 const IMAGE_SUFFIXES: ReadonlySet<string> = new Set(['.png', '.jpg', '.jpeg', '.webp']);
 
@@ -24,18 +23,18 @@ export function mediaOf(file: string): 'image' | 'video' | 'text' {
  * only while the project still holds the bytes it was sent (its receipt's sha256, doc/protocol.md 2.3); one changed
  * since shows none, and says so. Null for a file with no receipt: the person's own, a text, or none shown.
  */
-export function receiptDetail(projectRoot: string, drama: ProjectReadModel, object: ProjectObject, src: (rel: string) => string): CanvasDetail | null {
+export async function receiptDetail(projectRoot: string, drama: ProjectReadModel, object: ProjectObject, src: (rel: string) => string): Promise<CanvasDetail | null> {
 	const receipt = object.shownFileReceipt;
 	if (!receipt) {
 		return null;
 	}
 	let images = 0;
-	const sent = receipt.inputsSentInOrder.map(({ path, sha256 }) => {
+	const same = await Promise.all(receipt.inputsSentInOrder.map(async ({ path, sha256 }) => mediaOf(path) === 'image' && await sha256OfFile(join(projectRoot, ...path.split('/'))) === sha256));
+	const sent = receipt.inputsSentInOrder.map(({ path }, i) => {
 		const owner = objectOwningFile(drama, path);
 		const label = owner ? objectTitle(drama, owner) : path;
 		if (mediaOf(path) !== 'image') { return { image: false, made: { label, src: null, stageId: owner ?? null } }; }
-		const same = currentSha256(join(projectRoot, ...path.split('/'))) === sha256;
-		return { image: true, made: { label: same ? label : `${label} (changed since)`, src: same ? src(path) : null, stageId: owner ?? null, n: ++images } };
+		return { image: true, made: { label: same[i] ? label : `${label} (changed since)`, src: same[i] ? src(path) : null, stageId: owner ?? null, n: ++images } };
 	});
 	return { prompt: receipt.promptSent, madeAt: receipt.finishedAt, pictures: sent.filter(i => i.image).map(i => i.made), madeFrom: sent.filter(i => !i.image).map(i => i.made) };
 }
@@ -68,21 +67,4 @@ export async function pictureHistory(projectRoot: string, object: ProjectObject,
 		return { commit: entry.commit, label: `${shortDate(entry.committedAt)} · ${madeBy(entry.author)}`, main: entry.shown, src: src(file), media: mediaOf(entry.file) };
 	}));
 	return { object: object.id, versions };
-}
-
-/** The sha256 each file was last found with, by path, with the size and time it had then. */
-const hashed = new Map<string, { readonly size: number; readonly mtimeMs: number; readonly sha256: string | null }>();
-
-/**
- * A file's sha256 now, hashed again only when its size or modification time changed since, as git's index keeps each
- * file's stat data to know which to read again (git, "racy git"): the seg editor shows every take's inputs on each read.
- */
-function currentSha256(file: string): string | null {
-	const stat = statSync(file, { throwIfNoEntry: false });
-	if (!stat) { return null; }
-	const known = hashed.get(file);
-	if (known && known.size === stat.size && known.mtimeMs === stat.mtimeMs) { return known.sha256; }
-	const sha256 = sha256OfFileOnDisk(file);
-	hashed.set(file, { size: stat.size, mtimeMs: stat.mtimeMs, sha256 });
-	return sha256;
 }

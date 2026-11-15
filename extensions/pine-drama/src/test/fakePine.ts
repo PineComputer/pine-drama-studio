@@ -3,13 +3,8 @@
 // of that operation take effect remotely and then fail as if its response were lost.
 
 import { sha256 } from '../core/sha256';
-import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
 import { STANDING_PARAGRAPH } from '../core/instructions';
-import { fileKey, returnKey, stateKey, versionKey, type ArtifactStore } from '../core/taskArtifacts';
-import type { ReviewTarget } from '../core/resultImporter';
+import { changeKey, fileKey, privateStateKey, requestKey, returnKey, type ArtifactStore } from '../core/taskArtifacts';
 import { ConnectionLostError, MissingError, NoSuchFileError, StartNotConfirmedError, UnconfirmedError, type FolderEntry, type IdlePolicy, type PineConnection, type PineEvent, type PinePort, type PineSession, type SecretVault, type TurnFile, type TurnView } from '../core/pinePort';
 
 interface FakeTurn { id: string; state: string; question: string; summary: string; next: string; cost: number; returned: Map<string, Uint8Array> }
@@ -18,12 +13,12 @@ interface FakeSession { name: string; token: string; taskId: string; turns: Map<
 interface FakeComputer { id: string; state: 'running' | 'stopped' | 'stopping' | 'terminated'; binding: string; revision: number; idleTimeout: number; sessions: Map<string, FakeSession> }
 
 export type TurnPlan = {
-	/** The versions the turn's return asks the person to choose (doc/protocol.md, 4.3, `review`). */
-	review?: ReviewTarget[];
-	/** The Computer side refuses the task (4.3, `refused`) with this message. */
+	/** The Computer side refuses the turn before running it (doc/protocol.md 4.6) with this message. */
 	refused?: string;
-	/** The run broke off (4.3, `failed`) with this message, returning what it finished. */
+	/** The run broke off partway (4.6) with this message, returning what it finished. */
 	failed?: string;
+	/** Pine Computer asks the person this (4.6, `question_for_person`): one of the five stops. */
+	question?: string;
 	state: 'completed' | 'needs_input' | 'running' | 'failed';
 	text?: string;
 	/** The result summary of a turn that stops to ask: Pine sends one with the question, often the same text. */
@@ -34,7 +29,7 @@ export type TurnPlan = {
 	hidden?: Record<string, string | Uint8Array>;
 	/** What the agent reports, in order, after its first progress line: activity events (SDK `AgentActivity`: upsert by id) and its own messages. */
 	steps?: ({ id: string; title: string; state: string } | { said: string })[];
-	/** The task's run is cut off before it returns: no return.json (doc/protocol.md, 4.5). */
+	/** The turn's run is cut off before it returns: its changes are stored, no return.json (doc/protocol.md 4.7). */
 	noReturn?: boolean;
 };
 
@@ -135,56 +130,54 @@ export class FakePine implements PinePort {
 	}
 
 	/**
-	 * The Computer side of a task (doc/protocol.md, 4.3), as drama-cli's task helper returns it: each version folder the
-	 * turn wrote under drama/ (a path up to its vN or tNN segment) becomes a tar archive, each file under its reviews/ a
-	 * review file, and return.json is written last. A message that does not start a task returns nothing this way; `skip`
-	 * leaves the task without a return.
+	 * The Computer side of a turn, protocol major 2 (doc/protocol.md 4.3, 4.6): each file the turn wrote under drama/ is one
+	 * change, its bytes stored at files/<hash> first, numbered from 1 with the previous change's hash; return.json is written
+	 * last. A message that does not start a turn returns nothing this way; `skip` leaves the turn without a return, its
+	 * changes stored (4.7).
 	 */
-	private returnTask(session: FakeSession, text: string, returned: ReadonlyMap<string, Uint8Array>, skip = false, review: readonly ReviewTarget[] = [], refused?: string, failed?: string): void {
-		const task = /^pine-drama-turn ([\w-]+)/.exec(text)?.[1];
+	private returnTask(session: FakeSession, text: string, returned: ReadonlyMap<string, Uint8Array>, skip = false, refused?: string, failed?: string, question?: string): void {
+		const turn = /^pine-drama-turn ([\w-]+)/.exec(text)?.[1];
 		const computer = [...this.computers.values()].find(c => c.sessions.get(session.name) === session);
 		const store = computer && this.artifactFiles.get(computer.id);
-		const request = task && store?.get(`turns/${task}/request.json`);
-		if (!task || !store || !request || skip) {
+		if (!turn || !store || !store.get(requestKey(turn))) {
 			return;
 		}
-		const scope = (JSON.parse(request.toString('utf8')) as { scope: string }).scope;
 		if (refused) {
-			store.set(returnKey(task), Buffer.from(JSON.stringify({ schema: 1, turn: task, state: 'refused', error: { code: 'invalid', message: refused } })));
+			store.set(returnKey(turn), Buffer.from(JSON.stringify({ schema: 2, turn_id: turn, state: 'pine_computer_refused_the_turn_before_running', error: { code: 'pine_computer_found_request_not_matching_protocol', message: refused } })));
 			return;
 		}
-		const folders = new Map<string, [string, Buffer][]>();
-		const reviews: Record<string, string> = {};
-		for (const [path, bytes] of returned) {
+		// A change is one result: the files of one object folder, an output with its receipt (doc/protocol.md 4.3). Changes
+		// go after those the turn stored already, each written once.
+		let number = [...store.keys()].filter(k => k.startsWith(`turns/${turn}/changes/`)).length;
+		let previous: Buffer | null = number ? store.get(changeKey(turn, number))! : null;
+		// What the turn's stored changes wrote last, by path: a file returned again unchanged is no new change.
+		const written = new Map<string, string | null>();
+		for (let n = 1; n <= number; n++) {
+			for (const [path, hash] of Object.entries((JSON.parse(store.get(changeKey(turn, n))!.toString('utf8')) as { files_after_change: Record<string, string | null> }).files_after_change)) { written.set(path, hash); }
+		}
+		const byFolder = new Map<string, Record<string, string>>();
+		for (const [path, content] of returned) {
 			if (!path.startsWith('drama/')) { continue; }
+			const bytes = Buffer.from(content);
 			const rel = path.slice('drama/'.length);
-			const parts = rel.split('/');
-			const at = parts.findIndex((part, i) => i > 0 && i < parts.length - 1 && /^(v\d+|t\d{2,})$/.test(part));
-			if (at < 0) { continue; }
-			const folder = parts.slice(0, at + 1).join('/');
-			const inside = parts.slice(at + 1).join('/');
-			if (inside.startsWith('reviews/')) {
-				reviews[rel] = sha256(Buffer.from(bytes));
-				store.set(fileKey(reviews[rel]), Buffer.from(bytes));
-			} else {
-				folders.set(folder, [...(folders.get(folder) ?? []), [inside, Buffer.from(bytes)]]);
-			}
+			if (written.get(rel) === sha256(bytes)) { continue; }
+			store.set(fileKey(sha256(bytes)), bytes);
+			const folder = rel.slice(0, rel.lastIndexOf('/') + 1);
+			byFolder.set(folder, { ...byFolder.get(folder), [rel]: sha256(bytes) });
 		}
-		const versions: Record<string, string> = {};
-		for (const [folder, files] of folders) {
-			const dir = mkdtempSync(join(tmpdir(), 'fake-version-'));
-			for (const [inside, bytes] of files) { mkdirSync(dirname(join(dir, inside)), { recursive: true }); writeFileSync(join(dir, inside), bytes); }
-			const archive = `${dir}.tar`;
-			execFileSync('tar', ['-cf', archive, '-C', dir, ...files.map(([inside]) => inside)]);
-			const bytes = readFileSync(archive);
-			versions[folder] = sha256(bytes);
-			store.set(versionKey(versions[folder]), bytes);
+		for (const files of byFolder.values()) {
+			const change: Buffer = Buffer.from(JSON.stringify({ schema: 2, turn_id: turn, change_number: ++number, previous_change_sha256: previous && sha256(previous), files_after_change: files }));
+			store.set(changeKey(turn, number), change);
+			previous = change;
 		}
-		const state = Buffer.from(`private state of ${task}`);
-		store.set(stateKey(sha256(state)), state);
-		store.set(returnKey(task), Buffer.from(JSON.stringify({ schema: 1, turn: task, state: failed ? 'failed' : review.length ? 'stopped' : 'ended', ...(failed ? { error: { code: 'failed', message: failed } } : {}), versions, reviews, private_state: sha256(state),
-			snapshot: { observed_at: '2026-11-12T10:00:00Z', objects: {}, edges: [] }, problems: [], ...(review.length ? { question: 'Choose', review } : {}) })));
-		void scope;
+		if (skip) { return; }
+		const state = Buffer.from(`private state of ${turn}`);
+		store.set(privateStateKey(sha256(state)), state);
+		store.set(returnKey(turn), Buffer.from(JSON.stringify({
+			schema: 2, turn_id: turn, state: failed ? 'pine_computer_broke_off_the_turn_partway' : question ? 'pine_computer_is_waiting_for_person_answer' : 'pine_computer_finished_the_work',
+			last_change: previous && { change_number: number, sha256: sha256(previous) }, session_private_state: sha256(state), pine_computer_could_not_do: [],
+			...failed ? { error: { code: 'pine_computer_broke_off_the_work', message: failed } } : {}, ...question ? { question_for_person: question } : {},
+		})));
 	}
 
 
@@ -286,7 +279,7 @@ export class FakePine implements PinePort {
 			session.files.set(path, bytesOf(content));
 		}
 		session.turns.set(turn.id, turn);
-		this.returnTask(session, text, turn.returned, plan.noReturn, plan.review, plan.refused, plan.failed);
+		this.returnTask(session, text, turn.returned, plan.noReturn, plan.refused, plan.failed, plan.question);
 		const id = () => session.events.length + 1;
 		session.inputs.push({ kind: 'run', text, turnId: turn.id, eventId: session.events.length });
 		const base = { taskId: session.taskId, turnId: turn.id, text: '' };
@@ -346,7 +339,7 @@ export class FakePine implements PinePort {
 						session.files.set(path, bytesOf(content));
 					}
 					const input = session.inputs.find(i => i.turnId === turnId);
-					this.returnTask(session, input?.text ?? '', turn.returned, plan.noReturn, plan.review, plan.refused, plan.failed);
+					this.returnTask(session, input?.text ?? '', turn.returned, plan.noReturn, plan.refused, plan.failed, plan.question);
 					return;
 				}
 			}

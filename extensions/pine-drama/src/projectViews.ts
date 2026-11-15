@@ -295,7 +295,8 @@ export interface ProjectViews {
  * Step 5). The tree views are created once; only their providers' project changes.
  * `opened` is told the views when the window's project first appears.
  */
-export async function registerProjectViews(context: vscode.ExtensionContext, output: vscode.OutputChannel, opened: (views: ProjectViews) => void): Promise<ProjectFinder> {
+export async function registerProjectViews(context: vscode.ExtensionContext, output: vscode.OutputChannel, opened: (views: ProjectViews) => void,
+	makingNow: (root: string) => ReadonlySet<string>): Promise<ProjectFinder> {
 	const projectTree = new ProjectProvider();
 	const versions = new TimelineProvider();
 	projectTree.folders = () => (vscode.workspace.workspaceFolders ?? []).filter(folder => folder.uri.scheme === 'file').map(folder => folder.uri.fsPath);
@@ -308,7 +309,7 @@ export async function registerProjectViews(context: vscode.ExtensionContext, out
 	/** The project the views show now; the commands act on it. */
 	const current = (): DramaProject => {
 		if (!projectTree.project) {
-			throw new Error('No drama is open: this folder has no choices.json.');
+			throw new Error(`No drama is open: this folder has no ${PROJECT_MARKER_FILE}.`);
 		}
 		return projectTree.project;
 	};
@@ -429,20 +430,20 @@ export async function registerProjectViews(context: vscode.ExtensionContext, out
 		() => (vscode.workspace.workspaceFolders ?? []).filter(folder => folder.uri.scheme === 'file').map(folder => folder.uri.fsPath),
 		async root => {
 			if (root && first && root !== first.project.root) {
-				// A choices.json made at the folder's top after its drama/ arrived: rootIn now prefers the folder.
+				// A project marker made at the folder's top after its drama/ arrived: rootIn now prefers the folder.
 				output.appendLine(`project: ${root} is now this folder's drama project; this window shows ${first.project.root} until it is reloaded`);
 				// Not awaited: a scan waiting on the person would hold back every later scan.
 				void vscode.window.showWarningMessage(`Pine: ${root} is now this folder's drama project. Production shows ${first.project.root} until you reload the window.`, 'Reload Window')
 					.then(reload => reload && vscode.commands.executeCommand('workbench.action.reloadWindow'));
 				return;
 			}
-			const project = root ? first?.project ?? new DramaProject(root) : undefined;
+			const project = root ? first?.project ?? new DramaProject(root, false, () => makingNow(root)) : undefined;
 			projectTree.project = project;
 			versions.project = project;
 			await vscode.commands.executeCommand('setContext', 'pineDrama.projectOpen', !!project);
 			await showMajor1Project(!project);
 			if (!project) {
-				output.appendLine(`project: ${first?.project.root} is no longer a drama (its choices.json is gone)`);
+				output.appendLine(`project: ${first?.project.root} is no longer a drama (its ${PROJECT_MARKER_FILE} is gone)`);
 				latest.next();
 				await clearVersions();
 				projectTree.refresh();

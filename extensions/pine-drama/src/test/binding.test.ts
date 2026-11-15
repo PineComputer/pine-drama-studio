@@ -40,7 +40,7 @@ async function drain(updates: AsyncGenerator<Update>): Promise<string> {
 }
 const send = (service: ChatService, text: string, folder: string, key = KEY) => drain(service.submit(key, text, text, folder));
 
-const SAID = (root: string) => `This project's root is \`${root}\`. The Pine Computer's returned results are published here.`;
+const SAID = (root: string) => `This project's root is \`${root}\`. Its files go to the Pine Computer with each turn, and the turn's results land here as they finish; the project's history keeps whatever they replace.`;
 
 // A folder that holds no drama-cli project is used whatever else it holds.
 test('a new binding takes any folder that holds no drama-cli project; a project at its root is adopted, one below it refuses', () => {
@@ -49,14 +49,7 @@ test('a new binding takes any folder that holds no drama-cli project; a project 
 	assert.deepEqual(entryFor([], '/p', KEY, empty), { kind: 'go', bind: true, note: SAID(empty) });
 	const emptyDrama = folder('empty-drama');
 	mkdirSync(join(emptyDrama, 'drama'));
-	assert.deepEqual(entryFor([], '/p', KEY, emptyDrama), { kind: 'go', bind: true, note: SAID(emptyDrama) }, 'an empty folder inside carries nothing');
-	const notes = folder('notes');
-	mkdirSync(join(notes, 'drama'));
-	writeFileSync(join(notes, 'drama', 'notes.md'), 'the person\'s');
-	assert.deepEqual(entryFor([], '/p', KEY, notes), { kind: 'go', bind: true, note: SAID(notes) }, 'only inputs/ and person-attachments/ travel');
-	mkdirSync(join(notes, 'inputs'));
-	writeFileSync(join(notes, 'inputs', 'notes.md'), 'the person\'s');
-	assert.deepEqual(entryFor([], '/p', KEY, notes), { kind: 'go', bind: true, note: `${SAID(notes)} Its 1 file under inputs/, person-attachments/ (under 0.1 MB) goes to the Pine Computer with each task, and no result replaces it.` });
+	assert.deepEqual(entryFor([], '/p', KEY, emptyDrama), { kind: 'go', bind: true, note: SAID(emptyDrama) }, 'a folder of the person\'s files is no project');
 	const project = folder('double-life');
 	writeFileSync(join(project, 'pine-drama-project.json'), '{"schema":2}\n');
 	assert.deepEqual(entryFor([], '/p', KEY, project), { kind: 'adopt', folder: project });
@@ -73,19 +66,6 @@ test('a new binding takes any folder that holds no drama-cli project; a project 
 	const below = folder('holder/old');
 	writeFileSync(join(below, 'choices.json'), '{"schema":1}\n');
 	assert.deepEqual(entryFor([], '/p', KEY, holder), { kind: 'inside', folder: holder, project: below }, 'nor is one swept into a folder above it');
-});
-
-// Only the client files travel (doc/protocol.md, 3.3), and of them no hidden name (transportedPath).
-test('the note counts only the files that travel: the client folders, less .DS_Store, .git and .env', () => {
-	const { folder } = setup();
-	const finder = folder('finder');
-	mkdirSync(join(finder, 'inputs'));
-	for (const name of ['.DS_Store', '.env']) { writeFileSync(join(finder, 'inputs', name), 'x'); }
-	mkdirSync(join(finder, 'inputs', '.git')); writeFileSync(join(finder, 'inputs', '.git', 'HEAD'), 'ref: refs/heads/main');
-	writeFileSync(join(finder, 'notes.txt'), 'the person\'s, outside inputs/');
-	assert.deepEqual(entryFor([], '/p', KEY, finder), { kind: 'go', bind: true, note: SAID(finder) });
-	writeFileSync(join(finder, 'inputs', 'Thumbs.db'), 'explorer'); writeFileSync(join(finder, 'inputs', 'notes.txt'), 'the person\'s');
-	assert.deepEqual(entryFor([], '/p', KEY, finder), { kind: 'go', bind: true, note: `${SAID(finder)} Its 2 files under inputs/, person-attachments/ (under 0.1 MB) go to the Pine Computer with each task, and no result replaces them.` });
 });
 
 test('a bound session goes on in its folder and is refused elsewhere; a Chat of no project joins it as a session (D48)', () => {
