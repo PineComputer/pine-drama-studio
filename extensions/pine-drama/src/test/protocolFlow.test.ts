@@ -8,6 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { ChatService, type Update } from '../core/chats';
+import { UnconfirmedError } from '../core/pinePort';
 import { Store } from '../core/store';
 import { FakePine, MemoryVault } from './fakePine';
 import { testProtocol } from './protocolFixture';
@@ -242,7 +243,7 @@ test('Stop while the Computer starts: nothing goes up, no turn starts, and nothi
 	} finally { f.store.close(); }
 });
 
-test('Stop while a turn runs: Pine cancels it, what its agent changed lands, the Chat says how Pine ended it, and the next message goes', async () => {
+test('Stop while a turn runs: Pine cancels it, what its agent changed lands with no message sent, the Chat says how Pine ended it, and the next message goes', async () => {
 	const f = fixture();
 	try {
 		f.pine.plans = [{ state: 'running', files: made('assets/props/a', 'half of a') }];
@@ -254,22 +255,44 @@ test('Stop while a turn runs: Pine cancels it, what its agent changed lands, the
 		stop(updates, abort);
 		await reading;
 		assert.equal(f.pine.turnState(turn), 'canceled', 'cancelled while the reply waited on the turn, which sends nothing');
+		// The reply is closed, and nothing else is sent: the Stop's own pass follows the turn to its end and lands its files.
+		await until(() => existsSync(join(f.root, 'assets/props/a/picture.png')) && !f.service.hasUnfinishedTurnFollowUp('main'), 'the stopped turn\'s files land');
+		assert.equal(readFileSync(join(f.root, 'assets/props/a/picture.png'), 'utf8'), 'half of a');
+		assert.equal(f.pine.calls.run, 1, 'no message was sent for it');
 		f.pine.plans = [{ state: 'completed', text: 'b is drawn' }];
 		assert.match(f.said(await f.send('draw b')), /b is drawn/);
-		assert.equal(readFileSync(join(f.root, 'assets/props/a/picture.png'), 'utf8'), 'half of a', 'what it changed landed before the next turn went');
 		assert.deepEqual(f.store.messages('main').filter(m => m.turn_id === turn && m.kind === 'result').map(m => m.text), ['You stopped this turn.'], 'how Pine ended the stopped turn, once');
 		assert.notEqual(f.store.chat('main')?.state, 'failed', 'a Stop is no failure');
 	} finally { f.store.close(); }
 });
 
-test('a Stop that reaches the run on its way: the turn Pine started for it is cancelled, and the reply ends', async () => {
+test('a Stop that reaches the run on its way: the turn Pine started for it is cancelled, the reply ends, and what it changed lands', async () => {
 	const f = fixture();
 	try {
-		f.pine.plans = [{ state: 'running' }];
+		f.pine.plans = [{ state: 'running', files: made('assets/props/a', 'a, cut short') }];
 		const abort = new AbortController();
 		const run = f.pine.run.bind(f.pine);
 		f.pine.run = async (...args: Parameters<FakePine['run']>) => { abort.abort(); return run(...args); };
 		await drain(f.service.submit('main', 'draw a', 'Project Chat', f.root, abort.signal));
+		assert.equal(lastTurnState(f), 'canceled');
+		await until(() => existsSync(join(f.root, 'assets/props/a/picture.png')) && !f.service.hasUnfinishedTurnFollowUp('main'), 'the stopped turn\'s files land');
+		assert.equal(f.store.chat('main')?.state, 'idle', 'the Chat is idle, as after any Stop');
+	} finally { f.store.close(); }
+});
+
+test('a Stop whose cancel Pine took but whose answer was lost still lands what the turn changed', async () => {
+	const f = fixture();
+	try {
+		f.pine.plans = [{ state: 'running', files: made('assets/props/a', 'a, cut short') }];
+		const cancel = f.pine.cancel.bind(f.pine);
+		f.pine.cancel = async (...args: Parameters<FakePine['cancel']>) => { await cancel(...args); throw new UnconfirmedError('cancel: response lost'); };
+		const abort = new AbortController();
+		const updates = f.service.submit('main', 'draw a', 'Project Chat', f.root, abort.signal);
+		const reading = drain(updates);
+		await until(() => f.store.chat('main')?.state === 'running', 'the turn runs');
+		stop(updates, abort);
+		await reading;
+		await until(() => existsSync(join(f.root, 'assets/props/a/picture.png')) && !f.service.hasUnfinishedTurnFollowUp('main'), 'the stopped turn\'s files land');
 		assert.equal(lastTurnState(f), 'canceled');
 	} finally { f.store.close(); }
 });

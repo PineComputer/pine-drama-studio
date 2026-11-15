@@ -489,7 +489,7 @@ export class ChatService {
 				yield* this.streamPineTurnEvents(key, env, epoch, session, signal);
 			}
 		} finally {
-			if (signal?.aborted && !following) { await this.cancelTurn(key); }
+			if (signal?.aborted && !following) { await this.stopTurn(key); }
 		}
 	}
 
@@ -1026,9 +1026,38 @@ export class ChatService {
 	}
 
 	/**
-	 * The person's Stop of a followed turn (streamPineTurnEvents): Pine cancels the Chat's turn, the one it runs or that
-	 * waits on a question (PinePort.cancel). The follow then reads it `canceled`, and what it changed lands as any turn's
-	 * does. A Chat with no turn of its own running has nothing to cancel.
+	 * The person's Stop, and the one owner of what follows it: Pine cancels the Chat's turn (cancelTurn), then the turn is
+	 * followed to its end and collected here, whatever became of the reply the Stop closed (Code-OSS stops reading a
+	 * cancelled request's reply, pineSessions.ts reply), so what it changed reaches the project while the Computer still
+	 * has it. That pass waits in the Chat's line behind the reply it closed, so one follower at a time follows the turn,
+	 * and it runs whether or not Pine confirmed the cancel: a cancel whose answer was lost may still have ended the turn.
+	 */
+	private async stopTurn(key: string): Promise<void> {
+		try {
+			await this.cancelTurn(key);
+		} finally {
+			this.followStoppedTurn(key);
+		}
+	}
+
+	/** stopTurn's pass: the Chat's turn followed to its end and collected, in the Chat's line, logged. */
+	private followStoppedTurn(key: string): void {
+		void (async () => {
+			const release = await this.queueExecution(key);
+			try {
+				// Not a reply the person sees: what it says is in the Chat's history, and logged.
+				for await (const update of this.attachChatToPineTurn(key)) {
+					if (update.kind !== 'progress') { this.log(`${key}: after Stop: ${update.text.trim()}`); }
+				}
+			} finally {
+				release();
+			}
+		})().catch(error => this.log(`${key}: after Stop, the turn could not be followed to its end: ${(error as Error).stack ?? error}`));
+	}
+
+	/**
+	 * Pine cancels the Chat's turn, the one it runs or that waits on a question (PinePort.cancel). A Chat with no turn of
+	 * its own running has nothing to cancel.
 	 */
 	private async cancelTurn(key: string): Promise<void> {
 		const conv = this.store.chat(key);
@@ -1181,8 +1210,8 @@ export class ChatService {
 	 * (src/vs/workbench/contrib/remote/browser/remote.ts:1011); a reload attaches to the turn again (attachChatToPineTurn).
 	 */
 	private async *streamPineTurnEvents(key: string, env: PineConnection, epoch: number, session: PineSession, signal?: AbortSignal): AsyncGenerator<Update> {
-		// The person's Stop (`signal`) cancels the turn this follows, whenever it comes; the follow then reads it canceled.
-		const stop = () => void this.cancelTurn(key).catch(error => this.log(`${key}: Stop: ${(error as Error).message}`));
+		// The person's Stop (`signal`) cancels the turn this follows, whenever it comes (stopTurn).
+		const stop = () => void this.stopTurn(key).catch(error => this.log(`${key}: Stop: ${(error as Error).message}`));
 		if (signal?.aborted) { stop(); } else { signal?.addEventListener('abort', stop, { once: true }); }
 		try {
 			yield* this.followTurnWithReconnects(key, env, epoch, session);
