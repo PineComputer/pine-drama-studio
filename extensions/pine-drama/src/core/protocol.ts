@@ -38,6 +38,9 @@ export const PROJECT_MARKER_FILE = 'pine-drama-project.json';
 /** An object's own file, in its folder: a folder holding it is an object (doc/protocol.md 2.2, `$defs/object`). */
 export const OBJECT_FILE = 'object.json';
 
+/** The bible's story part beside its shown file, which lists the drama's episodes (drama-cli's bible.json, short_drama drama_cli/artifacts.py). */
+export const BIBLE_STORY_FILE = 'bible.json';
+
 /** The text the person and Pine Computer edit in an object's folder (doc/protocol.md 2.2). */
 export const DESCRIPTION_FILE = 'description.md';
 export const PROMPT_FILE = 'prompt.md';
@@ -65,7 +68,7 @@ export const DRAMA_FOLDER = 'drama';
 /** The folder of the files the person attaches to a note or a chat message, `<id>.<ext>` (doc/protocol.md section 3). */
 export const PERSON_ATTACHMENTS_FOLDER = 'person-attachments';
 
-export type ObjectType = 'episode' | 'screenplay' | 'bible' | 'character' | 'scene' | 'prop' | 'variant' | 'breakdown'
+export type ObjectType = 'screenplay' | 'bible' | 'character' | 'scene' | 'prop' | 'variant' | 'breakdown'
 	| 'storyboard' | 'keyframe' | 'video_prompts' | 'take' | 'cut' | 'subtitles';
 
 export interface Edge {

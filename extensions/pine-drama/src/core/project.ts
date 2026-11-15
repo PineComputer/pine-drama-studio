@@ -9,7 +9,7 @@ import { join } from 'node:path';
 import { CHOICES_FILE } from './major1';
 import { noFileThere, throughNoLink, writeWhole } from './placement';
 import { projectIdentity } from './projectPlace';
-import { DESCRIPTION_FILE, OBJECT_FILE, PAID_CALL_ATTEMPT, PAID_CALL_LEDGER, PAID_CALL_LEDGER_BEFORE, PAID_CALL_UNDER_WAY, PINE_COMPUTER_RECORDS, PROJECT_MARKER_FILE, PROMPT_FILE, RECEIPT_SUFFIX, majorTwo, type Edge, type ObjectType } from './protocol';
+import { BIBLE_STORY_FILE, DESCRIPTION_FILE, OBJECT_FILE, PAID_CALL_ATTEMPT, PAID_CALL_LEDGER, PAID_CALL_LEDGER_BEFORE, PAID_CALL_UNDER_WAY, PINE_COMPUTER_RECORDS, PROJECT_MARKER_FILE, PROMPT_FILE, RECEIPT_SUFFIX, majorTwo, type Edge, type ObjectType } from './protocol';
 
 
 
@@ -57,9 +57,16 @@ export interface ProjectObject {
 	readonly makingNow: boolean;
 }
 
+/** What the Studio reads of the bible's story part (drama-cli's schemas/bible.py Bible): its episodes, each with its id and title. */
+interface BibleStory {
+	readonly episodes: readonly { readonly id: string; readonly title: string }[];
+}
+
 /** The project as every view reads it, from its folder alone (readProjectFromFolder). */
 export interface ProjectReadModel {
 	readonly objects: ReadonlyMap<string, ProjectObject>;
+	/** The drama's episodes, as the bible lists them and in its order: each its folder and name (`EP001 The Interview`), the one list every view names episodes from. */
+	readonly episodes: readonly { readonly id: string; readonly name: string }[];
 	/** Each variant's derivation and each relation its object.json states, between objects the project holds. */
 	readonly edges: readonly ObjectEdge[];
 }
@@ -171,10 +178,17 @@ export async function readProjectFromFolder(projectRoot: string): Promise<Projec
 		objectsSentByDrawRequest: Array.isArray(raw.objects_sent_by_draw_request) ? raw.objects_sent_by_draw_request.map(String) : [],
 		makingNow: making.has(id), ...files,
 	}]));
+	// The episodes are the bible's, as its story part lists them (drama-cli's bible.json in the bible's folder, which its
+	// schema checks: short_drama drama_cli/artifacts.py, schemas/bible.py); no episode is an object. None before the bible.
+	const bible = read.find(o => o.raw.type === 'bible');
+	const story = bible ? await readTextOrNull(join(projectRoot, ...bible.id.split('/'), BIBLE_STORY_FILE)) : null;
+	const episodes = story === null ? [] : (JSON.parse(story) as BibleStory).episodes.map(e => ({ id: `episodes/${e.id}`, name: `${e.id} ${e.title}` }));
+	// A relation names an object or an episode (an asset `appears_in` one).
+	const targets = new Set([...ids, ...episodes.map(e => e.id)]);
 	const relations = read.flatMap(({ id, raw }) => (Array.isArray(raw.relations) ? raw.relations : []).map((r: unknown) => ({ from: id, to: String(Object(r).to), kind: Object(r).kind })));
 	const edges: ObjectEdge[] = [...[...objects.values()].filter(o => o.variantOf).map(o => ({ from: o.id, to: o.variantOf!, kind: 'variant_of' as const })), ...relations]
-		.filter(e => ids.has(e.from) && ids.has(e.to));
-	return { objects, edges };
+		.filter(e => ids.has(e.from) && targets.has(e.to));
+	return { objects, episodes, edges };
 }
 
 
@@ -211,7 +225,6 @@ export function roleOf(drama: ProjectReadModel, object: ProjectObject): Role {
 			const root = drama.objects.get(variantRoot(drama, object.id));
 			return root?.type === 'character' ? 'look' : root?.type === 'scene' ? 'view' : 'prop';
 		}
-		case 'episode': return 'episode';
 		case 'breakdown': return 'breakdown';
 		case 'storyboard': case 'keyframe': return 'storyboard';
 		case 'take': return 'segment';
@@ -231,10 +244,10 @@ export function variantRoot(drama: { readonly edges: readonly { readonly from: s
 	return at;
 }
 
-/** Script's row of each episode, in episode order: its breakdown once it has one, which the row describes; it opens the screenplay. */
+/** Script's row of each episode, in the bible's order: its breakdown once it has one, which the row describes; it opens the screenplay. */
 function scriptRows(drama: ProjectReadModel): OutlineNode[] {
-	const objects = [...drama.objects.values()].sort((a, b) => (a.id < b.id ? -1 : 1));
-	return objects.filter(ep => ep.type === 'episode').map(ep => {
+	const objects = [...drama.objects.values()];
+	return drama.episodes.map(ep => {
 		const breakdown = objects.find(b => b.type === 'breakdown' && episodeIn(b.id) === episodeIn(ep.id));
 		return breakdown
 			? { ...stage(drama, breakdown, ep.name, false), episode: ep.id }
@@ -384,7 +397,7 @@ export class DramaProject {
 				return ofType(ASSET_GROUPS.find(([, , role]) => role === node.role)![3]).map(o => stage(drama, o, o.name, variantsOf(drama, o.id).length > 0));
 			case 'episodes':
 				// An episode is one row, which opens its seg editor (DESIGN-2026-11-08, R1).
-				return ofType('episode').map(ep => ({ ...group(ep.id, ep.name, 'episode'), hasChildren: false }));
+				return drama.episodes.map(ep => ({ ...group(ep.id, ep.name, 'episode'), hasChildren: false }));
 			default:
 				return node.stagePath ? variantsOf(drama, node.stagePath).map(o => stage(drama, o, o.name, variantsOf(drama, o.id).length > 0)) : [];
 		}

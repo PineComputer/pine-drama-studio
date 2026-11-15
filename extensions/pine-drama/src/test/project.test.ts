@@ -25,7 +25,7 @@ test('every folder holding object.json is an object, with its shown file, its re
 	const drama = await readProjectFromFolder(copy('full'));
 	assert.deepEqual([...drama.objects.keys()].sort(), [
 		'assets/characters/lin', 'assets/characters/lin/variants/rain', 'assets/props/umbrella', 'assets/scenes/office', 'assets/scenes/street', 'bible',
-		'episodes/EP001', 'episodes/EP001/breakdown', 'episodes/EP001/keyframe/seg01/shot01', 'episodes/EP001/segments/seg01', 'episodes/EP001/segments/seg02', 'screenplay',
+		'episodes/EP001/breakdown', 'episodes/EP001/keyframe/seg01/shot01', 'episodes/EP001/segments/seg01', 'episodes/EP001/segments/seg02', 'screenplay',
 	]);
 	const lin = drama.objects.get('assets/characters/lin')!;
 	assert.deepEqual([lin.type, lin.name, lin.shownFile, lin.episode, lin.description, lin.prompt],
@@ -49,7 +49,6 @@ test("the edges are each variant's derivation and the relations object.json stat
 	const drama = await readProjectFromFolder(root);
 	assert.deepEqual(drama.edges.map(e => `${e.kind} ${e.from} → ${e.to}`).sort(), [
 		'appears_in assets/characters/lin → episodes/EP001',
-		'needs episodes/EP001 → assets/props/umbrella',
 		'variant_of assets/characters/lin/variants/rain → assets/characters/lin',
 	]);
 });
@@ -61,7 +60,7 @@ test('a folder without object.json, or under a name starting with ".", is no obj
 	mkdirSync(join(root, '.git/thing'), { recursive: true });
 	writeFileSync(join(root, '.git/thing/object.json'), JSON.stringify({ schema: 2, type: 'prop', name: 'Hidden', shown_file: null }));
 	const drama = await readProjectFromFolder(root);
-	assert.deepEqual([...drama.objects.keys()].sort(), ['assets/characters/lin', 'assets/props/umbrella', 'assets/scenes/office', 'bible', 'episodes/EP001', 'screenplay']);
+	assert.deepEqual([...drama.objects.keys()].sort(), ['assets/characters/lin', 'assets/props/umbrella', 'assets/scenes/office', 'bible', 'screenplay']);
 	assert.ok([...drama.objects.values()].filter(o => o.type === 'character' || o.type === 'scene' || o.type === 'prop').every(o => o.shownFile === null),
 		'right after the bible every asset is planned');
 });
@@ -87,12 +86,16 @@ test('an object is being made while Pine Computer\'s records hold a paid call fo
 	assert.deepEqual([...drama.objects.values()].filter(o => o.makingNow).map(o => o.id).sort(), ['assets/characters/lin', 'assets/scenes/office', 'screenplay']);
 });
 
+test('a project right after its bible lists the episodes the bible lists, under Episodes, and an asset says the episodes it appears in', async () => {
+	const project = new DramaProject(copy('after-bible'));
+	const episodes = (await project.children()).find(node => node.role === 'episodes')!;
+	assert.deepEqual((await project.children(episodes)).map(row => [row.id, row.label]), [['episodes/EP001', 'EP001 The Interview']]);
+	assert.deepEqual((await project.drama()).edges.filter(e => e.kind === 'appears_in'), [{ from: 'assets/characters/lin', to: 'episodes/EP001', kind: 'appears_in' }]);
+});
+
 test('Script lists the episodes under way, folds the ones not started into one row, and says so in plain words', async () => {
 	const root = copy('full');
-	for (const [id, name] of [['EP002', 'EP002 Second'], ['EP003', 'EP003 Third']]) {
-		mkdirSync(join(root, 'episodes', id), { recursive: true });
-		writeFileSync(join(root, 'episodes', id, 'object.json'), JSON.stringify({ schema: 2, type: 'episode', name, shown_file: null }));
-	}
+	writeFileSync(join(root, 'bible/bible.json'), JSON.stringify({ episodes: [{ id: 'EP001', title: 'The Interview' }, { id: 'EP002', title: 'Second' }, { id: 'EP003', title: 'Third' }] }));
 	const project = new DramaProject(root);
 	const [script] = await project.children();
 	const rows = await project.children(script);
@@ -121,7 +124,6 @@ test("an object's name for the person: a variant after its asset, an episode's o
 	const drama = await readProjectFromFolder(copy('full'));
 	assert.equal(objectTitle(drama, 'assets/characters/lin/variants/rain'), 'Lin · In the rain');
 	assert.equal(objectTitle(drama, 'episodes/EP001/segments/seg02'), 'EP001 · seg02');
-	assert.equal(objectTitle(drama, 'episodes/EP001'), 'EP001 The Interview');
 	assert.equal(objectTitle(drama, 'assets/props/kettle'), 'kettle', 'an object the project does not hold, by its folder');
 });
 

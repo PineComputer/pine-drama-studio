@@ -7,7 +7,7 @@ import type { ProjectObject, ProjectReadModel } from './project';
 
 /** The object types in pipeline order (doc/protocol.md, section 5.1): a card's column. */
 export const TYPES: readonly ObjectType[] = [
-	'episode', 'screenplay', 'bible', 'character', 'scene', 'prop', 'variant', 'breakdown', 'storyboard', 'keyframe', 'video_prompts', 'take', 'cut', 'subtitles',
+	'screenplay', 'bible', 'character', 'scene', 'prop', 'variant', 'breakdown', 'storyboard', 'keyframe', 'video_prompts', 'take', 'cut', 'subtitles',
 ];
 export type LineageKind = ObjectType;
 
@@ -46,7 +46,7 @@ export interface Lineage {
 
 export { ASSETS_CANVAS } from './canvasProtocol';
 
-const TEXT: ReadonlySet<ObjectType> = new Set(['screenplay', 'bible', 'breakdown', 'video_prompts', 'subtitles', 'episode']);
+const TEXT: ReadonlySet<ObjectType> = new Set(['screenplay', 'bible', 'breakdown', 'video_prompts', 'subtitles']);
 const ASSET: Readonly<Record<string, string>> = { character: 'Characters', scene: 'Locations', prop: 'Props' };
 
 /** The asset an object is, or derives from down its `variant_of` chain; undefined for any other object. */
@@ -101,7 +101,7 @@ function lineageOf(drama: ProjectReadModel, kept: readonly ProjectObject[]): Lin
  * used), with the lines among those. `episode` is its folder name (`EP001`).
  */
 export function episodeLineage(drama: ProjectReadModel, episode: string): Lineage {
-	const own = [...drama.objects.values()].filter(o => o.episode === episode && o.type !== 'episode');
+	const own = [...drama.objects.values()].filter(o => o.episode === episode);
 	const used = new Set(own.flatMap(o => inputsOf(o)));
 	return lineageOf(drama, [...own, ...[...drama.objects.values()].filter(o => o.episode !== episode && used.has(o.id))]);
 }

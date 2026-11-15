@@ -148,7 +148,7 @@ class ProjectProvider implements vscode.TreeDataProvider<OutlineNode> {
 			sections = readFile(uri.fsPath, 'utf8').then(sectionLines, () => []);
 			this.sections.set(drama, sections);
 		}
-		const episodes = [...drama.objects.values()].filter(o => o.type === 'episode').map(o => o.id).sort();
+		const episodes = drama.episodes.map(e => e.id);
 		return { uri, line: (await sections)[episodes.indexOf(node.episode)] ?? 0 };
 	}
 

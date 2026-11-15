@@ -57,7 +57,7 @@ An object is a folder holding **`object.json`** (`$defs/object`):
 
 | Field | Meaning |
 |---|---|
-| `type` | `episode`, `screenplay`, `bible`, `character`, `character_face`, `scene`, `scene_floor_plan`, `scene_view`, `prop`, `variant`, `breakdown`, `storyboard`, `keyframe`, `video_prompts`, `take`, `cut` or `subtitles`, in pipeline order. Writers write only these. A client shows an object of a type it does not know as a plain card, and refuses nothing for it. |
+| `type` | `screenplay`, `bible`, `character`, `character_face`, `scene`, `scene_floor_plan`, `scene_view`, `prop`, `variant`, `breakdown`, `storyboard`, `keyframe`, `video_prompts`, `take`, `cut` or `subtitles`, in pipeline order. Writers write only these. A client shows an object of a type it does not know as a plain card, and refuses nothing for it. |
 | `name` | Its name for the person. |
 | `shown_file` | The object's shown file, relative to its folder (image, video or text), or `null` before it has one. Such an object is a planned, empty card. |
 | `variant_of` | For a variant: the object id it derives from. |
