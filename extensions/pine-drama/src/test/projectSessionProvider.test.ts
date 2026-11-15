@@ -35,9 +35,6 @@ const native = {
 	ChatSessionStatus: { InProgress: 1, NeedsInput: 2, Failed: 3, Completed: 0 },
 	MarkdownString: class { value: string; isTrusted: unknown; constructor(value = '') { this.value = value; } appendMarkdown(value: string) { this.value += value; return this; } },
 	ChatResponseMarkdownPart: class { constructor(readonly value: unknown) {} },
-	ChatResponseCommandButtonPart: class { constructor(readonly value: unknown) {} },
-	ChatResponseWarningPart: class { constructor(readonly warning: unknown) {} },
-	ProgressLocation: { Notification: 15 },
 	ChatResponseTurn2: class { constructor(readonly response: unknown[], readonly result: unknown) {} },
 	ChatRequestTurn2: class { constructor(readonly prompt: string) {} },
 	commands: { registerCommand: (id: string, command: (...args: string[]) => Promise<void>) => { commands.set(id, command); return disposable(); }, executeCommand: async (...args: unknown[]) => { calls.push(['command', ...args]); } },
@@ -48,11 +45,7 @@ const native = {
 		getConfiguration: () => ({ get: () => false }),
 	},
 	window: {
-		withProgress: async (options: unknown, task: (progress: { report(update: unknown): void }) => Promise<void>) => {
-			calls.push(['progress-start', options]);
-			try { await task({ report: update => { calls.push(['progress', update]); } }); }
-			finally { calls.push(['progress-end']); }
-		},
+
 		showInformationMessage: async (...args: unknown[]) => { calls.push(['info', ...args]); },
 		showErrorMessage: async (...args: unknown[]) => { calls.push(['error', ...args]); },
 		showWarningMessage: async (...args: unknown[]) => { calls.push(['warning', ...args]); },
@@ -239,20 +232,19 @@ test('an alias retargeted before the first send gives the message back and never
 });
 
 
-test('a row of a kind this build no longer writes, an earlier build\'s, shows in the history as a notice', async () => {
+test('the Studio\'s notices show in the history as one markdown part, each in italics', async () => {
 	const f = fixture(); f.add('main', f.root, 'main');
 	try {
 		f.service.history = () => [
 			{ kind: 'prompt', text: 'Draw Lin', turn_id: null },
 			{ kind: 'notice', text: 'Before.', turn_id: null },
-			{ kind: 'unused', text: 'This task\'s result was not used: x does not match its hash.', turn_id: null },
 			{ kind: 'notice', text: 'After.', turn_id: null },
 		] as unknown as ReturnType<ChatService['history']>;
 		const session = await content.provideChatSessionContent(Uri.parse('main') as unknown as vscode.Uri, {} as vscode.CancellationToken, {} as Parameters<vscode.ChatSessionContentProvider['provideChatSessionContent']>[2]);
 		const response = (session.history as vscode.ChatResponseTurn2[]).find(r => Array.isArray(r.response))!;
 		const parts = response.response as unknown as { value?: { value?: string } | string }[];
 		assert.equal(parts.length, 1, 'one markdown part');
-		assert.match(JSON.stringify(parts[0].value), /_Before\._[^]*_This task's result was not used: x does not match its hash\._[^]*_After\._/);
+		assert.match(JSON.stringify(parts[0].value), /_Before\._[^]*_After\._/);
 	} finally { f.store.close(); }
 });
 

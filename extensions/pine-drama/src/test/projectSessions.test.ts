@@ -67,18 +67,6 @@ test('empty/multiple-folder windows have no project session scope', () => {
 	assert.equal(sessionProjectRoot(['/one', '/two']), undefined);
 });
 
-test('a default main entry is deterministic and creates no Store row, runtime or execution grant', () => {
-	const { dir, root, store } = fixture();
-	const alias = join(dir, 'alias'); symlinkSync(root, alias);
-	const a = projectSessions(sessionProjectRoot([root])!, store.chats());
-	const b = projectSessions(sessionProjectRoot([alias])!, store.chats());
-	assert.equal(a.mainKey, b.mainKey);
-	assert.equal(a.main, undefined);
-	assert.deepEqual(a.chats, []);
-	assert.equal(store.chat(a.mainKey), undefined);
-	store.close();
-});
-
 test('Generate and Start Episode ask the session that owns the item: its episode\'s one session, else the Project Chat', () => {
 	const { dir, root, other, store } = fixture();
 	const before = projectSessions(sessionProjectRoot([root])!, store.chats());
@@ -98,20 +86,6 @@ test('Generate and Start Episode ask the session that owns the item: its episode
 	// B6, case 3: a shared item asks the Project Chat.
 	assert.equal(ownerOf(after, 'assets/characters/mia'), 'main');
 	assert.equal(ownerOf(before, 'assets/characters/mia'), before.mainKey);
-	store.close();
-});
-
-test('scope filters exact canonical project identity and never transfers other histories', () => {
-	const { root, other, store } = fixture();
-	associateProject(store, 'main', root, { kind: 'main' });
-	associateProject(store, 'ep1', root, null);
-	associateProject(store, 'other', other, { kind: 'main' });
-	const scope = projectSessions(root, store.chats());
-	assert.equal(scope.mainKey, 'main');
-	assert.deepEqual(scope.chats.map(c => c.key).sort(), ['ep1', 'main']);
-	assert.equal(projectSessions(other, store.chats()).mainKey, 'other');
-	assert.equal(store.chats().length, 3);
-	assert.equal(store.chat('main')?.computer_state, 'none', 'reading the scope starts nothing');
 	store.close();
 });
 

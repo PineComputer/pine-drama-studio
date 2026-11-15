@@ -1,7 +1,7 @@
 import { strict as assert } from 'node:assert';
 import { test } from 'node:test';
 import { connectKey, connectionFailure, connectionScope, developerConnectionFile, disconnectProblem, keyProblem, PINE_KEY_SECRET, PRODUCTION_ENDPOINT, savedConnection } from '../core/pineConnection';
-import { configLine, notSetUpText, sendGate } from '../pineConfig';
+import { notSetUpText, sendGate } from '../pineConfig';
 import { MemoryVault, FakePine } from './fakePine';
 import { ChatService } from '../core/chats';
 import { Store } from '../core/store';
@@ -71,13 +71,6 @@ test('connection history is deterministic per credential and isolated across end
 	assert.match(connectionScope(pine), /^[a-f0-9]{64}$/);
 });
 
-test('a disconnected send names native Accounts instead of a developer file', () => {
-	const config = { kind: 'disconnected' } as const;
-	assert.match(notSetUpText(config), /Accounts.*Pine Computer/);
-	assert.doesNotMatch(configLine(config), /\.env/);
-	assert.equal(sendGate(config, []).kind, 'pine');
-});
-
 test('credential changes block new Computer admissions without discarding saved history', async () => {
 	const store = new Store(':memory:');
 	const pine = new FakePine();
@@ -119,4 +112,5 @@ test('the actual disconnected refusal renders connection wording and the Account
 	const refusal = refusalOf({ kind: 'pine', text: notSetUpText({ kind: 'disconnected' }) }, { openFolder: '', newFolder: '', openGivenFolder: '', convertMajor1Project: '' }, '');
 	assert.match(refusal.line, /Open Accounts \(bottom left\) → Pine Computer… to connect with your project key/, 'what only the modal said before (Codex on #584)');
 	assert.doesNotMatch(refusal.line, /environment/);
+	assert.equal(sendGate({ kind: 'disconnected' }, []).kind, 'pine', 'a disconnected send is told to connect, before any folder refusal');
 });

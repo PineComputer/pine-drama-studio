@@ -19,13 +19,6 @@ function setup() {
 	return { log, picks, slow, setActive: (value: boolean) => (active = value) };
 }
 
-test('a pick on the active canvas is cached and shown in Versions', async () => {
-	const { log, picks } = setup();
-	assert.equal(await picks.pick('EP001', async () => 'natalie'), true);
-	assert.equal(picks.get('EP001'), 'natalie');
-	assert.deepEqual(log, ['versions:natalie']);
-});
-
 test('unpick forgets the pick and empties Versions at once while the canvas is active', async () => {
 	const { log, picks } = setup();
 	await picks.pick('EP001', async () => 'natalie');

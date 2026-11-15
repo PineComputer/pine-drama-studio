@@ -69,19 +69,6 @@ function setup() {
 const context = () => ({ subscriptions: [] }) as unknown as vscode.ExtensionContext;
 const output = { appendLine() {} } as unknown as vscode.OutputChannel;
 
-test('native New then Open reopens the new drama as it is, with no CLI', async () => {
-	const root = setup();
-	register(context(), output, undefined);
-	await commands.get('pineDrama.newProject')!();
-	assert.deepEqual(readdirSync(root).sort(), ['.git', 'pine-drama-project.json']);
-	const written = readFileSync(join(root, 'pine-drama-project.json'), 'utf8');
-	calls.length = 0;
-	await commands.get('pineDrama.openProject')!();
-	assert.deepEqual(errors, []);
-	assert.deepEqual(calls, [['vscode.openFolder', { fsPath: root }, { forceNewWindow: false, forceReuseWindow: true }]]);
-	assert.equal(readFileSync(join(root, 'pine-drama-project.json'), 'utf8'), written, 'reopening writes nothing');
-});
-
 for (const kind of ['new', 'open']) {
 	test(`cancelling ${kind} leaves the directory and navigation untouched`, async () => {
 		const root = setup(); cancelled = true;

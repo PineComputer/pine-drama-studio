@@ -87,7 +87,7 @@ test('a send queued behind restart runs once, after it', async () => {
 	let restart: Promise<void> | undefined; let send: Promise<void> | undefined;
 	try {
 		await drain(service.submit('main', 'fixture', 'fixture', root));
-		await idleStopAndDiscover(pine, store, () => new ChatService(options), 'main');
+		await idleStopAndDiscover(pine, store, 'main');
 		release = pine.hold('ensureComputer');
 		restart = drain(service.startNewSession('main'));
 		send = drain(service.submit('main', 'queued during restart', 'fixture', root));

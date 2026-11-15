@@ -12,8 +12,7 @@ const manifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as
 
 test('no code moves a view into another container', () => {
 	const sources = readdirSync(join(root, 'src'), { recursive: true, encoding: 'utf8' }).filter(f => f.endsWith('.ts') && !f.includes('test'));
-	const moving = sources.filter(f => readFileSync(join(root, 'src', f), 'utf8').includes("'vscode.moveViews'"));
-	assert.deepEqual(moving, []);
+	assert.deepEqual(sources.filter(f => readFileSync(join(root, 'src', f), 'utf8').includes("'vscode.moveViews'")), []);
 });
 
 test("a session row opens its project; whole-Computer shutdown is absent from creator menus", () => {

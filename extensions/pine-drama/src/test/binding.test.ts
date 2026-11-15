@@ -68,14 +68,6 @@ test('a new binding takes any folder that holds no drama-cli project; a project 
 	assert.deepEqual(entryFor([], '/p', KEY, holder), { kind: 'inside', folder: holder, project: below }, 'nor is one swept into a folder above it');
 });
 
-test('a bound session goes on in its folder and is refused elsewhere; a Chat of no project joins it as a session (D48)', () => {
-	const { folder } = setup(); const root = folder('Night Ward');
-	const convs = [{ key: KEY, label: 'Night Ward', folder: root, project_role: 'main' as const }];
-	assert.deepEqual(entryFor(convs, '/p', KEY, root + '/'), { kind: 'go', bind: false });
-	assert.deepEqual(entryFor(convs, '/p', KEY, folder('other')), { kind: 'elsewhere', folder: root });
-	assert.deepEqual(entryFor(convs, '/p', OTHER, root), { kind: 'go', bind: true });
-});
-
 test('the first message binds the session to the window\'s folder and says once where the drama\'s files arrive', async () => {
 	const { pine, store, service, folder } = setup();
 	const night = folder('Night Ward');
@@ -129,6 +121,7 @@ test('bindFolder: the first Chat of a folder is its Project Chat, a later one jo
 	assert.equal(store.bindFolder('a', root), false, 'a bound Chat is not bound again');
 	assert.equal(store.bindFolder('bound', folder('elsewhere')), true);
 	assert.equal(store.bindFolder('bound', root), false, 'a Chat of another project does not move');
+	assert.equal(store.chat('bound')?.folder, folder('elsewhere'), 'its folder stays');
 	assert.equal(store.chat('bound')?.project_role, 'main');
 	other.close();
 });

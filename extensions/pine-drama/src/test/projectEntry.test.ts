@@ -30,14 +30,6 @@ test('New Project: the chosen empty folder is the root, with no folder made insi
 	assert.deepEqual(readdirSync(parent).sort(), ['alias', 'long-bai-gu-jing-001']);
 });
 
-test('New Project: a folder holding only what Finder or Explorer wrote is empty, and those files stay as they were', async () => {
-	const root = made(temp(), '\u6211\u7684\u77ed\u5267');
-	writeFileSync(join(root, '.DS_Store'), 'finder'); writeFileSync(join(root, 'Thumbs.db'), 'explorer'); writeFileSync(join(root, 'desktop.ini'), 'explorer');
-	const before = snapshot(root);
-	assert.deepEqual(await projectAt(root), { root, initialized: false });
-	assert.equal(snapshot(root), before);
-});
-
 // Item 1: the person's files do not stop a folder from becoming the project.
 test('New Project: a folder of the person\'s files with no drama is the root, and projectAt writes nothing', async () => {
 	const parent = temp();

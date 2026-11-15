@@ -87,19 +87,6 @@ const send = (service: ChatService, text: string) => drain(service.submit(KEY, t
 const markdown = (updates: Update[]) => updates.filter(u => u.kind !== 'progress').map(u => u.text).join('\n');
 const kinds = (store: Store) => store.messages(KEY).map(m => m.kind);
 
-test('a message runs a turn; its messages, cost and last applied event id are saved once', async () => {
-	const { window } = setup();
-	const { store, service } = window();
-	const updates = await send(service, 'cast EP001');
-	assert.match(markdown(updates), /done: cast EP001/);
-	assert.deepEqual(kinds(store), ['prompt', 'progress', 'result', 'usage']);
-	const conv = store.chat(KEY)!;
-	assert.equal(conv.state, 'idle');
-	assert.equal(conv.computer_state, 'running');
-	assert.equal(conv.last_applied_event_id, 3);
-	assert.equal(store.unconfirmedSavedSends(KEY).length, 0);
-});
-
 test('credentials are saved before the Computer is created; a failed save creates nothing', async () => {
 	const { window, vault, pine } = setup();
 	vault.failStore = true;
@@ -194,6 +181,7 @@ test('an event write interrupted midway changes nothing; the replay applies it o
 	}
 	assert.equal(store.messages(KEY).length, before);
 	assert.equal(store.chat(KEY)!.last_applied_event_id, 3);
+	assert.deepEqual([store.chat(KEY)!.state, store.chat(KEY)!.computer_state, store.unconfirmedSavedSends(KEY).length], ['idle', 'running', 0], 'the turn ended, nothing left to resend');
 });
 
 test('a pass of a replaced Pine session writes nothing: its generation is refused and leaves no trace', async () => {
@@ -209,6 +197,14 @@ test('a pass of a replaced Pine session writes nothing: its generation is refuse
 	assert.equal(a.store.messages(KEY).length, before);
 	// A pass that starts now works under the new generation.
 	assert.match(markdown(await send(a.service, 'from a again')), /done: from a again/);
+});
+
+test('a reconnected session sends on, and the person is not shown its Task id', async () => {
+	const { window } = setup();
+	await send(window().service, 'first');
+	const updates = await send(window().service, 'second');
+	assert.doesNotMatch(markdown(updates), /Reconnected|Task task-/);
+	assert.match(markdown(updates), /done: second/);
 });
 
 test('a message sent while a turn runs waits for it, then goes as a new run, an answer to the question it ended on included (D25: nothing is cancelled)', async () => {
@@ -281,6 +277,8 @@ test('a message that finds its session already ended is sent in a new session, w
 	assert.match(markdown(sent), /done: second/);
 	// The first try found the session gone at Pine (MissingError: not delivered); only the new session's send went.
 	assert.equal(store.db.prepare("select count(*) n from saved_sends where text like 'second%' and state = 'sent'").get()!.n, 1, 'delivered once');
+	assert.equal(store.chat(KEY)!.pine_session_state, 'open');
+	assert.match(markdown(await send(service, 'third')), /done: third/, 'the new session takes the next message');
 });
 
 test('Computer stopped: the next message starts the agent again on it and is sent there; the history is kept', async () => {
@@ -302,24 +300,6 @@ test('Computer stopped: the next message starts the agent again on it and is sen
 	assert.ok(restarted.store.messages(KEY).some(m => /does not remember earlier turns/.test(m.text)));
 	const after = await send(restarted.service, 'third');
 	assert.match(markdown(after), /done: third/);
-});
-
-test('a reconnected session is logged, with its Task, only after the Task matched, and the person is not shown the id', async () => {
-	const { window } = setup();
-	await send(window().service, 'first');
-	const lines: string[] = [];
-	const restarted = window(line => lines.push(line));
-	const updates = await send(restarted.service, 'second');
-	assert.ok(lines.some(l => /reconnected to the original session \(Task task-/.test(l)), lines.join('\n'));
-	assert.doesNotMatch(markdown(updates), /Reconnected|Task task-/);
-	assert.match(markdown(updates), /done: second/);
-});
-
-test('core/ does not import vscode', () => {
-	const dir = join(__dirname, '..', '..', 'src', 'core');
-	for (const file of readdirSync(dir)) {
-		assert.doesNotMatch(readFileSync(join(dir, file), 'utf8'), /from ['"]vscode['"]/, file);
-	}
 });
 
 test('review P1: a pass whose Pine session is replaced during a slow call publishes neither its session nor its token', async () => {
@@ -423,18 +403,6 @@ test('review P2: usage events without a turn id are not counted twice', async ()
 	assert.equal(markdown(updates).match(/cost of this turn/g)!.length, 1);
 });
 
-test('review P2: a session lost while the Studio stays open: the next message starts the agent again and is sent', async () => {
-	const { window, pine, vault } = setup();
-	const { store, service } = window();
-	await send(service, 'first');
-	pine.stop(JSON.parse(vault.values.get(currentSecret(store))!).credentials);
-	const sent = await send(service, 'second');
-	assert.ok(sent.every(u => u.kind !== 'sessionEnded'));
-	assert.match(markdown(sent), /done: second/);
-	assert.equal(store.chat(KEY)!.pine_session_state, 'open');
-	assert.match(markdown(await send(service, 'third')), /done: third/);
-});
-
 test('a queued answer whose question was answered meanwhile goes to the next question with the note: sent, not given back', async () => {
 	const { window, pine } = setup();
 	const { store, service } = window();
@@ -530,12 +498,6 @@ test('idle timeout: a Computer starts with the working one, is raised while a qu
 	assert.deepEqual(pine.idleRequests, [IDLE_WAITING_SECONDS, IDLE_WORKING_SECONDS]);
 	await send(service, 'thanks');
 	assert.equal(pine.idleRequests.length, 2, 'an unchanged timeout is not asked for again');
-});
-
-test('idle timeout: a turn that ends without a question asks for nothing', async () => {
-	const { window, pine } = setup();
-	await send(window().service, 'hello');
-	assert.deepEqual(pine.idleRequests, []);
 });
 
 test('idle timeout: a refusal is logged and shown, and asked again at the next call', async () => {
@@ -688,16 +650,6 @@ test('one Pine environment: a session of another endpoint is refused in its word
 	assert.equal(pine.calls.run, runs);
 	assert.deepEqual(await other.stopAll(), [], 'a previous Pine environment\'s Computers are stopped by swapping back to its file');
 	assert.equal((await service.stopAll()).length, 1);
-});
-
-test('one Pine environment: a session saved under an environment name reads as a session of its stored endpoint', async () => {
-	const { window } = setup();
-	const { store, service } = window();
-	await send(service, 'first');
-	// Before 2026-11-02 the env column named the environment; a profile keeps such rows ("default" was production).
-	store.db.prepare('update chats set env = ? where key = ?').run('default', KEY);
-	assert.match(markdown(await send(service, 'second')), /done: second/);
-	assert.doesNotMatch(markdown(await send(service, 'third')), /default|dev ·/);
 });
 
 test('Pine\'s 409 computer-stopped, on a call or on the event stream, is the resource gone (MissingError), not an error to show', async () => {

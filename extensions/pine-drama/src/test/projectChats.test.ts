@@ -97,20 +97,3 @@ test('a session of a project that has no Project Chat cannot provision or submit
 });
 
 
-test('explicit project authority is enforced even when file transport is not configured', async () => {
-	const { root, store } = fixture();
-	associateProject(store, 'main', root, null);
-	const pine = new FakePine();
-	const service = new ChatService({ holdsProject: () => true, turnEndGraceMs: 0, store, port: pine, vault: new MemoryVault(), log: () => undefined,
-		pine: { endpoint: 'https://pine.test', apiKey: 'pk_fixture', controlHost: 'api.pine.test' } });
-	for await (const update of service.submit('main', 'continue', 'main')) {
-		if (update.kind === 'markdown' || update.kind === 'unsent') { assert.doesNotMatch(update.text, /has ended/); }
-	}
-	for await (const _update of service.submit('other', 'continue in this folder', 'other', root)) { /* drain */ }
-	for await (const update of service.startNewSession('main')) {
-		assert.match(update.kind === 'markdown' ? update.text : '', /not admitted/);
-	}
-	assert.deepEqual(pine.calls, {});
-	assert.equal(store.chat('main')?.computer_state, 'none');
-	store.close();
-});

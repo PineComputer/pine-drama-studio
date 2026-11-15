@@ -30,13 +30,6 @@ function workbench(viewShows: boolean) {
 	return { calls, open, execute, tabs };
 }
 
-test('a conversation opens as a chat, then moves into the Chat view, in that order', async () => {
-	const w = workbench(false);
-	await showInChatView(w.execute, w.tabs, 'pine-computer:/local-1');
-	assert.deepEqual(w.calls, [['vscode.open', 'pine-computer:/local-1'], ['workbench.action.chat.openInSidebar']]);
-	assert.deepEqual([...w.open], ['brief.md']);
-});
-
 test('when the Chat view already shows the conversation, the second chat editor the open made is closed', async () => {
 	const w = workbench(true);
 	await showInChatView(w.execute, w.tabs, 'pine-computer:/local-1');

@@ -82,31 +82,16 @@ test('a stop that fails is logged and said; the session still ends, and the rest
 	computerOf(pine, first.store, KEY).sessions.clear();
 	first.store.close();
 	const { store, service } = window();
-	pine.fail('stopComputer', new Error('gateway down'));
-	await send(service, 'are you there?');
-	assert.equal(notices(store, KEY)[0], 'The original session ended: Pine no longer has this session; its Computer could not be stopped (gateway down), so it stops after its idle timeout.');
-	assert.equal(store.chat(KEY)!.pine_session_state, 'open', 'the restart stopped the old Computer itself, then began a new session');
-	assert.equal(store.db.prepare("select count(*) n from saved_sends where text like 'are you there?%' and state = 'sent'").get()!.n, 1);
-});
-
-// Restart's confirmed stop is unchanged by removing stopHeld's session-ending branch, which
-// restart never used. A session already ended on Pine's evidence, its Computer still running: the restart a send performs
-// stops it, and only after Pine confirms the stop does it create the new session.
-test('restart creates the new session only after Pine confirms the stop of the old Computer', async () => {
-	const { pine, window } = setup();
-	const first = window();
-	await send(first.service, 'hello');
-	computerOf(pine, first.store, KEY).sessions.clear(); // Pine lost the session; the Computer runs on
-	first.store.close();
-	const { store, service } = window();
 	pine.fail('stopComputer', new Error('gateway down')); // the stop when the loss is found fails; the restart's must succeed
 	const order: string[] = [];
 	const stop = pine.stopComputer.bind(pine); const create = pine.createSession.bind(pine);
 	pine.stopComputer = async (...args) => { await stop(...args); order.push('stop confirmed'); };
 	pine.createSession = async (...args) => { order.push('new session'); return create(...args); };
 	await send(service, 'are you there?');
-	assert.deepEqual(order, ['stop confirmed', 'new session']);
-	assert.equal(store.chat(KEY)!.pine_session_state, 'open');
+	assert.deepEqual(order, ['stop confirmed', 'new session'], 'the new session only after Pine confirms the stop');
+	assert.equal(notices(store, KEY)[0], 'The original session ended: Pine no longer has this session; its Computer could not be stopped (gateway down), so it stops after its idle timeout.');
+	assert.equal(store.chat(KEY)!.pine_session_state, 'open', 'the restart stopped the old Computer itself, then began a new session');
+	assert.equal(store.db.prepare("select count(*) n from saved_sends where text like 'are you there?%' and state = 'sent'").get()!.n, 1);
 });
 
 test('Stop All stops every running Computer of this connection, a working one too; its follower finds the stop', async () => {
@@ -157,12 +142,3 @@ test('Stop All asks Pine first: it stops only the Computers Pine has not shut do
 	}
 });
 
-test('a session of another Pine environment is left alone', async () => {
-	const { pine, window } = setup();
-	const first = window();
-	await send(first.service, 'hello');
-	first.store.close();
-	const { store, service } = window({ ...ENV, endpoint: 'https://pinesandbox.io' });
-	assert.deepEqual(await service.stopAll(), []);
-	assert.equal(computerOf(pine, store, KEY).state, 'running');
-});

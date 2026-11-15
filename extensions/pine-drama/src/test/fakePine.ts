@@ -11,7 +11,7 @@ import { ConnectionLostError, MissingError, NoSuchFileError, StartNotConfirmedEr
 
 interface FakeTurn { id: string; state: string; question: string; summary: string; next: string; cost: number }
 /** `dir`: the session's working directory, with Pine's attachments/ in it. */
-interface FakeSession { name: string; token: string; taskId: string; dir: string; turns: Map<string, FakeTurn>; runs: Map<string, string>; events: PineEvent[]; inputs: { kind: string; text: string; turnId: string; eventId: number }[] }
+interface FakeSession { name: string; token: string; taskId: string; dir: string; turns: Map<string, FakeTurn>; runs: Map<string, string>; events: PineEvent[] }
 
 /** Every session folder the fakes made, removed when the test process ends. */
 const folders: string[] = [];
@@ -43,8 +43,6 @@ export class FakePine implements PinePort {
 	readonly calls: Record<string, number> = {};
 	/** How the next run or answer ends; default completed. */
 	plans: TurnPlan[] = [];
-	/** Milliseconds an operation takes, e.g. a cold start. */
-	readonly delays: Record<string, number> = {};
 	private readonly holds = new Map<string, Promise<void>>();
 	private lost = new Set<string>();
 	private dropped = new Set<string>();
@@ -87,9 +85,6 @@ export class FakePine implements PinePort {
 	private async count(op: string): Promise<void> {
 		this.calls[op] = (this.calls[op] ?? 0) + 1;
 		await this.holds.get(op);
-		if (this.delays[op]) {
-			await new Promise(resolve => setTimeout(resolve, this.delays[op]));
-		}
 		if (this.dropped.delete(op)) {
 			throw new UnconfirmedError(`${op}: never arrived`);
 		}
@@ -183,7 +178,7 @@ export class FakePine implements PinePort {
 		const dir = mkdtempSync(join(tmpdir(), 'fake-pine-session-'));
 		folders.push(dir);
 		mkdirSync(join(dir, 'attachments'));
-		computer.sessions.set(name, { name, token: `ps_${name}`, taskId: `task-${name}`, dir, turns: new Map(), runs: new Map(), events: [], inputs: [] });
+		computer.sessions.set(name, { name, token: `ps_${name}`, taskId: `task-${name}`, dir, turns: new Map(), runs: new Map(), events: [] });
 		return { name, token: `ps_${name}`, workdir: dir };
 	}
 
@@ -202,7 +197,6 @@ export class FakePine implements PinePort {
 		write(session, plan.files);
 		session.turns.set(turn.id, turn);
 		const id = () => session.events.length + 1;
-		session.inputs.push({ kind: 'run', text, turnId: turn.id, eventId: session.events.length });
 		const base = { taskId: session.taskId, turnId: turn.id, text: '' };
 		session.events.push({ ...base, eventId: id(), kind: 'progress', text: `working on ${text}` });
 		for (const step of plan.steps ?? []) {
@@ -241,7 +235,6 @@ export class FakePine implements PinePort {
 		}
 		return this.respond('run', view(session.turns.get(turnId)!));
 	}
-
 
 	async turn(_env: PineConnection, s: PineSession, turnId: string) {
 		if (this.offline) {
@@ -290,22 +283,6 @@ export class FakePine implements PinePort {
 				yield event;
 			}
 		}
-	}
-
-	/** Replays every event of the session, as a reconnecting stream might. */
-	allEvents(s: { name: string }): PineEvent[] {
-		for (const computer of this.computers.values()) {
-			const session = computer.sessions.get(s.name);
-			if (session) {
-				return session.events;
-			}
-		}
-		return [];
-	}
-
-	/** The messages the Studio sent to a session, in order, as the agent received them. */
-	inputsOf(sessionName: string): { kind: string; text: string; turnId: string }[] {
-		return this.sessionNamed(sessionName).inputs;
 	}
 
 	/** Every command the Studio ran in a session, in order. */
@@ -367,9 +344,6 @@ export class FakePine implements PinePort {
 	}
 	/** The idle timeouts asked for, in order. */
 	readonly idleRequests: number[] = [];
-	idleTimeoutOf(credentials: string): number {
-		return this.computerOf(credentials)!.idleTimeout;
-	}
 	async setIdleTimeout(_env: PineConnection, s: { credentials: string; binding: string }, seconds: number) {
 		await this.count('setIdleTimeout');
 		if (!this.policy.adjustable) {

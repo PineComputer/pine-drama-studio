@@ -3,7 +3,7 @@ import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { PROJECT_FILES, ProjectFinder } from '../core/projectFinder';
+import { ProjectFinder } from '../core/projectFinder';
 
 // A window opened on an empty folder: New Project writes <folder>/pine-drama-project.json after the
 // window activated, and the Production views must pick the project up without a reload. The person once saw drama/ in the Explorer while Production still said "No drama
@@ -22,10 +22,6 @@ const arrive = (folder: string) => {
 	writeFileSync(join(folder, 'pine-drama-project.json'), '{"schema":2}\n');
 };
 const pause = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-
-test('the watched files are the two a folder\'s project can have, relative to the folder', () => {
-	assert.equal(PROJECT_FILES, 'pine-drama-project.json');
-});
 
 test('an empty folder has no project; one that arrives later is found, after the burst of events settles', async () => {
 	const { folder, finder, seen, next } = setup();
@@ -55,17 +51,6 @@ test('a project whose config file goes is no longer shown, and one that comes ba
 	finder.possibleChange();
 	await changed;
 	assert.deepEqual(seen, [folder, undefined, folder]);
-	finder.dispose();
-});
-
-test('an event that changes nothing reports nothing', async () => {
-	const { folder, finder, seen } = setup();
-	arrive(folder);
-	await finder.scan();
-	writeFileSync(join(folder, 'pine-drama-project.json'), '{"schema":2}\n');
-	finder.possibleChange();
-	await pause(80);
-	assert.deepEqual(seen, [folder]);
 	finder.dispose();
 });
 

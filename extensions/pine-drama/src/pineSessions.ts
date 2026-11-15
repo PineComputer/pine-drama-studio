@@ -67,7 +67,7 @@ export function registerPineSessions(
 				break;
 			}
 			case 'markdown':
-				// The agent's links to its Computer's files as their names, and the plumbing links dropped (core/chatLinks.ts).
+				// The agent's links to its Computer's files as their names (core/chatLinks.ts).
 				stream.markdown(linkFiles(update.text));
 				break;
 			case 'unsent':
@@ -413,7 +413,7 @@ function toHistory(all: readonly Message[], showCost: boolean): (vscode.ChatRequ
 				}
 				break;
 			default:
-				// A notice, and a row of a kind this build no longer writes (an earlier build's), shown as one.
+				// A notice.
 				parts.push(`_${m.text}_`);
 		}
 	}

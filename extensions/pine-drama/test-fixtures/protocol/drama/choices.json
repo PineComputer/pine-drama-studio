@@ -6,13 +6,5 @@
 				"import": "imp-0001-office"
 			}
 		}
-	},
-	"added": [],
-	"imports": [
-		{
-			"id": "imp-0001-office",
-			"object": "assets/scenes/office",
-			"file": "imports/imp-0001-office.png"
-		}
-	]
+	}
 }

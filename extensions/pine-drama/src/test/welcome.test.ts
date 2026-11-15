@@ -28,3 +28,8 @@ function welcomeList(): string[] {
 test('the welcome message names exactly the files the Studio takes: text as it is, and every kind it extracts', () => {
 	assert.deepEqual([...welcomeList()].sort(), [...SENT_AS_THEY_ARE, ...extracted()].sort());
 });
+
+test('the welcome says that sending starts remote work Pine bills', () => {
+	const pkg = JSON.parse(readFileSync(join(__dirname, '..', '..', 'package.json'), 'utf8')) as { contributes: { chatSessions: { welcomeMessage: string }[] } };
+	assert.match(pkg.contributes.chatSessions[0].welcomeMessage, /Sending starts remote work, billed by Pine\./);
+});

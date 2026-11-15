@@ -31,7 +31,7 @@ async function fixture(stopped: boolean) {
 	const service = new ChatService(options);
 	if (stopped) {
 		await drain(service.submit('main', 'fixture', 'Project Chat', root));
-		await idleStopAndDiscover(pine, store, () => new ChatService(options), 'main', root);
+		await idleStopAndDiscover(pine, store, 'main');
 	}
 	/** Another worker's start of this Computer that Pine accepts first: the binding revision moves on. */
 	const otherStartWins = () => {

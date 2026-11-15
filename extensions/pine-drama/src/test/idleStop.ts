@@ -1,4 +1,3 @@
-import type { ChatService } from '../core/chats';
 import type { Store } from '../core/store';
 import type { FakePine } from './fakePine';
 
@@ -9,7 +8,7 @@ import type { FakePine } from './fakePine';
  * agent again and sends there (replacePineSessionAndSend; sendRestarts.test.ts), so these preconditions record the discovery
  * directly, as restartAdmission.test.ts's fixture does, and leave the restart to the test.
  */
-export async function idleStopAndDiscover(pine: FakePine, store: Store, _discover: () => ChatService, key: string, _folder?: string): Promise<void> {
+export async function idleStopAndDiscover(pine: FakePine, store: Store, key: string): Promise<void> {
 	const computer = pine.computers.get(store.chat(key)!.computer_id!)!;
 	computer.state = 'stopped';
 	computer.sessions.clear();

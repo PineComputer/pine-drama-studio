@@ -34,7 +34,7 @@ test('a send to an ended session starts one new session and sends the message th
 	const f = fixture();
 	try {
 		await drain(f.service.submit('main', 'first', 'Project Chat', f.root));
-		await idleStopAndDiscover(f.pine, f.store, () => new ChatService(f.options), 'main', f.root);
+		await idleStopAndDiscover(f.pine, f.store, 'main');
 		const updates = await drain(f.service.submit('main', 'Keep the cast small, please.', 'Project Chat', f.root));
 		const said = updates.map(u => u.text).join('\n');
 		assert.equal(f.pine.calls.createSession, 2, 'one new session');
@@ -49,7 +49,7 @@ test('a restart that fails gives the message back and says what failed, in one l
 	const f = fixture();
 	try {
 		await drain(f.service.submit('main', 'first', 'Project Chat', f.root));
-		await idleStopAndDiscover(f.pine, f.store, () => new ChatService(f.options), 'main', f.root);
+		await idleStopAndDiscover(f.pine, f.store, 'main');
 		f.pine.fail('ensureComputer', new Error('OFFLINE: no Computer free'));
 		const updates = await drain(f.service.submit('main', 'Keep the cast small, please.', 'Project Chat', f.root));
 		const lines = updates.filter(u => u.kind !== 'progress');
@@ -67,7 +67,7 @@ test('two quick sends after the session ended start one restart; the second goes
 	const f = fixture();
 	try {
 		await drain(f.service.submit('main', 'first', 'Project Chat', f.root));
-		await idleStopAndDiscover(f.pine, f.store, () => new ChatService(f.options), 'main', f.root);
+		await idleStopAndDiscover(f.pine, f.store, 'main');
 		const starts = f.pine.calls.ensureComputer ?? 0;
 		const [a, b] = await Promise.all([
 			drain(f.service.submit('main', 'Keep the cast small.', 'Project Chat', f.root)),
@@ -89,7 +89,7 @@ test('a send whose restart Pine did not confirm gives the message back, retries 
 	const f = fixture();
 	try {
 		await drain(f.service.submit('main', 'first', 'Project Chat', f.root));
-		await idleStopAndDiscover(f.pine, f.store, () => new ChatService(f.options), 'main', f.root);
+		await idleStopAndDiscover(f.pine, f.store, 'main');
 		const starts = f.pine.calls.ensureComputer ?? 0;
 		const runs = f.pine.calls.run ?? 0;
 		const release = f.pine.hold('ensureComputer');

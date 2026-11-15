@@ -107,25 +107,21 @@ test('navigation shows an unsent main locally; foreign destinations open their e
 	store.close();
 });
 
-for (const input of ['text', 'attachments'] as const) {
-	test(`native New Chat with already-restored ${input} stays visible`, async () => {
-		const root = realpathSync(mkdtempSync(join(tmpdir(), 'pine-untitled-restore-')));
-		const store = new Store(':memory:');
-		// Code-OSS getNewChatSessionResource('pine-computer') before first send; no provider item/history exists yet.
-		const resource = 'pine-computer:/untitled-offline-fixture';
-		let selected = resource;
-		const unsent = { text: input === 'text' ? 'OFFLINE unsent New Chat' : '', files: input === 'attachments' ? [join(root, 'script.fountain')] : [] };
-		const original = structuredClone(unsent);
-		const restore = projectWindowRestorer({
-			scope: () => projectSessions(root, store.chats()), prepare: async () => ({ resource, isUntitledDraft: true }),
-			takeRequested: () => undefined,
-			show: async key => { selected = key; },
-			failed: error => { throw error; },
-		});
-		await restore();
-		assert.equal(selected, resource, 'the native draft must remain reachable in the active Chat');
-		assert.deepEqual(unsent, original);
-		assert.deepEqual(store.chats(), []);
-		store.close();
+// What the draft holds, text or attachments, never reaches the restorer: one case stands for both.
+test('a native New Chat draft restored before its first send stays visible', async () => {
+	const root = realpathSync(mkdtempSync(join(tmpdir(), 'pine-untitled-restore-')));
+	const store = new Store(':memory:');
+	// Code-OSS getNewChatSessionResource('pine-computer') before first send; no provider item/history exists yet.
+	const resource = 'pine-computer:/untitled-offline-fixture';
+	let selected = resource;
+	const restore = projectWindowRestorer({
+		scope: () => projectSessions(root, store.chats()), prepare: async () => ({ resource, isUntitledDraft: true }),
+		takeRequested: () => undefined,
+		show: async key => { selected = key; },
+		failed: error => { throw error; },
 	});
-}
+	await restore();
+	assert.equal(selected, resource, 'the native draft must remain reachable in the active Chat');
+	assert.deepEqual(store.chats(), []);
+	store.close();
+});

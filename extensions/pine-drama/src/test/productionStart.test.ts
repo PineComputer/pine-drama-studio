@@ -12,15 +12,9 @@ const recorder = () => {
 	return { runs, run: async (command: string, options: unknown) => { runs.push({ command, options }); } };
 };
 
-test('a project window starts on Production: the Project view opens without taking focus', async () => {
-	const { runs, run } = recorder();
-	await startOnProduction({ visible: false }, run);
-	assert.deepEqual(runs, [{ command: 'pine.project.focus', options: { preserveFocus: true } }]);
-});
-
 // An initialized project with no stages yet has an empty tree; showing Production must not wait
-// for a row to reveal.
-test('a project with no stages yet still starts on Production', async () => {
+// for a row to reveal, and opens the Project view without taking focus.
+test('a project window starts on Production without taking focus, a project with no stages yet too', async () => {
 	const dir = mkdtempSync(join(tmpdir(), 'pine-empty-project-'));
 	try {
 		writeFileSync(join(dir, 'pine-drama-project.json'), '{"schema":2}\n');
@@ -31,7 +25,7 @@ test('a project with no stages yet still starts on Production', async () => {
 		assert.deepEqual((await new DramaProject(root).children()).map(n => n.label), ['1. Script', '2. Assets', '3. Episodes'], 'its tree is the three steps');
 		const { runs, run } = recorder();
 		await startOnProduction({ visible: false }, run);
-		assert.deepEqual(runs.map(r => r.command), ['pine.project.focus']);
+		assert.deepEqual(runs, [{ command: 'pine.project.focus', options: { preserveFocus: true } }]);
 	} finally {
 		rmSync(dir, { recursive: true, force: true });
 	}
