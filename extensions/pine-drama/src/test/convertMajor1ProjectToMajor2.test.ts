@@ -28,12 +28,13 @@ const write = (root: string, path: string, value: unknown) => {
 };
 
 /** One version folder: its shown file (artifact.json lists it), version.json, and job.json when it was a paid call. */
-const version = (root: string, object: string, id: string, made: string, files: Record<string, string>, extra: { job?: boolean; inputs?: { object: string; version: string }[]; source?: unknown; shown?: string | null } = {}) => {
+const version = (root: string, object: string, id: string, made: string, files: Record<string, string>, extra: { job?: boolean | string; inputs?: { object: string; version: string }[]; source?: unknown; shown?: string | null } = {}) => {
 	for (const [name, bytes] of Object.entries(files)) { write(root, `${object}/${id}/${name}`, bytes); }
 	const outputs = Object.entries(files).map(([name, bytes]) => ({ path: `${object}/${id}/${name}`, sha256: sha256(bytes) }));
 	write(root, `${object}/${id}/artifact.json`, { outputs, metadata: extra.source ? { source: extra.source } : {} });
 	write(root, `${object}/${id}/version.json`, { schema: 1, made_at: made, file: extra.shown === undefined ? Object.keys(files)[0] : extra.shown, inputs: extra.inputs ?? [], prompt: 'a prompt', from_import: null });
-	if (extra.job) { write(root, `${object}/${id}/job.json`, { attempt_id: `att-${object.split('/').at(-1)}-${id}`, actual_usd: 0.04, connection: 'pine', provider: 'byteplus' }); }
+	// `job`: the paid call's state (drama-cli's job.json `state`), downloaded when only `true`.
+	if (extra.job) { write(root, `${object}/${id}/job.json`, { state: extra.job === true ? 'downloaded' : extra.job, attempt_id: `att-${object.split('/').at(-1)}-${id}`, actual_usd: 0.04, connection: 'pine', provider: 'byteplus' }); }
 };
 
 const snapshot = (observed: string, objects: Record<string, { type: string; name: string; segment?: string; inputs?: string[] }>, edges: unknown[] = []) => ({
@@ -172,6 +173,33 @@ test('a major-1 turn still owed a return refuses the conversion, naming the Stud
 		error instanceof RefusedWithUpgradeInstructions && error.studioVersion === LAST_MAJOR_1_STUDIO.version && error.downloadUrl === LAST_MAJOR_1_STUDIO.downloadUrl
 		&& /Nothing was changed/.test(error.message));
 	assert.ok(!existsSync(`${root}.backup-2026-11-14`) && !existsSync(join(root, '.git')) && readProjectMajor(root) === 1);
+});
+
+test('a paid call not settled refuses the conversion, naming its objects and the Studio that settles them; nothing is changed', async () => {
+	const { root, storage } = majorOneProject();
+	// A take still running at its provider and a picture whose outcome is unknown: deleting their job.json would pay again on a redraw.
+	version(root, 'episodes/EP001/segments/seg01', 't01', '2026-11-02T10:00:00Z', { 'take.mp4': 'take' }, { job: 'running' });
+	version(root, CUP, 'v9', '2026-11-02T11:00:00Z', { 'image-1.png': 'cup' }, { job: 'unknown' });
+	// Settled ones refuse nothing: not charged, and counted as charged with its output gone.
+	version(root, CUP, 'v8', '2026-11-02T09:00:00Z', { 'image-1.png': 'cup refused' }, { job: 'rejected' });
+	version(root, CUP, 'v7', '2026-11-02T08:00:00Z', { 'image-1.png': 'cup lost' }, { job: 'lost' });
+	await assert.rejects(convertMajor1ProjectToMajor2(root, storage, '2026-11-14'), (error: unknown) =>
+		error instanceof RefusedWithUpgradeInstructions && error.studioVersion === LAST_MAJOR_1_STUDIO.version && error.downloadUrl === LAST_MAJOR_1_STUDIO.downloadUrl
+		&& /Nothing was changed/.test(error.message) && error.message.includes(`${CUP}/v9`) && error.message.includes('episodes/EP001/segments/seg01/t01')
+		&& !error.message.includes(`${CUP}/v8`) && !error.message.includes(`${CUP}/v7`));
+	assert.ok(!existsSync(`${root}.backup-2026-11-14`) && !existsSync(join(root, '.git')) && readProjectMajor(root) === 1);
+});
+
+test('a conversion cut off at any step refuses on resume while a paid call is not settled; nothing more is changed', async () => {
+	for (const step of ['writing turns', 'backing up', 'converting versions', 'removing major-1 folders']) {
+		const { root, storage } = majorOneProject();
+		// Cut off at `step`, as its journal then reads; a take is then sent from the last major-1 Studio, still running.
+		write(dramaRecordOf(storage, root).dir, 'major1-conversion.json', { step, backup: `${root}.backup-2026-11-14`, inventory: {}, done: 0, removed: [] });
+		version(root, 'episodes/EP001/segments/seg01', 't01', '2026-11-02T10:00:00Z', { 'take.mp4': 'take' }, { job: 'running' });
+		await assert.rejects(convertMajor1ProjectToMajor2(root, storage, '2026-11-15'), (error: unknown) => error instanceof RefusedWithUpgradeInstructions
+			&& /^Nothing more was changed\./.test(error.message) && error.message.includes('episodes/EP001/segments/seg01/t01'), step);
+		assert.ok(existsSync(join(root, 'episodes/EP001/segments/seg01/t01/job.json')) && !existsSync(join(root, '.git')) && readProjectMajor(root) === 1, step);
+	}
 });
 
 test('a conversion cut off resumes after the last version it committed, with the same backup', async () => {

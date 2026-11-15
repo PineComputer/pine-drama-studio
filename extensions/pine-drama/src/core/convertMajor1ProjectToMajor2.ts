@@ -36,6 +36,7 @@ interface ConversionTable {
 	readonly version_folders: {
 		readonly version_folder_name_patterns: readonly string[];
 		readonly records_in_a_version_folder: { readonly version_record: string; readonly outputs_and_metadata: string; readonly paid_call: string };
+		readonly paid_call_settled: { readonly field: string; readonly states: readonly string[] };
 	};
 	readonly record_stages: readonly RecordStage[];
 	readonly objects_dropped: readonly string[];
@@ -58,13 +59,14 @@ export const LAST_MAJOR_1_STUDIO = { version: '0.2.6', downloadUrl: `${STUDIO_RE
 const AUTHOR = 'client-found-changes-on-disk';
 const NAMES = TABLE.version_folders.version_folder_name_patterns.map(p => new RegExp(p));
 const RECORDS = TABLE.version_folders.records_in_a_version_folder;
+const SETTLED = TABLE.version_folders.paid_call_settled;
 const ENTRY = TABLE.record_stages.find(s => s.operation === 'split_entry_record_into_object_files')!;
 const CONFIG = TABLE.not_version_folders.newest_version_to_root;
 // Its entries by folder pattern; its `note` is prose.
 const PICTURE_OBJECTS = Object.entries(TABLE.pictures_that_become_objects)
 	.flatMap(([pattern, rule]) => typeof rule === 'object' ? [{ pattern, ...rule }] : []);
 
-interface Job { readonly attempt_id: string; readonly actual_usd: number | null; readonly connection?: unknown; readonly provider: string }
+interface Job { readonly attempt_id: string; readonly actual_usd: number | null; readonly connection?: unknown; readonly provider: string; readonly [field: string]: unknown }
 interface Major1Version {
 	readonly object: string;
 	readonly id: string;
@@ -178,7 +180,8 @@ const sameInventory = (a: Readonly<Record<string, string>>, b: Readonly<Record<s
 
 /**
  * Converts the window's major-1 project at `projectRoot` (doc/protocol.md, section 8), as one write in its queue. It
- * refuses while a major-1 turn is owed a return, or when the folder has no snapshot to give its objects. It backs the
+ * refuses while a major-1 turn is owed a return or a paid call is not settled, or when the folder has no snapshot to give
+ * its objects. It backs the
  * folder up beside itself, commits it as found, makes one commit per major-1 version in the table's order, sets each object
  * to its major-1 current and checks it, removes the major-1 folders, and writes the project marker in a commit of its own.
  * A run cut off goes on from its journal. Returns the backup's path.
@@ -187,6 +190,8 @@ export function convertMajor1ProjectToMajor2(projectRoot: string, globalStorage:
 	return runInProjectWriteQueue(projectRoot, async () => {
 		const journalPath = journalOf(globalStorage, projectRoot);
 		let journal = existsSync(journalPath) ? json(journalPath) as Journal : undefined;
+		// Before any run's first write, fresh or resumed: in the old Studio, a paid call can start while a run is cut off.
+		refuseWhileAPaidCallIsNotSettled(projectRoot, journal ? 'Nothing more was changed.' : 'Nothing was changed.');
 		const step = async (next: Journal) => { await mkdir(dirname(journalPath), { recursive: true }); await writeWhole(journalPath, JSON.stringify(next)); journal = next; };
 		// The versions and their inventory, read once: when this run reads them first, there is nothing to compare them with.
 		let versions: Major1Version[] | undefined;
@@ -252,6 +257,17 @@ export function convertMajor1ProjectToMajor2(projectRoot: string, globalStorage:
 		await rm(journalPath);
 		return journal!.backup;
 	});
+}
+
+/**
+ * Refuses the conversion while a version's paid call is not settled (the table's paid_call_settled): its record goes with
+ * its version folder, so a redraw would pay again, and a take still running would never be collected.
+ */
+function refuseWhileAPaidCallIsNotSettled(projectRoot: string, changed: string): void {
+	const unsettled = findMajor1Versions(projectRoot).filter(v => v.job && !SETTLED.states.includes(String(v.job[SETTLED.field]))).map(v => `${v.object}/${v.id}`);
+	if (unsettled.length) {
+		refuseWithUpgradeInstructions(`${changed} These paid calls have not settled yet: ${unsettled.join(', ')}. Open this project once in Pine Drama Studio ${LAST_MAJOR_1_STUDIO.version}, which settles them, then open it here again.`, LAST_MAJOR_1_STUDIO);
+	}
 }
 
 /** The conversion's state between its commits. */

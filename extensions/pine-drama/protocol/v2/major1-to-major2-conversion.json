@@ -13,6 +13,18 @@
       "version_record": "version.json",
       "outputs_and_metadata": "artifact.json",
       "paid_call": "job.json"
+    },
+    "paid_call_settled": {
+      "field": "state",
+      "states": [
+        "downloaded",
+        "rejected",
+        "failed",
+        "expired",
+        "cancelled",
+        "lost"
+      ],
+      "note": "a paid call is settled when its paid_call record's field is one of states: its output downloaded, not charged (rejected, failed, expired, cancelled), or counted as charged with its output gone (lost). Any other state, succeeded included, is still owed by its provider or of unknown outcome, and only the major-1 client settles it; while any version holds one, the conversion refuses (doc/protocol.md 7, Freeze)."
     }
   },
   "record_stages": [
