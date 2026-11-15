@@ -3,7 +3,7 @@
 // a row names its secret (`secret_ref`) in the vault. No vscode import.
 
 import { randomUUID } from 'node:crypto';
-import { existsSync, renameSync } from 'node:fs';
+import { existsSync, rmSync } from 'node:fs';
 import { entryFor } from './binding';
 import { DatabaseSync } from 'node:sqlite';
 import { projectIdentity } from './projectPlace';
@@ -61,8 +61,15 @@ export interface Message {
 	currency: string | null;
 }
 
-const SCHEMA_VERSION = 20;
-const SCHEMA = `
+/** One step of the store's schema: run once, in order, when the file's `user_version` is below `version`. */
+export interface Migration { readonly version: number; readonly sql: string }
+
+/**
+ * The store's schema as numbered steps, as Code-OSS keeps its own SQLite stores (sessionDatabase.ts,
+ * sessionDatabaseMigrations): a schema change appends the next version; a step that has shipped is never edited.
+ * The first step is 20, the schema staging stores were at when steps began; an older file is set aside (Store).
+ */
+export const MIGRATIONS: readonly Migration[] = [{ version: 20, sql: `
 create table if not exists chats (
   key text primary key,               -- the chat session resource
   endpoint text not null,             -- the environment's endpoint when the Chat began
@@ -119,47 +126,92 @@ create table if not exists chat_reveal_requests (
   token text not null unique,
   requested_at integer not null
 );
-`;
+` }];
 
 
-/** Where a database of another schema is set aside: beside it, named by its schema and the time, never over a file. */
+/** Where a store older than the first step is copied aside: beside it, named by its schema and the time, never over a file. */
 function asidePath(path: string, schema: number, at: Date): string {
 	const stamp = at.toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z');
 	const base = `${path}.schema${schema}-${stamp}`;
 	let aside = base;
-	for (let n = 2; ['', '-wal', '-shm'].some(suffix => existsSync(aside + suffix)); n++) { aside = `${base}-${n}`; }
+	for (let n = 2; existsSync(aside); n++) { aside = `${base}-${n}`; }
 	return aside;
+}
+
+/** The refusal of a store a newer Studio wrote: its file records only its schema, not that Studio's release. */
+export function newerStoreMessage(found: number, latest: number): string {
+	return `This Chat history was written by a newer Pine Drama Studio (store schema ${found}; this one reads up to ${latest}). Update Pine Drama Studio to open it.`;
 }
 
 /** What the person is told when an older database was set aside: plain words, and where it is. */
 export function setAsideNotice(aside: { path: string }): string {
-	return `Earlier Chat history from an older version of Pine Drama Studio was set aside at ${aside.path}. Open your project folder and continue in a chat: your work is in the folder.`;
+	return `Chat history from an older version of Pine Drama Studio was moved to ${aside.path}; your work is in your project folder.`;
 }
 
 
 export class Store {
 	readonly db: DatabaseSync;
-	/** A database of another schema this Store set aside when it opened, with the schema it had. */
+	/** A store older than the first step, copied aside when this Store opened it, with the schema it had. */
 	readonly setAside: { schema: number; path: string } | undefined;
 
-	constructor(path: string, readonly now: () => number = Date.now) {
-		this.db = new DatabaseSync(path);
-		// No migration while the product is in development. A database of another schema is
-		// neither read nor rewritten, nor deleted: it is renamed aside, byte for byte, and a fresh one opens. The drama's folder is its only copy, so the work continues from the folder.
-		const version = (this.db.prepare('pragma user_version').get() as { user_version: number }).user_version;
-		if (version !== 0 && version !== SCHEMA_VERSION) {
+	constructor(path: string, readonly now: () => number = Date.now, migrations: readonly Migration[] = MIGRATIONS) {
+		this.db = new DatabaseSync(path, { timeout: STORE_BUSY_TIMEOUT_MS });
+		try {
+			this.setAside = this.migrate(path, migrations);
+			// After the version is accepted, so a refused file keeps its journal mode. Best effort, as Code-OSS's
+			// configureSqliteJournal: another connection's lock leaves the mode as it is, and a later open retries.
+			try { this.db.exec('pragma journal_mode = wal'); } catch { /* the mode stays; the next open tries again */ }
+		} catch (error) {
 			this.db.close();
-			const aside = asidePath(path, version, new Date(now()));
-			// The journal files first, so that a stale -wal never lies beside the fresh database.
-			for (const suffix of ['-wal', '-shm', '']) {
-				if (existsSync(path + suffix)) { renameSync(path + suffix, aside + suffix); }
-			}
-			this.setAside = { schema: version, path: aside };
-			this.db = new DatabaseSync(path);
+			throw error;
 		}
-		this.db.exec(`pragma journal_mode = wal; pragma busy_timeout = ${STORE_BUSY_TIMEOUT_MS}; pragma foreign_keys = on;`);
-		this.db.exec(SCHEMA);
-		this.db.exec(`pragma user_version = ${SCHEMA_VERSION}`);
+	}
+
+	/**
+	 * Runs the steps above the file's `user_version` in one write transaction, as Code-OSS's runMigrations, with foreign
+	 * keys off around it and checked before commit (https://www.sqlite.org/lang_altertable.html#otheralter). A file older
+	 * than the first step is copied aside with VACUUM INTO and replaced in place (Firefox Places' "replace the database"
+	 * for schemas it no longer migrates); a newer one is refused before anything writes to it.
+	 */
+	private migrate(path: string, migrations: readonly Migration[]): { schema: number; path: string } | undefined {
+		const latest = migrations.at(-1)!.version;
+		const version = (): number => (this.db.prepare('pragma user_version').get() as { user_version: number }).user_version;
+		const before = version();
+		if (before > latest) { throw new Error(newerStoreMessage(before, latest)); }
+		if (before === latest) { return undefined; }
+		this.db.exec('pragma foreign_keys = off');
+		let aside: { schema: number; path: string } | undefined;
+		try {
+			return this.tx(() => {
+				// Again under the write lock: another window may have migrated, or a newer Studio written, meanwhile.
+				const found = version();
+				if (found > latest) { throw new Error(newerStoreMessage(found, latest)); }
+				if (found === latest) { return undefined; }
+				if (found !== 0 && found < migrations[0].version) {
+					// The lock holder alone copies it, before any change: no writer commits between the copy and the drop.
+					aside = { schema: found, path: asidePath(path, found, new Date(this.now())) };
+					const reader = new DatabaseSync(path, { timeout: STORE_BUSY_TIMEOUT_MS });
+					try { reader.prepare('vacuum into ?').run(aside.path); } finally { reader.close(); }
+					const tables = this.db.prepare("select name from sqlite_master where type = 'table' and name not like 'sqlite_%'").all() as { name: string }[];
+					for (const { name } of tables) { this.db.exec(`drop table "${name.replace(/"/g, '""')}"`); }
+				}
+				const from = aside ? 0 : found;
+				for (const step of migrations.filter(m => m.version > from)) {
+					this.db.exec(step.sql);
+					// A pragma takes no parameter; the version is the step's own number.
+					this.db.exec(`pragma user_version = ${step.version}`);
+				}
+				const broken = this.db.prepare('pragma foreign_key_check').all();
+				if (broken.length > 0) { throw new Error(`The Chat store's migration to schema ${latest} broke ${broken.length} reference(s).`); }
+				return aside;
+			});
+		} catch (error) {
+			// The migration rolled back, so the file is still the one copied: its copy would only be a second one.
+			if (aside) { rmSync(aside.path, { force: true }); }
+			throw error;
+		} finally {
+			this.db.exec('pragma foreign_keys = on');
+		}
 	}
 
 	close(): void {

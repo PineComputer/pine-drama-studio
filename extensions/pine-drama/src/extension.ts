@@ -114,11 +114,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 		store = new Store(dbPath);
 		if (store.setAside) {
 			const notice = setAsideNotice(store.setAside);
-			log(`conversation store: schema ${store.setAside.schema} database set aside: ${notice}`);
+			log(`conversation store: schema ${store.setAside.schema} database copied aside: ${notice}`);
 			void vscode.window.showInformationMessage(`Pine: ${notice}`);
 		}
 	} catch (error) {
-		// The refusal stays explicit (AGENTS.md, coding rules 1 and 4: no silent migration); only Pine's part stops.
+		// A store that cannot be opened (a newer Studio's, or a migration that failed and rolled back) is said once; only Pine's part stops.
 		log(`conversation store: ${(error as Error).message}`);
 		void vscode.window.showErrorMessage(`Pine sessions are unavailable: ${(error as Error).message}`);
 		return;

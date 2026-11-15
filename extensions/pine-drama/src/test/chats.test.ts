@@ -1,8 +1,7 @@
 import { strict as assert } from 'node:assert';
-import { existsSync, mkdtempSync, readdirSync, readFileSync } from 'node:fs';
+import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { DatabaseSync } from 'node:sqlite';
-import { basename, dirname, join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { ChatService, type Update } from '../core/chats';
 import { CHANGED_TARGET_NOTE } from '../core/instructions';
@@ -11,7 +10,7 @@ import { IDLE_WAITING_SECONDS, IDLE_WORKING_SECONDS } from '../core/tuning';
 import { SdkPort } from '../sdkPort';
 import type { PineConnection } from '../core/pinePort';
 import { PineSessionReplacedError } from '../core/pineSessionGeneration';
-import { setAsideNotice, Store } from '../core/store';
+import { Store } from '../core/store';
 import { FakePine, MemoryVault } from './fakePine';
 import { folderOf, testService } from './protocolFixture';
 
@@ -31,42 +30,6 @@ function setup() {
 	};
 	return { path, clock, pine, vault, window };
 }
-
-// A database of another schema is set aside, never migrated or deleted; the work is in the
-// drama's folder, so the person continues from it in Project Chat. Told once, in plain words.
-test('a database of another schema is set aside with its journal files, once, and the person is told where', () => {
-	const dir = mkdtempSync(join(tmpdir(), 'pine-studio-'));
-	const path = join(dir, 'studio.sqlite');
-	const old = new DatabaseSync(path);
-	old.exec('pragma journal_mode = wal; create table conversations (key text primary key); pragma user_version = 2');
-	const held = new DatabaseSync(path); // a second connection keeps the -wal and -shm files, as a running older app would
-	held.prepare('select count(*) n from conversations').get();
-	old.close();
-	const wal = readFileSync(`${path}-wal`);
-	const store = new Store(path, () => Date.parse('2026-11-05T23:15:00Z'));
-	const aside = `${path}.schema2-20261105T231500Z`;
-	assert.deepEqual(store.setAside, { schema: 2, path: aside });
-	assert.deepEqual(readFileSync(`${aside}-wal`), wal, 'its -wal goes with it, unchanged');
-	assert.equal(existsSync(`${aside}-shm`), true);
-	assert.equal(setAsideNotice(store.setAside!), `Earlier Chat history from an older version of Pine Drama Studio was set aside at ${aside}. Open your project folder and continue in a chat: your work is in the folder.`);
-	store.insertChat({ key: 'k', endpoint: 'https://pine.test', label: 'k', secret_ref: 'k' });
-	store.close();
-	held.close();
-	// The second start finds this schema: nothing is set aside again.
-	const again = new Store(path, () => Date.parse('2026-11-06T08:00:00Z'));
-	assert.equal(again.setAside, undefined);
-	assert.equal(again.chats().length, 1);
-	again.close();
-	assert.deepEqual(readdirSync(dir).filter(f => f.includes('.schema')).sort(), [aside, `${aside}-shm`, `${aside}-wal`].map(p => basename(p)).sort());
-	const after = new DatabaseSync(aside);
-	assert.equal((after.prepare('pragma user_version').get() as { user_version: number }).user_version, 2);
-	assert.equal(after.prepare("select count(*) n from sqlite_master where name = 'operations'").get()!.n, 0);
-	after.close();
-	// A new database opens, and opens again at this schema.
-	const fresh = path.replace('studio.sqlite', 'fresh.sqlite');
-	new Store(fresh).close();
-	new Store(fresh).close();
-});
 
 async function drain(updates: AsyncGenerator<Update>): Promise<Update[]> {
 	const out: Update[] = [];

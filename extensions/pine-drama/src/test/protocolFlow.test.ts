@@ -9,7 +9,7 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { ChatService, type Update } from '../core/chats';
 import { UnconfirmedError, type PinePort } from '../core/pinePort';
-import { Store } from '../core/store';
+import { MIGRATIONS, Store } from '../core/store';
 import { FakePine, MemoryVault } from './fakePine';
 import { testProtocol } from './protocolFixture';
 
@@ -24,7 +24,8 @@ const made = (object: string, picture: string) => ({ [`drama/${object}/picture.p
 function fixture(more: Partial<ConstructorParameters<typeof ChatService>[0]> = {}) {
 	const dir = realpathSync(mkdtempSync(join(tmpdir(), 'pine-protocol-flow-')));
 	const root = join(dir, 'drama'); mkdirSync(root);
-	const store = new Store(join(dir, 'studio.sqlite'));
+	const path = join(dir, 'studio.sqlite');
+	const store = new Store(path);
 	const pine = new FakePine();
 	// `failTurnEnd`: the first capture of the drama's folder after a turn started fails, as a Computer that does not answer.
 	const control = { failTurnEnd: false };
@@ -41,15 +42,15 @@ function fixture(more: Partial<ConstructorParameters<typeof ChatService>[0]> = {
 	const options = { holdsProject: () => true, turnEndGraceMs: 0, store, port, vault: new MemoryVault(), pine: { endpoint: 'https://offline.invalid', apiKey: 'offline' },
 		files: { projectsRoot: join(dir, 'projects') }, protocol: testProtocol(dir), ...more };
 	const service = new ChatService(options);
-	/** The Studio started again on the same store and vault, as after a crash; `calls` replace some of its Pine's. */
-	const restarted = (calls: Partial<PinePort> = {}) => new ChatService({ ...options, port: new Proxy(port, {
+	/** The Studio started again on the same vault, as after a crash, on `opened` (the same store unless it was reopened); `calls` replace some of its Pine's. */
+	const restarted = (calls: Partial<PinePort> = {}, opened: Store = store) => new ChatService({ ...options, store: opened, port: new Proxy(port, {
 		get: (target, name) => name in calls ? calls[name as keyof PinePort] : Reflect.get(target, name, target),
 	}) });
 	const send = (text: string, key = 'main') => drain(service.submit(key, text, key === 'main' ? 'Project Chat' : 'Session', [], root));
 	/** The drama's folder on the Computer of a Chat's session. */
 	const drama = (key = 'main') => join(pine.workdirOf(store.chat(key)!.pine_session_name!), 'drama');
 	const said = (updates: Update[]) => updates.map(u => u.text).join('\n');
-	return { root, store, pine, service, send, drama, said, control, restarted };
+	return { root, path, store, pine, service, send, drama, said, control, restarted };
 }
 
 test('a turn\'s message is the person\'s words, what its agent changed lands as a pine-computer commit, and the next turn starts from it', async () => {
@@ -210,6 +211,36 @@ test('at start, a Chat whose turn still runs is followed and collected though no
 		assert.equal(readFileSync(join(f.root, 'assets/props/a/picture.png'), 'utf8'), 'a');
 		assert.equal((await git(['log', '-1', '--format=%an'], f.root)).stdout.trim(), 'pine-computer');
 	} finally { f.store.close(); }
+});
+
+// The Chat store migrates in place (store.ts MIGRATIONS): a Studio updated across a schema step finds the Chat whose turn
+// still runs, follows that turn to its end and brings its results in. A fresh store in its place found no Chat at all.
+test('a Chat whose turn still runs across a schema step is followed after the step, and its results land', async () => {
+	const f = fixture();
+	let reopened: Store | undefined;
+	try {
+		f.pine.plans = [{ state: 'running' }];
+		const reply = f.service.submit('main', 'draw b', 'Project Chat', [], f.root);
+		while (f.store.chat('main')?.state !== 'running') { assert.ok(!(await reply.next()).done, 'the turn runs'); }
+		const turnId = f.store.chat('main')!.current_turn_id!;
+		const runs = f.pine.calls.run;
+		// The Studio stops here and its update adds a schema step.
+		f.store.close();
+		reopened = new Store(f.path, Date.now, [...MIGRATIONS, { version: 21, sql: 'alter table chats add column probe text' }]);
+		assert.equal(reopened.setAside, undefined, 'nothing is set aside');
+		assert.equal((reopened.db.prepare('pragma user_version').get() as { user_version: number }).user_version, 21);
+		assert.equal(reopened.chat('main')?.state, 'running');
+		assert.equal(reopened.chat('main')?.current_turn_id, turnId);
+		const resumed = f.restarted({}, reopened).resumeUnfinishedTurnFollowUps();
+		f.pine.finish(turnId, { state: 'completed', text: 'drawn after the update', files: made('assets/props/b', 'b') });
+		await resumed;
+		assert.equal(readFileSync(join(f.root, 'assets/props/b/picture.png'), 'utf8'), 'b', 'the turn\'s file is in the project');
+		assert.ok(reopened.messages('main').some(m => m.turn_id === turnId && m.kind === 'result' && m.text.includes('drawn after the update')),
+			JSON.stringify(reopened.messages('main').map(m => [m.kind, m.text])));
+		assert.equal(f.pine.calls.run, runs, 'no run was sent again');
+	} finally {
+		if (reopened) { reopened.close(); } else if (f.store.db.isOpen) { f.store.close(); }
+	}
 });
 
 /** A window that sends `text` and dies while its turn runs, having read only the turn's first event; the turn's id. */
