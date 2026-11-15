@@ -68,17 +68,7 @@ export interface Message {
 	at: string;
 }
 
-export interface TurnFollowUp {
-	turn_id: string;
-	chat_key: string;
-	state: string;
-	asked: string;
-	done: number;
-	save_error: string | null;
-	created_at: string;
-}
-
-const SCHEMA_VERSION = 17;
+const SCHEMA_VERSION = 18;
 const SCHEMA = `
 create table if not exists chats (
   key text primary key,               -- the chat session resource
@@ -144,17 +134,6 @@ create table if not exists events (
   task_id text not null,
   event_id integer not null,
   primary key (chat_key, task_id, event_id)
-);
--- One row per ended turn: the follow-up it still owes (import its results), marked done when finished,
--- so a follow-up the Studio stopped halfway is taken up again where it was (open-pinedrama turns.settled, turns.save_error).
-create table if not exists turn_follow_ups (
-  turn_id text primary key,
-  chat_key text not null references chats(key),
-  state text not null,                -- how the turn ended
-  asked text not null,                -- its question, or its summary: the files it names are fetched
-  done integer not null default 0,
-  save_error text,
-  created_at text not null
 );
 -- A named Chat destination for another project window. Navigation only, never execution authority.
 create table if not exists chat_reveal_requests (
@@ -432,26 +411,6 @@ export class Store {
 	// ---- settling ----
 
 	/** Opens the settle of an ended turn; a repeat keeps the steps already done. */
-	startTurnFollowUp(key: string, turnId: string, state: string, asked: string): TurnFollowUp {
-		this.db.prepare('insert into turn_follow_ups (turn_id, chat_key, state, asked, created_at) values (?, ?, ?, ?, ?) on conflict do nothing')
-			.run(turnId, key, state, asked, this.iso());
-		return this.turnFollowUp(turnId)!;
-	}
-
-	turnFollowUp(turnId: string): TurnFollowUp | undefined {
-		return this.db.prepare('select * from turn_follow_ups where turn_id = ?').get(turnId) as TurnFollowUp | undefined;
-	}
-
-	updateTurnFollowUp(turnId: string, patch: Partial<Pick<TurnFollowUp, 'done' | 'save_error'>>): void {
-		const entries = Object.entries(patch);
-		const sets = entries.map(([column]) => `${column} = ?`).join(', ');
-		this.db.prepare(`update turn_follow_ups set ${sets} where turn_id = ?`).run(...entries.map(([, value]) => value as string | number | null), turnId);
-	}
-
-	/** Turns of this Chat that ended with their follow-up not done, oldest first. */
-	unfinishedTurnFollowUps(key: string): TurnFollowUp[] {
-		return this.db.prepare('select * from turn_follow_ups where chat_key = ? and done = 0 order by created_at, rowid').all(key) as unknown as TurnFollowUp[];
-	}
 
 	// ---- task claims (local-first, 6.1) ----
 

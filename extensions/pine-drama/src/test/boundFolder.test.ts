@@ -25,7 +25,7 @@ for (const [version, before] of [[7, 'before the mirror'], [8, 'before explicit 
 		const store = new Store(path, () => Date.parse('2026-11-05T23:15:00Z'));
 		assert.deepEqual(store.setAside, { schema: version, path: `${path}.schema${version}-20261105T231500Z` });
 		assert.deepEqual(readFileSync(store.setAside!.path), beforeBytes, 'even journal settings must not rewrite a set-aside database');
-		assert.equal((store.db.prepare('pragma user_version').get() as { user_version: number }).user_version, 17, 'a fresh database at this schema');
+		assert.equal((store.db.prepare('pragma user_version').get() as { user_version: number }).user_version, 18, 'a fresh database at this schema');
 		store.close();
 		const after = new DatabaseSync(`${path}.schema${version}-20261105T231500Z`);
 		assert.equal((after.prepare('pragma user_version').get() as { user_version: number }).user_version, version);

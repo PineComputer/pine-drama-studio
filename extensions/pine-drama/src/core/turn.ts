@@ -1,43 +1,43 @@
-// A turn on the Studio's side. Before Pine's agent runs, the drama's folder on the Computer is made the project's
-// (putTurnFiles); at the turn's end, however it ended, what the agent changed there lands in the project as one commit
-// (collectTurn). Both go through Pine's exec, write_file and read_file only, so nothing assumes what the agent runs.
-// How the turn ended is Pine's own turn result. The Studio's record of a project's turns lives in its storage, never
-// in the folder. No vscode import.
+// A turn on the Studio's side, with git on both sides. Before Pine's agent runs, the drama's folder on the Computer is
+// made the project's: a snapshot commit of HEAD goes up as a bundle and is checked out there (putTurnFiles). At the
+// turn's end, however it ended, what the agent changed is committed there, comes back as a bundle, and its changed paths
+// land in the project as one commit (collectTurn). Everything goes through Pine's exec, write_file and read_file, so
+// nothing assumes what the agent runs; the git on the Computer is the harness's, not the agent's. How the turn ended is
+// Pine's own turn result. The Studio's record of a project's turns lives in its storage, never in the folder. No vscode
+// import.
 
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { createWriteStream, existsSync, readdirSync, readFileSync } from 'node:fs';
 import { mkdir, mkdtemp, open, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { create as createTar, Parser as TarParser, type ReadEntry } from 'tar';
-import { applyChangeToProjectFolder, validPath } from './applyChange';
+import { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
+import type { ReadableStream as WebReadableStream } from 'node:stream/web';
+import { landTurnResult, type LeftOut } from './applyChange';
 import { writeWhole } from './placement';
 import type { PineConnection, PinePort, PineSession } from './pinePort';
 import { projectIdentity } from './projectPlace';
-import { commitPathsToHistory, listFilesOfHead, runInProjectWriteQueue, sha256OfBlob } from './projectHistory';
+import { bundleRef, commitEntriesToHistory, commitPathsToHistory, commitSnapshotOfHead, fetchBundle, readRef, runInProjectWriteQueue, treeChanges, type PineTurnIds } from './projectHistory';
 import { DRAMA_FOLDER } from './protocol';
 import { sha256 } from './sha256';
 
-/** Every file of the drama's folder on the Computer, by its path in the project, with the SHA-256 of its bytes. */
-export type Listing = Readonly<Record<string, string>>;
-
-/** A turn as the Studio sent it: when (RFC 3339, so the strings order as the times do), from which Chat, to which session, and the drama's folder as the agent found it. */
+/** A turn as the Studio sent it: when (RFC 3339, so the strings order as the times do), from which Chat, to which session. */
 export interface SentTurn {
 	readonly turn: string;
 	readonly sent: string;
 	readonly chat: string;
 	readonly session: string;
-	readonly before: Listing;
 }
 
 /** A turn settled at its Pine turn's end, with the files that landed from it. A settled turn is never read again. */
 export interface SettledTurn {
-	readonly settled: string;
 	readonly files: readonly string[];
 }
 
 /**
- * The Studio's record of one project's turns, under its storage: each turn as sent (`sent/<turn>.json`) and each
- * turn settled (`settled/<turn>.json`).
+ * The Studio's record of one project's turns, under its storage: each turn as sent (`sent/<turn>.json`) and each turn
+ * settled (`settled/<turn>.json`), the one record that a turn's collection is done. That its result landed is git's
+ * own record: the commit with its Pine-Turn-Id trailer.
  */
 export class TurnRecord {
 	constructor(readonly dir: string) { }
@@ -55,9 +55,9 @@ export class TurnRecord {
 
 	sentTurn(turn: string): SentTurn | undefined { return this.read<SentTurn>('sent', turn); }
 
-	/** Records `turn` sent, the drama's folder on the Computer listed right before the agent runs. */
-	send(turn: string, chat: string, session: string, before: Listing, at = new Date()): Promise<void> {
-		return this.write('sent', turn, { turn, sent: at.toISOString(), chat, session, before } satisfies SentTurn);
+	/** Records `turn` sent, to `session`, once its files are on the Computer. */
+	send(turn: string, chat: string, session: string, at = new Date()): Promise<void> {
+		return this.write('sent', turn, { turn, sent: at.toISOString(), chat, session } satisfies SentTurn);
 	}
 
 	settled(turn: string): SettledTurn | undefined { return this.read<SettledTurn>('settled', turn); }
@@ -76,28 +76,12 @@ export class TurnRecord {
 	unsettled(chat: string): SentTurn[] { return this.turns().filter(t => t.chat === chat && !this.settled(t.turn)); }
 
 	/** Records `turn` settled. */
-	async settle(turn: string, settled: Omit<SettledTurn, 'settled'>): Promise<void> {
-		await this.write('settled', turn, { ...settled, settled: new Date().toISOString() } satisfies SettledTurn);
-	}
+	settle(turn: string, settled: SettledTurn): Promise<void> { return this.write('settled', turn, settled); }
 }
 
 /** The turn record of the project at `root` under the Studio's protocol storage `storage`. */
 export function turnRecordOf(storage: string, root: string): TurnRecord {
 	return new TurnRecord(join(storage, 'projects', sha256(projectIdentity(root)).slice(0, 32)));
-}
-
-/** How a turn ended, by the protocol's names. */
-export type TurnEnded = 'pine_computer_is_waiting_for_person_answer' | 'pine_computer_finished_the_work' | 'person_stopped_the_turn' | 'pine_computer_broke_off_the_turn';
-
-/** Pine's turn state (its agent turns) as the protocol names how a turn ended, the one mapping; undefined while it runs. */
-export function turnEndedAs(state: string): TurnEnded | undefined {
-	switch (state) {
-		case 'needs_input': return 'pine_computer_is_waiting_for_person_answer';
-		case 'completed': return 'pine_computer_finished_the_work';
-		case 'canceled': return 'person_stopped_the_turn';
-		case 'failed': return 'pine_computer_broke_off_the_turn';
-		default: return undefined;
-	}
 }
 
 /** A session of Pine Computer the Studio's commands run in, and the person's Stop of the send they belong to. */
@@ -112,51 +96,70 @@ export interface ComputerSession {
 const shellWord = (text: string): string => `'${text.replaceAll('\'', '\'\\\'\'')}'`;
 
 /**
- * Runs `command` in a subshell: each exec leaves its working directory and variables in the bash session the agent's
- * own commands run in (PineSandbox components/execd/pkg/runtime/bash_session.go:384-390), so none of the Studio's leaks.
+ * Runs `command` in a subshell, so no directory or variable of it stays in the session's shell (PineSandbox
+ * components/execd/pkg/runtime/bash_session.go:384-390).
  */
 const run = (at: ComputerSession, command: string): Promise<string> => at.port.exec(at.env, at.session, `( ${command} )`, at.signal);
 
-/** A path the drama does not hold: one with a part starting with ".", as for the project's own files (section 1). */
-const hidden = (path: string): boolean => path.split('/').some(part => part.startsWith('.'));
+/** The harness's repository on the Computer: beside the drama's folder in the session's working directory, never in it. */
+const GIT_DIR = 'pine-drama.git';
 
 /**
- * Every file of the drama's folder on the Computer, with its SHA-256, by one exec (find, sha256sum); hidden ones are
- * not the drama's. The folder is made first, so a new session's lists empty.
+ * Git on the Computer, the same whatever the Computer's own setup: no global or system config, no hooks, no line-ending
+ * conversion, and the drama's folder as its work tree (git, --git-dir and --work-tree).
  */
-export async function listComputerFiles(at: ComputerSession): Promise<Listing> {
-	const out = await run(at, `mkdir -p ${DRAMA_FOLDER} && cd ${DRAMA_FOLDER} && find . -mindepth 1 -name '.*' -prune -o -type f -exec sha256sum -- {} +`);
-	// "<hash>  ./<path>" per file; a name with a backslash or a line break is escaped, its line starting with "\" (GNU
-	// coreutils sha256sum). Such a name is kept as printed: it is no path of the project, and collectTurn says so.
-	return Object.fromEntries(out.split('\n').flatMap(line => {
-		const found = /^\\?([0-9a-f]{64}) [ *]\.\/(.+)$/.exec(line);
-		return found ? [[found[2], found[1]]] : [];
-	}));
-}
+const GIT = `GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git --git-dir=${GIT_DIR} --work-tree=${DRAMA_FOLDER} -c core.hooksPath=/dev/null -c core.autocrlf=false`;
+
+/** The harness's repository made once per session; no file is converted on its way in or out (info/attributes, the project's own byte rule). */
+const INIT = `mkdir -p ${DRAMA_FOLDER} && { [ -d ${GIT_DIR} ] || { GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git init -q --bare ${GIT_DIR}`
+	+ ` && printf '* -text -filter -ident -working-tree-encoding\\n' > ${GIT_DIR}/info/attributes; }; }`;
+
+/**
+ * Every path of the drama's folder but those with a part starting with ".", which are not the drama's (section 1): the
+ * agent's own .gitignore files decide nothing, so `add` and `clean` take this pathspec with --force (git, pathspec magic).
+ */
+const DRAMA_PATHS = `-- . ':(exclude,glob)**/.*' ':(exclude,glob)**/.*/**'`;
 
 /** The names of the parts a put is written as: one file name each, as write_file takes (PineSandbox session-coordinator pkg/server/files.go:217-219). */
 const PUT_PART = 'pine-drama-put-';
 /** The most write_file takes in one file, 64 MiB (PineSandbox internal/sessionfs/attachments.go:15). */
 const PART_BYTES = 64 * 1024 * 1024;
+/** The bundles that go up and come back, in the session's working directory, outside the drama's folder, and gone once read. */
+const PUT_BUNDLE = 'pine-drama-put.bundle';
+const GET_BUNDLE = 'pine-drama-get.bundle';
 
 /**
- * Makes the drama's folder on the Computer hold what the tar `archive` holds, and not `remove`: the tar goes up in parts
- * under the session's attachments/, and one exec removes `remove` first, with the folders that leaves empty (as git does,
- * dir.c remove_path), so a file and a folder can change places on one path; then it extracts the parts there and
- * removes them, so the agent is never told of them.
+ * The project's refs for a session (one name per session, from its own): `acked`, the last commit both sides hold;
+ * `put`, the snapshot going up; `result`, the last capture fetched back. Refs outside refs/heads, so no branch shows them.
  */
-async function putFiles(at: ComputerSession, archive: string | undefined, remove: readonly string[]): Promise<void> {
-	const steps: string[] = [`mkdir -p ${DRAMA_FOLDER}`];
-	if (remove.length) {
-		// Every folder above a removed file, deepest first, each removed only if it is left empty (GNU rmdir); one that is
-		// not there (gone, or a name the listing printed escaped) is skipped, so it never stops the put.
-		const folders = [...new Set(remove.flatMap(path => path.split('/').slice(0, -1).map((_, i, parts) => parts.slice(0, i + 1).join('/'))))]
-			.sort((a, b) => b.split('/').length - a.split('/').length);
-		steps.push(`(cd ${DRAMA_FOLDER} && rm -f -- ${remove.map(shellWord).join(' ')}${folders.length ? ` && for d in ${folders.map(shellWord).join(' ')}; do if [ -d "$d" ]; then rmdir --ignore-fail-on-non-empty -- "$d"; fi; done` : ''})`);
-	}
-	if (archive) {
+function sessionRefs(session: string): { readonly acked: string; readonly put: string; readonly result: string } {
+	const key = sha256(session).slice(0, 16);
+	return { acked: `refs/pine-drama/sessions/${key}`, put: `refs/pine-drama/put/${key}`, result: `refs/pine-drama/result/${key}` };
+}
+
+/**
+ * Turn `turn`'s files on the Computer before its agent runs. In the project's write queue, the folder is recorded, and
+ * HEAD's files (no hidden ones, no links) are made a snapshot commit and bundled: a child of the session's acknowledged
+ * commit when the Computer still holds it (git cat-file -e), so only what it lacks goes up, else a commit with no
+ * parent, so no history goes up. The bundle goes up in parts, and one exec fetches it, checks it out in the drama's
+ * folder (git read-tree --reset -u) and removes every other file there (git clean), so the folder holds exactly the
+ * snapshot, also where the harness's repository was made again; names starting with "." stay.
+ */
+export async function putTurnFiles(at: ComputerSession, root: string, turn: string): Promise<{ readonly seed: string }> {
+	const refs = sessionRefs(at.session.name);
+	const acked = await readRef(root, refs.acked);
+	const held = acked !== null && (await run(at, `[ -d ${GIT_DIR} ] && ${GIT} cat-file -e ${acked}^{commit} && echo held || true`)).trim() === 'held';
+	const dir = await mkdtemp(join(tmpdir(), 'pine-drama-put-'));
+	const bundle = join(dir, 'put.bundle');
+	try {
+		const seed = await runInProjectWriteQueue(root, async () => {
+			await commitPathsToHistory(root, 'client-found-changes-on-disk', 'all', `The project as found before turn ${turn}`);
+			const seed = await commitSnapshotOfHead(root, refs.put, held ? acked : null, `The project as turn ${turn} starts`);
+			await bundleRef(root, bundle, refs.put, held ? acked : null);
+			return seed;
+		});
 		const parts: string[] = [];
-		const file = await open(archive);
+		const file = await open(bundle);
 		try {
 			const { size } = await file.stat();
 			for (let offset = 0; offset < size; offset += PART_BYTES) {
@@ -168,105 +171,47 @@ async function putFiles(at: ComputerSession, archive: string | undefined, remove
 				parts.push(name);
 			}
 		} finally { await file.close(); }
-		steps.push(`cat ${parts.map(name => `attachments/${name}`).join(' ')} | tar -xf - -C ${DRAMA_FOLDER}`, `rm -f attachments/${PUT_PART}*`);
-	}
-	await run(at, steps.join(' && '));
-}
-
-/** Where getFiles writes its tar: in the session's working directory, outside the drama's folder, and gone once read. */
-const GET_TAR = 'pine-drama-get.tar';
-
-/**
- * The bytes of `paths` in the drama's folder on the Computer: one exec tars them, read_file reads the tar, one more exec
- * removes it. Each file goes in whole, a hard link too, which GNU tar would otherwise store as a link to another member
- * (GNU tar manual, "--hard-dereference"); a path gone since it was listed is left out, not an error ("--ignore-failed-read").
- * The tar is the Computer's, so only the entries asked for are read: any other is returned by name in `unasked`, unread.
- */
-async function getFiles(at: ComputerSession, paths: readonly string[]): Promise<{ readonly files: ReadonlyMap<string, Buffer>; readonly unasked: readonly string[] }> {
-	await run(at, `cd ${DRAMA_FOLDER} && tar --hard-dereference --ignore-failed-read -cf ../${GET_TAR} -- ${paths.map(shellWord).join(' ')}`);
-	const asked = new Set(paths);
-	const files = new Map<string, Buffer>();
-	const unasked: string[] = [];
-	const parser = new TarParser({
-		strict: true,
-		onReadEntry: (entry: ReadEntry) => {
-			if (!asked.has(entry.path) || entry.type !== 'File') {
-				if (!asked.has(entry.path)) { unasked.push(entry.path); }
-				entry.resume();
-				return;
-			}
-			const chunks: Buffer[] = [];
-			entry.on('data', (chunk: Buffer) => chunks.push(chunk));
-			entry.on('end', () => files.set(entry.path, Buffer.concat(chunks)));
-		},
-	});
-	const parsed = new Promise<void>((resolve, reject) => { parser.on('end', resolve); parser.on('error', reject); });
-	// A web ReadableStream is async-iterable in Node 20 and later. Its chunks are plain Uint8Arrays, and node-tar's parser
-	// reads a Buffer (a plain chunk failed "TAR_ENTRY_INVALID: checksum failure" on Pine): each is viewed as one, not copied.
-	for await (const chunk of await at.port.openFile(at.env, at.session, GET_TAR) as unknown as AsyncIterable<Uint8Array>) {
-		parser.write(Buffer.from(chunk.buffer, chunk.byteOffset, chunk.byteLength));
-	}
-	parser.end();
-	await parsed;
-	await run(at, `rm -f ${GET_TAR}`);
-	return { files, unasked };
-}
-
-/**
- * Turn `turn`'s files on the Computer before its agent runs: every file of the project but a hidden one put where the
- * Computer's differs, every file there the project lacks removed, and the folder listed again as the agent will find it.
- * Returns that listing.
- */
-export async function putTurnFiles(at: ComputerSession, root: string, turn: string): Promise<{ readonly before: Listing; readonly put: number; readonly removed: number }> {
-	const theirs = await listComputerFiles(at);
-	const dir = await mkdtemp(join(tmpdir(), 'pine-drama-put-'));
-	const archive = join(dir, 'put.tar');
-	try {
-		// One state of the project, in its write queue: the folder recorded, its files hashed and the ones to put archived
-		// (node-tar, portable) before any other write lands, so a result of another session never mixes into what goes up.
-		const { put, removed } = await runInProjectWriteQueue(root, async () => {
-			await commitPathsToHistory(root, 'client-found-changes-on-disk', 'all', `The project as found before turn ${turn}`);
-			const mine = new Map<string, string>();
-			// One blob at a time, each hashed once ever (sha256OfBlob): a first send of many files never starts a process per file at once.
-			for (const f of (await listFilesOfHead(root)).filter(f => !hidden(f.path))) { mine.set(f.path, await sha256OfBlob(root, f.blob)); }
-			const put = [...mine].filter(([path, hash]) => theirs[path] !== hash).map(([path]) => path);
-			// `./` first: node-tar reads a name that starts with @ as an archive to add (its README, tar.c).
-			if (put.length) { await createTar({ cwd: root, portable: true, file: archive }, put.map(path => `./${path}`)); }
-			return { put, removed: Object.keys(theirs).filter(path => !mine.has(path)) };
-		});
-		if (put.length || removed.length) { await putFiles(at, put.length ? archive : undefined, removed); }
-		return { before: await listComputerFiles(at), put: put.length, removed: removed.length };
+		await run(at, [INIT, `cat ${parts.map(name => `attachments/${name}`).join(' ')} > ${PUT_BUNDLE}`, `rm -f attachments/${PUT_PART}*`,
+			`${GIT} fetch -q --no-tags ${PUT_BUNDLE} +${refs.put}:refs/studio`, `${GIT} read-tree --reset -u refs/studio`, `${GIT} clean -ffdxq ${DRAMA_PATHS}`, `rm -f ${PUT_BUNDLE}`].join(' && '));
+		await runInProjectWriteQueue(root, () => commitEntriesToHistory(root, 'person', [], '', {}, { [refs.acked]: seed }));
+		return { seed };
 	} finally {
 		await rm(dir, { recursive: true, force: true });
 	}
 }
 
-/**
- * What collecting a turn landed, the names on the Computer that are no paths of the project, left there, and the entries
- * of the Computer's tar that were not asked for, not read.
- */
+/** What collecting a turn landed, and the paths of its result left out of the project, each with why. */
 export interface Collected {
 	readonly files: readonly string[];
-	readonly notPaths: readonly string[];
-	readonly unasked: readonly string[];
+	readonly leftOut: ReadonlyMap<string, LeftOut>;
 }
 
 /**
- * Lands what turn `turn`'s agent changed in the drama's folder on the Computer, at its Pine turn's end however it ended:
- * the folder listed now against `before`, the files that differ read and landed, with the paths gone deleted, as one
- * `pine-computer` commit with the turn's trailer. Landing it again is a no-op (applyChangeToProjectFolder).
+ * Lands what Pine's turn `ids` agent changed in the drama's folder on the Computer, at its Pine turn's end however it ended.
+ * One exec stages it all (git add -A --force, names starting with "." left out) and, when the tree differs from the session's
+ * acknowledged commit, commits it as that commit's child and bundles only that commit; an unchanged tree makes no
+ * commit and no bundle. The bundle is read back and fetched under a private ref, and the paths that differ (git
+ * diff-tree, no renames) land path by path (applyChange.ts landTurnResult), the acknowledged commit moving with them.
+ * Collecting again is a no-op.
  */
-export async function collectTurn(at: ComputerSession, root: string, turn: string, before: Listing): Promise<Collected> {
-	const after = await listComputerFiles(at);
-	const changed = Object.keys(after).filter(path => before[path] !== after[path]);
-	const gone = Object.keys(before).filter(path => !Object.hasOwn(after, path));
-	const read = changed.filter(validPath);
-	const { files: bytes, unasked } = read.length ? await getFiles(at, read) : { files: new Map<string, Buffer>(), unasked: [] };
-	const byHash = new Map([...bytes.values()].map(b => [sha256(b), b]));
-	// Each file as read, by the hash of its bytes: the listing only finds what changed.
-	const filesAfterChange = Object.fromEntries([...[...bytes].map(([path, b]) => [path, sha256(b)] as const), ...gone.filter(validPath).map(path => [path, null] as const)]);
-	const notPaths = changed.filter(path => !validPath(path));
-	if (!Object.keys(filesAfterChange).length) { return { files: [], notPaths, unasked }; }
-	await applyChangeToProjectFolder(root, { filesAfterChange, author: 'pine-computer', commitMessage: `Turn ${turn}`, turnId: turn }, async hash => byHash.get(hash)!);
-	return { files: Object.keys(filesAfterChange), notPaths, unasked };
+export async function collectTurn(at: ComputerSession, root: string, ids: PineTurnIds): Promise<Collected> {
+	const refs = sessionRefs(at.session.name);
+	const acked = await readRef(root, refs.acked);
+	if (!acked) { throw new Error(`the Studio holds no commit of session ${at.session.name}, so its turn cannot be compared`); }
+	const said = await run(at, [`${GIT} add -A --force ${DRAMA_PATHS}`, `t=$(${GIT} write-tree)`,
+		`if [ "$t" = "$(${GIT} rev-parse ${acked}^{tree})" ]; then echo unchanged; else c=$(${GIT} -c user.name=pine-computer -c user.email=pine-computer@pine-drama.invalid commit-tree "$t" -p ${acked} -m ${shellWord(`Turn ${ids.turn}`)})`
+		+ ` && ${GIT} update-ref refs/heads/turn "$c" && ${GIT} bundle create ${GET_BUNDLE} refs/heads/turn ^${acked} && echo captured; fi`].join(' && '));
+	if (said.trim().split('\n').at(-1) === 'unchanged') { return { files: [], leftOut: new Map() }; }
+	const dir = await mkdtemp(join(tmpdir(), 'pine-drama-get-'));
+	const bundle = join(dir, 'get.bundle');
+	try {
+		const stream = await at.port.openFile(at.env, at.session, GET_BUNDLE);
+		await pipeline(Readable.fromWeb(stream as WebReadableStream<Uint8Array>), createWriteStream(bundle));
+		await run(at, `rm -f ${GET_BUNDLE}`);
+		const result = await runInProjectWriteQueue(root, () => fetchBundle(root, bundle, 'refs/heads/turn', refs.result));
+		const { landed, leftOut } = await landTurnResult(root, ids, await treeChanges(root, acked, result), { [refs.acked]: result });
+		return { files: landed, leftOut };
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
 }

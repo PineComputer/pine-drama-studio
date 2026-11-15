@@ -4,15 +4,15 @@
 // since the people who make dramas don't use git, and every version stays recoverable, as Claude Code's checkpoints
 // keep each edit for a rewind. No vscode import.
 
-import { existsSync } from 'node:fs';
-import { mkdir, writeFile } from 'node:fs/promises';
-import { devNull } from 'node:os';
+import { randomUUID } from 'node:crypto';
+import { createWriteStream, existsSync } from 'node:fs';
+import { mkdir, mkdtemp, rename, rm, writeFile } from 'node:fs/promises';
+import { devNull, tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
+import { pipeline } from 'node:stream/promises';
 import { git, gitStream } from './git';
-import { writeWhole } from './placement';
 import { projectIdentity } from './projectPlace';
 import { OBJECT_FILE } from './protocol';
-import { sha256OfStream } from './sha256';
 
 /**
  * A commit's author (doc/protocol.md 2.1): a turn's result, the person's own change through the Studio, or what the
@@ -98,20 +98,18 @@ export function commitFilesFoundOnDisk(projectRoot: string, message: string): Pr
 	return runInProjectWriteQueue(projectRoot, () => commitPathsToHistory(projectRoot, 'client-found-changes-on-disk', 'all', message));
 }
 
-/** The trailer a turn's result is committed with, by which it is found in history. */
+/** Pine's own ids of a turn: its Computer, its session (Pine names a session by its name) and the turn. */
+export interface PineTurnIds {
+	readonly computer: string;
+	readonly session: string;
+	readonly turn: string;
+}
+
+/** The trailer of a turn's result by which history names the turn; Use and the Versions list read it. */
 const TURN_ID = 'Pine-Turn-Id';
 
-export const turnTrailers = (turnId: string): Readonly<Record<string, string>> => ({ [TURN_ID]: turnId });
-
-/** Whether a commit of HEAD's history carries turn `turnId`'s trailer: its result has landed. */
-export async function historyHasTurn(projectRoot: string, turnId: string): Promise<boolean> {
-	if (!existsSync(join(projectRoot, '.git')) || !await hasHead(projectRoot)) { return false; }
-	// A trailer is a line of its own, so the pattern is anchored to a line (git log --grep matches per line).
-	// The grep finds the candidates; git's own trailer parsing decides, so text quoted in a message body is no trailer.
-	const found = await run(projectRoot, 'person', ['log', '-z', '-E', `--grep=^${escapeRegex(TURN_ID)}: ${escapeRegex(turnId)}$`,
-		`--format=%(trailers:key=${TURN_ID},valueonly,separator=%x2C)`]);
-	return found.split('\0').some(entry => entry.trim() === turnId);
-}
+/** The trailers a turn's result is committed with: where on Pine it was made. */
+export const turnTrailers = (ids: PineTurnIds): Readonly<Record<string, string>> => ({ 'Pine-Computer-Id': ids.computer, 'Pine-Session-Id': ids.session, [TURN_ID]: ids.turn });
 
 /** One commit of a history: who made it, when, the turn whose result it landed if any, and the files it changed. */
 export interface HistoryEntry {
@@ -219,48 +217,143 @@ export async function readChangeOfObject(projectRoot: string, commit: string, ob
 	return files;
 }
 
-/** Every file HEAD holds, by path, with its blob and size: regular files only, since a link is no file of the project (section 1). */
-export async function listFilesOfHead(projectRoot: string): Promise<{ readonly path: string; readonly blob: string; readonly size: number }[]> {
-	if (!existsSync(join(projectRoot, '.git')) || !await hasHead(projectRoot)) { return []; }
-	// "<mode> <type> <blob> <size>\t<path>", the size padded, NUL-terminated (git ls-tree -l -z).
-	return (await run(projectRoot, 'person', ['ls-tree', '-r', '-l', '-z', '--full-tree', 'HEAD'])).split('\0').filter(Boolean).flatMap(line => {
-		const tab = line.indexOf('\t');
-		const [mode, , blob, size] = line.slice(0, tab).split(/ +/);
-		return mode === '100644' || mode === '100755' ? [{ path: line.slice(tab + 1), blob, size: Number(size) }] : [];
-	});
+/** The modes of a file of the project: a regular file, executable or not; a link (120000) or a gitlink (160000) is none (section 1). */
+const FILE_MODES: ReadonlySet<string> = new Set(['100644', '100755']);
+
+/** A path the drama does not hold: one with a part starting with "." (section 1). */
+export const hiddenPath = (path: string): boolean => path.split('/').some(part => part.startsWith('.'));
+
+/** A file of a change between two trees: its path, git's mode and blob there, or null where the change deletes it. */
+export interface TreeEntry {
+	readonly path: string;
+	readonly mode: string;
+	readonly blob: string | null;
 }
 
-/** The SHA-256 of each blob hashed so far, by git's blob id: a blob id names immutable bytes, so an entry never goes stale. */
-const sha256ByBlob = new Map<string, string>();
+/**
+ * Inside the project's write queue: a commit of HEAD's files as they go to a Pine Computer, hidden ones and links left out
+ * (section 1), at `ref`, with `parent` as its one parent or none. It is made of git's own objects (a temporary index,
+ * write-tree, commit-tree), so its bytes are HEAD's whatever the folder holds meanwhile. Returns its id.
+ */
+export async function commitSnapshotOfHead(projectRoot: string, ref: string, parent: string | null, message: string): Promise<string> {
+	await ensureRepository(projectRoot);
+	// "<mode> <type> <blob>\t<path>", NUL-terminated (git ls-tree -z), which update-index --index-info reads as it is.
+	const files = await hasHead(projectRoot) ? (await run(projectRoot, 'person', ['ls-tree', '-r', '-z', '--full-tree', 'HEAD'])).split('\0')
+		.filter(line => line && FILE_MODES.has(line.split(' ')[0]) && !hiddenPath(line.slice(line.indexOf('\t') + 1))) : [];
+	const tree = await withIndex(async index => {
+		await run(projectRoot, 'person', ['read-tree', '--empty'], { index });
+		if (files.length) { await run(projectRoot, 'person', ['update-index', '-z', '--index-info'], { index, stdin: `${files.join('\0')}\0` }); }
+		return (await run(projectRoot, 'person', ['write-tree'], { index })).trim();
+	});
+	const commit = (await run(projectRoot, 'person', ['commit-tree', tree, ...parent ? ['-p', parent] : [], '-m', message])).trim();
+	await run(projectRoot, 'person', ['update-ref', ref, commit]);
+	return commit;
+}
+
+/** The commit `ref` names, or null where there is none. */
+export async function readRef(projectRoot: string, ref: string): Promise<string | null> {
+	if (!existsSync(join(projectRoot, '.git'))) { return null; }
+	const result = await exec(projectRoot, 'person', ['rev-parse', '--verify', '-q', `${ref}^{commit}`]);
+	return result.exitCode === 0 ? result.stdout.trim() : null;
+}
+
+/** Writes `ref` and the commits it needs that `have` already holds not, as a bundle at `file` (git bundle create). */
+export async function bundleRef(projectRoot: string, file: string, ref: string, have: string | null): Promise<void> {
+	await run(projectRoot, 'person', ['bundle', 'create', file, ref, ...have ? [`^${have}`] : []]);
+}
+
+/** Fetches `ref` of the bundle at `file` into the repository as `into` (git fetch from a bundle); returns the commit. */
+export async function fetchBundle(projectRoot: string, file: string, ref: string, into: string): Promise<string> {
+	await run(projectRoot, 'person', ['fetch', '-q', '--no-tags', file, `+${ref}:${into}`]);
+	return (await run(projectRoot, 'person', ['rev-parse', '--verify', `${into}^{commit}`])).trim();
+}
+
+/** What changed from commit `from` to commit `to`, path by path, with no rename detection (git diff-tree -r -z --no-renames). */
+export async function treeChanges(projectRoot: string, from: string, to: string): Promise<TreeEntry[]> {
+	// ":<mode before> <mode after> <blob before> <blob after> <status>" and the path, each NUL-terminated.
+	const fields = (await run(projectRoot, 'person', ['diff-tree', '-r', '-z', '--no-renames', from, to])).split('\0');
+	const entries: TreeEntry[] = [];
+	for (let i = 0; i + 1 < fields.length; i += 2) {
+		const [, mode, , blob, status] = fields[i].slice(1).split(' ');
+		entries.push({ path: fields[i + 1], mode, blob: status === 'D' ? null : blob });
+	}
+	return entries;
+}
+
+/** Every path HEAD holds (git ls-tree -r --name-only). */
+export async function listPathsOfHead(projectRoot: string): Promise<string[]> {
+	if (!existsSync(join(projectRoot, '.git')) || !await hasHead(projectRoot)) { return []; }
+	return (await run(projectRoot, 'person', ['ls-tree', '-r', '-z', '--name-only', '--full-tree', 'HEAD'])).split('\0').filter(Boolean);
+}
 
 /**
- * The SHA-256 of the blob `blob`, streamed from the repository the first time and known by its id after (git cat-file):
- * a seed hashes only the files no earlier one did.
+ * Inside the project's write queue, once its folder holds them: commits exactly `entries` onto HEAD as `author`, with
+ * `message` and `trailers`, from a temporary index made from HEAD, so nothing else staged or changed goes in; HEAD and
+ * every ref of `refs` move together in one transaction (git update-ref --stdin), and the person's index takes the same
+ * entries, so those paths show no change. With no entries only `refs` move. A file and a folder may change places:
+ * the deletions go into the index first.
  */
-export async function sha256OfBlob(projectRoot: string, blob: string): Promise<string> {
-	const known = sha256ByBlob.get(blob);
-	if (known) { return known; }
-	const child = gitStream([...ISOLATED_CONFIG, 'cat-file', 'blob', blob], projectRoot, isolatedEnv('person'));
-	// A process that cannot start (EMFILE, EAGAIN) emits `error`, never `close`.
-	const [hash, code] = await Promise.all([sha256OfStream(child.stdout), new Promise<number | null>((resolve, reject) => { child.on('close', resolve); child.on('error', reject); })]);
-	if (code !== 0) { throw new Error(`git cat-file: blob ${blob} could not be read`); }
-	sha256ByBlob.set(blob, hash);
-	return hash;
+export async function commitEntriesToHistory(projectRoot: string, author: CommitAuthor, entries: readonly TreeEntry[], message: string,
+	trailers: Readonly<Record<string, string>>, refs: Readonly<Record<string, string>> = {}): Promise<void> {
+	await ensureRepository(projectRoot);
+	const head = await readRef(projectRoot, 'HEAD');
+	const lines = [...entries].sort((a, b) => Number(a.blob !== null) - Number(b.blob !== null))
+		.map(e => e.blob === null ? `0 ${'0'.repeat(40)}\t${e.path}` : `${e.mode} ${e.blob}\t${e.path}`).join('\0') + '\0';
+	const moves = { ...refs };
+	if (entries.length) {
+		const tree = await withIndex(async index => {
+			await run(projectRoot, author, head ? ['read-tree', head] : ['read-tree', '--empty'], { index });
+			await run(projectRoot, author, ['update-index', '-z', '--index-info'], { index, stdin: lines });
+			return (await run(projectRoot, author, ['write-tree'], { index })).trim();
+		});
+		const paragraphs = [message, Object.entries(trailers).map(([key, value]) => `${key}: ${value}`).join('\n')].filter(Boolean);
+		moves.HEAD = (await run(projectRoot, author, ['commit-tree', tree, ...head ? ['-p', head] : [], ...paragraphs.flatMap(text => ['-m', text])])).trim();
+	}
+	// HEAD only where it still is what the commit was made on, none for an unborn one (an "update <ref> <new> <old>"
+	// line, an all-zero old value for a ref that must not exist yet).
+	const transaction = ['start', ...Object.entries(moves).map(([ref, commit]) => ref === 'HEAD' ? `update HEAD ${commit} ${head ?? '0'.repeat(40)}` : `update ${ref} ${commit}`), 'commit', ''].join('\n');
+	await run(projectRoot, author, ['update-ref', '--stdin'], { stdin: transaction });
+	if (entries.length) { await run(projectRoot, author, ['update-index', '-z', '--index-info'], { stdin: lines }); }
+}
+
+/**
+ * Runs `use` with a temporary index, removed after (GIT_INDEX_FILE): outside the folder, as `.git` may be a file (a
+ * linked worktree, git-worktree) that holds no index.
+ */
+async function withIndex<T>(use: (index: string) => Promise<T>): Promise<T> {
+	const dir = await mkdtemp(join(tmpdir(), 'pine-drama-index-'));
+	try { return await use(join(dir, 'index')); } finally { await rm(dir, { recursive: true, force: true }); }
+}
+
+/**
+ * Writes the blob `blob` to `file` whole, streamed from the repository (git cat-file) into a sibling temporary file
+ * that is then renamed, so a large take is never held in memory; `executable` sets its mode 755.
+ */
+export async function writeBlob(projectRoot: string, blob: string, file: string, executable = false): Promise<void> {
+	const temp = join(dirname(file), `.${randomUUID()}.tmp`);
+	try {
+		const child = gitStream([...ISOLATED_CONFIG, 'cat-file', 'blob', blob], projectRoot, isolatedEnv('person'));
+		// A process that cannot start (EMFILE, EAGAIN) emits `error`, never `close`.
+		const [, code] = await Promise.all([pipeline(child.stdout, createWriteStream(temp, { mode: executable ? 0o755 : 0o644 })),
+			new Promise<number | null>((resolve, reject) => { child.on('close', resolve); child.on('error', reject); })]);
+		if (code !== 0) { throw new Error(`git cat-file: blob ${blob} could not be read`); }
+		await rename(temp, file);
+	} finally {
+		await rm(temp, { force: true });
+	}
 }
 
 /** Writes the blob `blob` to `file`, once: a past version's picture, for a thumbnail outside the project's folder. */
 export async function writeBlobToFile(projectRoot: string, blob: string, file: string): Promise<void> {
 	if (existsSync(file)) { return; }
 	await mkdir(dirname(file), { recursive: true });
-	await writeWhole(file, await blobBytes(projectRoot, blob));
+	await writeBlob(projectRoot, blob, file);
 }
 
 /** A blob's bytes, by any name git resolves to one (`<commit>:<path>` or its id); latin1 maps each byte to one character. */
 export async function blobBytes(projectRoot: string, name: string): Promise<Buffer> {
 	return Buffer.from(await run(projectRoot, 'person', ['cat-file', 'blob', name], { encoding: 'latin1' }), 'latin1');
 }
-
-const escapeRegex = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /** Whether the repository has a commit yet. */
 async function hasHead(projectRoot: string): Promise<boolean> {
@@ -273,8 +366,8 @@ async function hasHead(projectRoot: string): Promise<boolean> {
  * post-commit either), and the folder's own repository whatever the environment names (REPOSITORY_UNSET). Paths are
  * literal, never patterns (git, --literal-pathspecs).
  */
-function exec(projectRoot: string, author: CommitAuthor, args: readonly string[], call: { readonly stdin?: string; readonly encoding?: BufferEncoding } = {}) {
-	return git([...ISOLATED_CONFIG, ...args], projectRoot, { env: isolatedEnv(author), ...call });
+function exec(projectRoot: string, author: CommitAuthor, args: readonly string[], { index, ...call }: { readonly stdin?: string; readonly encoding?: BufferEncoding; readonly index?: string } = {}) {
+	return git([...ISOLATED_CONFIG, ...args], projectRoot, { env: { ...isolatedEnv(author), ...index ? { GIT_INDEX_FILE: index } : {} }, ...call });
 }
 
 const ISOLATED_CONFIG = ['-c', 'commit.gpgsign=false', '-c', `core.hooksPath=${devNull}`];

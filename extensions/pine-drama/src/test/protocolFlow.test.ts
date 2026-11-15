@@ -25,12 +25,12 @@ function fixture(more: Partial<ConstructorParameters<typeof ChatService>[0]> = {
 	const root = join(dir, 'drama'); mkdirSync(root);
 	const store = new Store(join(dir, 'studio.sqlite'));
 	const pine = new FakePine();
-	// `failTurnEnd`: the first listing of the drama's folder after a turn started fails, as a Computer that does not answer.
+	// `failTurnEnd`: the first capture of the drama's folder after a turn started fails, as a Computer that does not answer.
 	const control = { failTurnEnd: false };
 	const port = new Proxy(pine, { get: (target, name) => {
 		if (name === 'exec') {
 			return (...args: Parameters<FakePine['exec']>) => {
-				if (control.failTurnEnd && (target.calls.run ?? 0) > 0 && args[2].includes('sha256sum')) { control.failTurnEnd = false; return Promise.reject(new Error('the Computer did not answer')); }
+				if (control.failTurnEnd && (target.calls.run ?? 0) > 0 && args[2].includes(' add -A')) { control.failTurnEnd = false; return Promise.reject(new Error('the Computer did not answer')); }
 				return target.exec(...args);
 			};
 		}
@@ -54,10 +54,10 @@ test('a turn\'s message is the person\'s words, what its agent changed lands as 
 		assert.equal(readFileSync(join(f.root, 'assets/props/umbrella/picture.png'), 'utf8'), 'umbrella');
 		const [author, turn] = (await git(['log', '-1', '--format=%an|%(trailers:key=Pine-Turn-Id,valueonly,separator=)'], f.root)).stdout.trim().split('|');
 		assert.equal(author, 'pine-computer');
-		assert.ok(f.store.savedSend(turn)!.text.startsWith('draw the umbrella'), 'the message is the person\'s words, first');
+		assert.ok(f.store.savedSendsOfTurn('main', turn)[0].text.startsWith('draw the umbrella'), 'the trailer names Pine\'s turn, whose message is the person\'s words, first');
 		f.pine.plans = [{ state: 'completed', text: 'ok' }];
 		await f.send('next');
-		assert.equal(f.pine.calls.writeFile, undefined, 'the Computer holds the project already: nothing goes up');
+		assert.equal(f.pine.calls.writeFile, 2, 'one bundle part a put: the second holds only what the Computer lacks');
 		assert.equal(readFileSync(join(f.drama(), 'assets/props/umbrella/picture.png'), 'utf8'), 'umbrella');
 	} finally { f.store.close(); }
 });
@@ -85,7 +85,7 @@ test('a session\'s next turn waits until its last one is settled, and then start
 		assert.equal(readFileSync(join(f.root, 'assets/props/a/picture.png'), 'utf8'), 'a', 'the earlier turn is settled first');
 		const turns = (await git(['log', '--format=%(trailers:key=Pine-Turn-Id,valueonly,separator=)', '--author=pine-computer'], f.root)).stdout.trim().split('\n');
 		assert.equal(turns.length, 2, 'each turn its own commit');
-		assert.deepEqual(turns.map(turn => f.store.savedSend(turn)!.text.split('\n')[0]), ['next', 'draw a']);
+		assert.deepEqual(turns.map(turn => f.store.savedSendsOfTurn('main', turn)[0].text.split('\n')[0]), ['next', 'draw a']);
 	} finally { f.store.close(); }
 });
 

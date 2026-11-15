@@ -555,8 +555,7 @@
     "ajv-formats": "3.0.1",
     "dugite": "3.3.3",
     "mammoth": "1.13.0",
-    "pdfjs-dist": "6.4.299",
-    "tar": "7.5.22"
+    "pdfjs-dist": "6.4.299"
   },
   "capabilities": {
     "untrustedWorkspaces": {

@@ -32,7 +32,7 @@ import { AccountError, ConnectionLostError, PINE_ACCOUNT_URL, IDLE_WAITING_SECON
 import { projectIdentity, projectPlaceOf, projectRootOf } from './projectPlace';
 import { entryFor, type Entry } from './binding';
 import { givenBack, refusalLine } from './refusal';
-import { collectTurn, putTurnFiles, turnEndedAs, turnRecordOf, type ComputerSession, type TurnRecord } from './turn';
+import { collectTurn, putTurnFiles, turnRecordOf, type ComputerSession, type SentTurn, type TurnRecord } from './turn';
 import { applyPersonChange } from './applyChange';
 import { DRAMA_FOLDER, PERSON_ATTACHMENTS_FOLDER } from './protocol';
 import { type ProjectPlace, unusedName, within } from './placement';
@@ -59,14 +59,6 @@ export type Update =
 	| { kind: 'notStarted'; text: string }
 	/** Pine could not be reached for the follow's whole limit: the line offers Reload Window, which attaches again. */
 	| { kind: 'unreachable'; text: string };
-
-/** What a follower brings to collect at a turn's end (streamPineTurnEvents): the turns it followed, and how the last one ended. */
-interface TurnEnd {
-	readonly turns: readonly TurnView[];
-	readonly ending: readonly Update[];
-	/** Whether each turn was settled before the follower waited in the line (importTurnResultsIntoProjectFolder's first check). */
-	readonly followUpDoneBefore: ReadonlyMap<string, boolean>;
-}
 
 /** What became of a request to stop one session's Computer. */
 export class BusyElsewhereError extends Error {
@@ -507,8 +499,7 @@ export class ChatService {
 
 	/** Whether a task of the Chat ended without its result being published (local first, 6.2). */
 	hasUnfinishedTurnFollowUp(key: string): boolean {
-		const root = this.projectRoot(key);
-		return this.store.unfinishedTurnFollowUps(key).length > 0 || (!!this.options.protocol && !!root && this.turnRecord(root).unsettled(key).length > 0);
+		return this.owedTurns(key).length > 0;
 	}
 
 	/**
@@ -648,14 +639,12 @@ export class ChatService {
 			yield notCollected((error as Error).message);
 			return;
 		}
-		// A publication that failed inside collect is saved on its stop (save_error), not thrown: the same case.
-		const unsettled = this.store.unfinishedTurnFollowUps(key);
-		const root = this.projectRoot(key);
-		const open = this.options.protocol && root ? this.turnRecord(root).unsettled(key).filter(t => this.store.savedSend(t.turn)?.turn_id).map(t => t.turn) : [];
-		if (unsettled.length || open.length) {
+		// A collection that failed inside collect is said there and stays owed, not thrown: the same case.
+		const owed = this.owedTurns(key).map(t => t.pineTurn);
+		if (owed.length) {
 			notStarted();
-			this.log(`${key}: earlier results are not collected yet (stops ${unsettled.map(row => row.turn_id).join(', ') || 'none'}; tasks ${open.join(', ') || 'none'}), so no new session was started`);
-			yield notCollected(unsettled.map(row => row.save_error).find(Boolean) ?? 'they are still being collected');
+			this.log(`${key}: earlier results are not collected yet (turns ${owed.join(', ')}), so no new session was started`);
+			yield notCollected(`turn ${owed.join(', ')}`);
 			return;
 		}
 		const needsStart = stoppedConfirmed || !secrets.binding;
@@ -1280,14 +1269,11 @@ export class ChatService {
 			}
 		})();
 
-		/** Turns that ended answered by someone else on the way: their files are settled too. */
-		const answered: TurnView[] = [];
 		const ended = (async () => {
 			for (; ;) {
 				let turn = await this.held(key, epoch, () => this.port.turn(env, session, turnId!, TURN_WAIT_MS));
 				touched(turn);
 				while (turn.state === 'answered' && turn.nextTurnId) {
-					answered.push(turn);
 					turnId = turn.nextTurnId;
 					this.write(key, epoch, () => this.store.updateChat(key, { current_turn_id: turnId }));
 					turn = await this.held(key, epoch, () => this.port.turn(env, session, turnId!, 0));
@@ -1342,13 +1328,9 @@ export class ChatService {
 			}
 			const last = await ended;
 			const ending = this.composeTurnEnding(key, epoch, last);
-			// Collected as every other publication pass: a second follower of the same turn in this window (the resume at
-			// start and Chat's follow) waits in the line, then finds it published (importTurnResultsIntoProjectFolder's first check).
-			// Whether each turn was settled before this follower waits: one settled while it waited was published by the
-			// pass ahead of it. A turn settled earlier is published again as before (a held task's later pass).
-			const turns = [...answered, last];
-			const settledBefore = new Map(turns.map(turn => [turn.turnId, !!this.store.turnFollowUp(turn.turnId)?.done]));
-			yield* this.collectResultsFromPine(key, env, epoch, { turns, ending, followUpDoneBefore: settledBefore });
+			// Collected as every other pass: a second follower of the same turn in this window (the resume at start and
+			// Chat's follow) waits in the line, then finds the turn settled and says only its ending.
+			yield* this.collectResultsFromPine(key, env, epoch, ending);
 			yield* this.tendIdle(key, env, epoch, session);
 			return undefined;
 		} finally {
@@ -1427,18 +1409,18 @@ export class ChatService {
 		const out = this.write(key, epoch, () => {
 			const final = (kind: Message['kind'], text: string) =>
 				this.store.addMessage({ chat_key: key, turn_id: turn.turnId, saved_send_id: null, kind, text, cost: null, currency: null });
-			// How the turn ended is Pine's turn result, named once (turn.ts turnEndedAs; doc/protocol.md 4.6).
-			switch (turnEndedAs(turn.state)) {
-				case 'pine_computer_is_waiting_for_person_answer':
-					// The question is the turn result's summary (4.6), which Pine's turn gives as its question.
+			// How the turn ended is Pine's turn state (its agent turns).
+			switch (turn.state) {
+				case 'needs_input':
+					// The question is the turn result's summary, which Pine's turn gives as its question.
 					final('question', turn.question);
 					this.store.updateChat(key, { state: 'needs_input', question_turn_id: turn.turnId });
 					break;
-				case 'pine_computer_finished_the_work':
+				case 'completed':
 					if (turn.summary) { final('result', turn.summary); }
 					this.store.updateChat(key, { state: 'idle', question_turn_id: null });
 					break;
-				case 'person_stopped_the_turn':
+				case 'canceled':
 					final('result', `You stopped this turn. ${turn.summary}`.trim());
 					this.store.updateChat(key, { state: 'idle', question_turn_id: null });
 					break;
@@ -1561,16 +1543,15 @@ export class ChatService {
 		mkdirSync(root, { recursive: true });
 		const record = this.turnRecord(root);
 		// One turn at a time per session: the next is sent only once the last one is settled, so it starts from that
-		// turn's files. Only a turn whose send went through (it has a Pine turn and did not fail) can have changed any;
-		// one Pine refused or never admitted ran nothing and is not waited for.
-		const waiting = record.unsettled(key).filter(t => { const op = this.store.savedSend(t.turn); return !!op?.turn_id && op.state !== 'failed'; });
-		if (waiting.length) { throw new Error(`the result of the previous turn (${waiting.map(t => t.turn).join(', ')}) is not in the project yet`); }
+		// turn's files (owedTurns: only a turn Pine admitted can have changed any).
+		const waiting = this.owedTurns(key);
+		if (waiting.length) { throw new Error(`the result of the previous turn (${waiting.map(t => t.pineTurn).join(', ')}) is not in the project yet`); }
 		this.inBoundFolder(key, root);
-		const put = await this.held(key, epoch, () => putTurnFiles({ port: this.port, env, session, signal }, root, task));
+		const { seed } = await this.held(key, epoch, () => putTurnFiles({ port: this.port, env, session, signal }, root, task));
 		// The last point the person's Stop keeps the turn from starting; after it the run goes, and a Stop cancels its turn.
 		signal?.throwIfAborted();
-		await this.held(key, epoch, () => record.send(task, key, session.name, put.before));
-		this.log(`${key}: turn ${task}: ${Object.keys(put.before).length} file(s), ${put.put} put, ${put.removed} removed`);
+		await this.held(key, epoch, () => record.send(task, key, session.name));
+		this.log(`${key}: turn ${task}: the project is on the Computer as ${seed}`);
 	}
 
 	/** The folder is still the bound one: a root moved away or replaced by a link receives nothing. */
@@ -1599,106 +1580,92 @@ export class ChatService {
 
 
 
+	// ---- collecting what a turn changed ----
+
 	/**
-	 * At a Pine turn's end: each turn it carried is settled, what its agent changed in the drama's folder on the Computer
-	 * landed (turn.ts collectTurn).
+	 * Every collection pass of a Chat, one at a time in its line (runOneCollectionPerChat): at a followed turn's end, with
+	 * the ending composeTurnEnding formatted, and the owed pass at the chat opening, the resume at start, a restart and a
+	 * send. Each drains the same list, the Chat's owed turns (owedTurns), so a pass that waited behind another finds only
+	 * what it left. Its caller goes on to read what is left (replaceEndedPineSession), so it does not return at once.
 	 */
-	private async *importTurnResultsIntoProjectFolder(key: string, env: PineConnection, epoch: number, turn: { turnId: string; state: string; asked: string }, ending: readonly Update[] = [], settledBefore?: boolean): AsyncGenerator<Update> {
+	private async *collectResultsFromPine(key: string, env: PineConnection, epoch: number, ending: readonly Update[] = []): AsyncGenerator<Update> {
+		yield* this.runOneCollectionPerChat(key, () => this.collectOwedTurns(key, env, epoch, ending));
+	}
+
+	/**
+	 * The Chat's turns owed to the project, oldest first: sent, admitted by Pine, not settled, and not the turn Pine runs
+	 * now, which is collected at its end.
+	 */
+	private owedTurns(key: string): { readonly sent: SentTurn; readonly pineTurn: string }[] {
+		const root = this.projectRoot(key);
+		const conv = this.store.chat(key);
+		return (this.options.protocol && root ? this.turnRecord(root).unsettled(key) : []).flatMap(sent => {
+			const op = this.store.savedSend(sent.turn);
+			if (!op?.turn_id || op.state === 'failed') { return []; }
+			if (conv && conv.pine_session_state !== 'ended' && conv.state === 'running' && conv.current_turn_id === op.turn_id) { return []; }
+			return [{ sent, pineTurn: op.turn_id }];
+		});
+	}
+
+	/**
+	 * collectResultsFromPine's pass: each owed turn's changes landed (turn.ts collectTurn) and the turn settled, then the
+	 * ending, then what the pass said. A turn whose session Pine no longer has took its files with it (Pine keeps them only
+	 * while the Computer runs): said once, and settled, so it never holds up the next. One that fails stays owed.
+	 */
+	private async *collectOwedTurns(key: string, env: PineConnection, epoch: number, ending: readonly Update[]): AsyncGenerator<Update> {
 		const finalWords = (): Update[] => ending.map(update => update.kind === 'markdown' && update.question
 			? { kind: 'markdown', text: `${update.text}\n\n_Your next message answers it._` } : update);
-		// A turn's end is its words, then what this pass said.
-		const ended = function* (said: readonly Update[]): Generator<Update> {
-			yield* finalWords();
-			yield* said;
-		};
-		if (settledBefore === false && this.store.turnFollowUp(turn.turnId)?.done) {
-			yield* ended([]);
-			return;
-		}
 		const root = this.projectRoot(key);
-		const record = this.options.protocol && root ? this.turnRecord(root) : undefined;
-		const tasks = record ? this.store.savedSendsOfTurn(key, turn.turnId).map(op => op.id).filter(id => record.sentTurn(id) && !record.settled(id)) : [];
-		if (!root || !record || tasks.length === 0) {
-			// Every turn it carried was settled before (a Studio stopped right after): its follow-up, if any, is done.
-			this.write(key, epoch, () => this.store.updateTurnFollowUp(turn.turnId, { done: 1, save_error: null }));
+		const owed = this.owedTurns(key);
+		if (!root || owed.length === 0) {
 			yield* finalWords();
 			return;
 		}
-		this.write(key, epoch, () => this.store.startTurnFollowUp(key, turn.turnId, turn.state, turn.asked));
+		const record = this.turnRecord(root);
 		// The last changes of a large result take minutes after the agent's reply (B5): the Chat says so until they are in,
 		// as a progress part (ChatResponseStream.progress), which the turn's last words then follow.
 		yield { kind: 'progress', text: 'Bringing the turn\'s last results into your project…' };
 		const shown: Update[] = [];
-		const tell = (line: string) => {
-			this.store.addMessage({ chat_key: key, turn_id: turn.turnId, saved_send_id: null, kind: 'notice', text: line, cost: null, currency: null });
+		const tell = (turn: string, line: string) => {
+			this.store.addMessage({ chat_key: key, turn_id: turn, saved_send_id: null, kind: 'notice', text: line, cost: null, currency: null });
 			shown.push({ kind: 'markdown', text: `\n\n_${line}_` });
 			this.changed(key);
 		};
+		let current = owed[0].pineTurn;
 		try {
-			for (const task of tasks) {
+			for (const { sent, pineTurn } of owed) {
+				current = pineTurn;
 				this.generations.assert(key, epoch);
-				const sent = record.sentTurn(task)!;
 				this.inBoundFolder(key, root);
-				// A session Pine no longer has took its files with it (Pine keeps them only while the Computer runs): said once,
-				// and the turn is settled, so it never holds up the next.
 				const at = await this.turnSession(key, env, sent.session);
-				const collected = at && await this.held(key, epoch, () => collectTurn(at, root, task, sent.before)).catch(error => {
+				const ids = { computer: this.store.chat(key)?.computer_id ?? '', session: sent.session, turn: pineTurn };
+				const collected = at && await this.held(key, epoch, () => collectTurn(at, root, ids)).catch(error => {
 					if (error instanceof MissingError) { return undefined; }
 					throw error;
 				});
-				await record.settle(task, { files: collected?.files ?? [] });
-				if (!collected) { tell(`The results of turn ${task} were on a Computer session that has ended, so they could not be brought into your project. Nothing is run again by itself. What Pine charged for the turn is in your Pine account at ${PINE_ACCOUNT_URL}`); }
-				if (collected?.unasked.length) { this.log(`${key}: turn ${task}: the Computer's tar held entries not asked for, not read: ${collected.unasked.join(', ')}`); }
-				if (collected?.notPaths.length) { tell(`Not paths of the project, so each is not brought into your project and is removed at the next turn: ${collected.notPaths.join(', ')}`); }
+				await record.settle(sent.turn, { files: collected?.files ?? [] });
+				if (!collected) { tell(pineTurn, `The results of turn ${pineTurn} were on a Computer session that has ended, so they could not be brought into your project. Nothing is run again by itself. What Pine charged for the turn is in your Pine account at ${PINE_ACCOUNT_URL}`); }
+				if (collected?.leftOut.size) {
+					tell(pineTurn, `Not brought into your project, and removed from the Computer at the next turn: ${[...collected.leftOut].map(([path, why]) => `${path} (${why})`).join(', ')}`);
+				}
 			}
 		} catch (error) {
 			if (error instanceof PineSessionReplacedError) { throw error; }
-			// The turn stays unsettled: it is read again at the next message or restart (collectResultsStillOwed).
-			const why = (error as Error).message;
-			this.log(`${key}: turn ${turn.turnId}'s result could not be brought in: ${(error as Error).stack ?? error}`);
-			this.write(key, epoch, () => this.store.updateTurnFollowUp(turn.turnId, { save_error: why }));
+			// The turn stays owed: it is collected again at the next message or restart.
+			this.log(`${key}: turn ${current}'s result could not be brought in: ${(error as Error).stack ?? error}`);
 			this.changed(key);
 			yield* finalWords();
 			yield* shown;
-			yield { kind: 'markdown', text: `\n\n**The result of turn ${turn.turnId} could not be brought into your project:** ${why}. It is tried again at your next message.` };
+			yield { kind: 'markdown', text: `\n\n**The result of turn ${current} could not be brought into your project:** ${(error as Error).message}. It is tried again at your next message.` };
 			return;
 		}
-		this.write(key, epoch, () => this.store.updateTurnFollowUp(turn.turnId, { done: 1, save_error: null }));
 		this.changed(key);
-		yield* ended(shown);
-	}
-
-
-
-
-
-
-	// ---- resuming tasks whose results were not published ----
-
-	/**
-	 * Every collection pass of a Chat goes through here (serial core; section 2), one at
-	 * a time in its line (runOneCollectionPerChat). Without `turnEnd` it is the owed pass (collectResultsStillOwed): the chat opening (attachChatToRunningPineTurn),
-	 * the resume at start, a restart and a send's pre-send pass. With it, the import of the turns a follower followed
-	 * to their end (streamPineTurnEvents). A later caller waits for the passes before it and then makes its own over what is left,
-	 * as Code-OSS's SequencerByKey runs one task per key at a time (src/vs/base/common/async.ts:338-354). It does not
-	 * return at once: its caller goes on to read what the pass has not settled yet (replaceEndedPineSession), and would refuse on
-	 * it. Its place in line is taken in the same tick it asks, before any await, or two callers that enter
-	 * together both find no pass running and publish the same task.
-	 */
-	private async *collectResultsFromPine(key: string, env: PineConnection, epoch: number, turnEnd?: TurnEnd): AsyncGenerator<Update> {
-		yield* this.runOneCollectionPerChat(key, () => turnEnd ? this.collectAtTurnEnd(key, env, epoch, turnEnd) : this.collectResultsStillOwed(key, env, epoch));
-	}
-
-	/** collect's pass at a turn's end: each turn followed to its end, the last with the ending composeTurnEnding() formatted. */
-	private async *collectAtTurnEnd(key: string, env: PineConnection, epoch: number, end: TurnEnd): AsyncGenerator<Update> {
-		const last = end.turns[end.turns.length - 1];
-		for (const turn of end.turns) {
-			yield* this.importTurnResultsIntoProjectFolder(key, env, epoch, { turnId: turn.turnId, state: turn.state, asked: turn.question || turn.summary }, turn === last ? end.ending : [], end.followUpDoneBefore.get(turn.turnId));
-		}
+		yield* finalWords();
+		yield* shown;
 	}
 
 	/**
-	 * Runs one publication pass for the Chat in its line: it waits for the passes before it, as Code-OSS's
+	 * Runs one collection pass for the Chat in its line: it waits for the passes before it, as Code-OSS's
 	 * SequencerByKey runs one task per key (src/vs/base/common/async.ts:338-354), and takes its place in the same tick it
 	 * is called, before any await, so two passes that ask together never both find the line empty.
 	 */
@@ -1717,27 +1684,6 @@ export class ChatService {
 				this.settling.delete(key);
 			}
 			ended();
-		}
-	}
-
-	/** collect's owed pass: every ended Pine turn not settled yet, and every sent turn of the Chat not settled. */
-	private async *collectResultsStillOwed(key: string, env: PineConnection, epoch: number): AsyncGenerator<Update> {
-		const conv = this.store.chat(key);
-		const pending = new Map<string, { turnId: string; state: string; asked: string }>();
-		for (const row of this.store.unfinishedTurnFollowUps(key)) {
-			pending.set(row.turn_id, { turnId: row.turn_id, state: row.state, asked: row.asked });
-		}
-		const root = this.projectRoot(key);
-		for (const sent of this.options.protocol && root ? this.turnRecord(root).unsettled(key) : []) {
-			const turnId = this.store.savedSend(sent.turn)?.turn_id;
-			if (!turnId || pending.has(turnId) || (conv && conv.pine_session_state !== 'ended' && conv.state === 'running' && conv.current_turn_id === turnId)) {
-				continue;
-			}
-			const said = this.store.messages(key).filter(m => m.turn_id === turnId && (m.kind === 'question' || m.kind === 'result')).at(-1);
-			pending.set(turnId, { turnId, state: conv?.question_turn_id === turnId ? 'needs_input' : 'completed', asked: said?.text ?? '' });
-		}
-		for (const turn of pending.values()) {
-			yield* this.importTurnResultsIntoProjectFolder(key, env, epoch, turn, []);
 		}
 	}
 
