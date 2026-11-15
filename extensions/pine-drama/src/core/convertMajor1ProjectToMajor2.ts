@@ -1,4 +1,4 @@
-// Converting a major-1 project to major 2 (doc/protocol.md, section 8). Every major-1 record format the Studio knows is
+// Converting a major-1 project to major 2 (doc/protocol.md, section 7). Every major-1 record format the Studio knows is
 // in protocol/v2/major1-to-major2-conversion.json: this module applies that table's operations as written and knows no
 // record format of its own. The conversion is one write in the project's write queue, so no other write comes between
 // its commits, and every commit goes through projectHistory. No vscode import.
@@ -82,7 +82,7 @@ interface Major1Version {
 }
 
 /**
- * The conversion's own working record (doc/protocol.md 8: "Its working records are its own"), in this Studio's storage
+ * The conversion's own working record (doc/protocol.md 7: "Its working records are its own"), in this Studio's storage
  * beside its other records of the drama, never in the project's folder: which step it is at, so a run cut off goes on.
  */
 interface Journal {
@@ -179,7 +179,7 @@ const sameInventory = (a: Readonly<Record<string, string>>, b: Readonly<Record<s
 	JSON.stringify(Object.entries(a).sort()) === JSON.stringify(Object.entries(b).sort());
 
 /**
- * Converts the window's major-1 project at `projectRoot` (doc/protocol.md, section 8), as one write in its queue. It
+ * Converts the window's major-1 project at `projectRoot` (doc/protocol.md, section 7), as one write in its queue. It
  * refuses while a major-1 turn is owed a return or a paid call is not settled, or when the folder has no snapshot to give
  * its objects. It backs the
  * folder up beside itself, commits it as found, makes one commit per major-1 version in the table's order, sets each object
@@ -485,7 +485,7 @@ class Conversion {
 	}
 
 	/**
-	 * §8 step 6: every object's files are the bytes of its current version, as the inventory read them, and every converted
+	 * §7 step 6: every object's files are the bytes of its current version, as the inventory read them, and every converted
 	 * version's bytes are in its major-2 path's history: the commit of the folder as found holds them at their major-1 path,
 	 * and its blob there is one the major-2 path's history names (projectHistory.listHistory).
 	 */

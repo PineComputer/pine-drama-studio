@@ -28,7 +28,7 @@ export async function projectAt(folder: string): Promise<{ readonly root: string
 	return { root: here, initialized: false };
 }
 
-/** The chosen folder is a drama of major 1 (doc/protocol.md, section 8): it opens as its folder, which offers its conversion. */
+/** The chosen folder is a drama of major 1 (doc/protocol.md, section 7): it opens as its folder, which offers its conversion. */
 export class ProjectOfAnotherMajorError extends Error {
 	constructor(readonly folder: string, readonly schema: number) {
 		super(`${folder} is a drama of format ${schema}, which this Studio does not open. Nothing was written.`);

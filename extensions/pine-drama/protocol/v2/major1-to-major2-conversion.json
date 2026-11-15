@@ -1,6 +1,6 @@
 {
   "schema": 2,
-  "description": "How a client converts a major-1 drama into major 2 (doc/protocol.md, section 8). Normative data: the client applies it as written and knows no major-1 record format beyond it. Every path is project-relative; {object} is a v1 object id with its version segment removed, {owner} the object a record stage belongs to, {file} a path inside a version folder.",
+  "description": "How a client converts a major-1 drama into major 2 (doc/protocol.md, section 7). Normative data: the client applies it as written and knows no major-1 record format beyond it. Every path is project-relative; {object} is a v1 object id with its version segment removed, {owner} the object a record stage belongs to, {file} a path inside a version folder.",
   "version_folders": {
     "a_version_folder_is": "a folder holding records_in_a_version_folder.version_record whose name matches one of version_folder_name_patterns",
     "its_object_is": "the folder that holds it ({object})",

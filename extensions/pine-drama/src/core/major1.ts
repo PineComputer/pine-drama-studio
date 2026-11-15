@@ -1,5 +1,5 @@
 // Everything the Studio knows of protocol major 1, kept only to convert a major-1 project to major 2
-// (convertMajor1ProjectToMajor2.ts, doc/protocol.md section 8): its documents' types, its choices and version folders
+// (convertMajor1ProjectToMajor2.ts, doc/protocol.md section 7): its documents' types, its choices and version folders
 // as the folder holds them, the Studio's own record of its turns, and what its snapshots said. Nothing else reads it.
 // No vscode import.
 
