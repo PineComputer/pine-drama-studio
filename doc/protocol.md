@@ -4,7 +4,7 @@ Status: draft. Major 2 replaces major 1 whole: a reader of one major reads no dr
 
 This protocol connects two sides, the way Codex runs a task:
 - the **client**, the program the person uses: a desktop app holding the drama's folder, or a web service holding it on its server. It shows the drama and lets the person change any file of it, as with a local coding agent;
-- the **Computer side**, Pine Computer's agent and the tools it runs, which make the drama. Before each turn the client puts the drama's files onto the Computer, and after it the client takes back every file the turn changed and applies them, as Codex's cloud harness does (section 4).
+- the **Computer side**, Pine Computer's agent and the tools it runs, which make the drama. Before each turn the client puts the drama's files onto the Computer, and it takes back what the turn changed, both as git, as Codex's cloud harness does (section 4).
 
 The Computer side also works with no client: driven by Pine Computer's own agent, by another program, or from a terminal.
 
@@ -25,7 +25,7 @@ A client can be built from this page and one schema file, [`protocol/v2/protocol
 | Document | UTF-8 JSON with `"schema": 2`. |
 | Path | A file or folder of the drama: project-relative, `/`-separated, Unicode NFC. No segment is empty or starts with `.`. No segment contains `\` or a control character (U+0000–U+001F, U+007F–U+009F), is a Windows reserved name (`CON`, `PRN`, `AUX`, `NUL`, `COM1`–`COM9`, `LPT1`–`LPT9`, with or without an extension), or ends with `.` or a space. There is no leading or trailing `/`, and a path is at most 240 characters. Two paths that differ only by case are the same path. A name starting with `.` (`.git`, `.gitattributes`) is never a path of this protocol, so it never travels. |
 | Object id | The path of the object's folder, for example `assets/characters/lin`. Whoever creates the object chooses it. |
-| Turn id | The client's id of a turn: the id it sends the turn's message with, which is also Pine's idempotency key for it (4.1). The client keeps Pine's own id of the turn beside it. |
+| Turn id | Pine's id of a turn. The client also keeps its own **send id** for each turn, which it sends the message with as Pine's idempotency key (4.1). The send id is the client's alone and appears in no record of the drama. |
 | Paid call id | An id the Computer side chooses for one paid call, unique in the drama, matching `^[A-Za-z0-9_-]{8,64}$`. |
 | Time | An RFC 3339 `date-time` in UTC, whole seconds, with the `Z` suffix, for example `2026-11-15T10:00:00Z`. |
 | Hash | The lowercase hex SHA-256 of a file's bytes. Git's own object ids never appear in a document. |
@@ -36,14 +36,14 @@ A client can be built from this page and one schema file, [`protocol/v2/protocol
 
 **What every client MUST keep.** These are properties; any storage that has them will do.
 - **Files, byte for byte.** Every file of the drama, exactly as written, with no line-ending, encoding or other conversion.
-- **A complete history.** Every earlier content of every file, with who changed it: `pine-computer` (a turn's files, applied after it, 4.3), `person` (the person's own change), or `client-found-changes-on-disk` (what a folder client finds on disk that no record holds, 3).
-- **Applied once.** A turn's files are applied at most once, and the record that they were is durable.
+- **A complete history.** Every earlier content of every file, with who changed it: `pine-computer` (a turn's files, as a collection landed them, 4.3), `person` (the person's own change), or `client-found-changes-on-disk` (what a folder client finds on disk that no record holds, 3).
+- **Applied once.** A turn's change is recorded at most once, and the record that it was is durable (4.2).
 - **One record per change.** A change's files are recorded together, as one entry of history. They are written one by one before that, so a reader of the folder can see some written and not others.
 - **Restore.** Any earlier result's files can be brought back (5).
 
 **The reference implementation is a git repository in the drama's folder**, which Pine Drama Studio uses:
-- each change is a commit of exactly its paths (`git commit --only -- <paths>`), authored as above;
-- a turn's change carries the trailer `Pine-Turn-Id: <turn id>`, which is its applied record;
+- each change is a commit of exactly its paths, authored as above;
+- a turn's change is a commit with the subject `Turn <turn id>` and the trailers `Pine-Computer-Id: <the Computer's id>`, `Pine-Session-Id: <the session's name, Pine's id for it>` and `Pine-Turn-Id: <turn id>`. These say where the result came from. The landing moves the session's last commit (4.2) in the same ref transaction as the commit, and that move is the applied record;
 - for a repository the client makes, the byte rule is `* -text -filter -ident -working-tree-encoding` in the repository's `info/attributes`, which takes precedence over any `.gitattributes` ([gitattributes](https://git-scm.com/docs/gitattributes)), and nothing of the client's own goes into the folder itself. A folder that already is a git repository keeps its own settings, its own filters included;
 - history is `git log` of a path.
 
@@ -124,38 +124,53 @@ Pine Computer keeps its own records of the drama in **`pine-computer-records/`**
 
 ## 4. The turn
 
-The client is the turn's harness, as Codex's cloud harness is: it puts the drama's files onto the Pine Computer before a turn and takes back every file the turn changed after it. Pine Computer's agent works on the files and needs to run nothing of this protocol.
+The client is the turn's harness, as Codex's cloud harness is: it puts the drama's files onto the Pine Computer before a turn and takes back what the turn changed. Both directions are git: the client sends a commit of its files, the Computer side commits what the turn left, and the client takes the difference between the two. Pine Computer's agent works on the files and needs to run nothing of this protocol.
 
 ### 4.1 The session
 
-- **The message.** A turn is one message to a session on a Pine Computer: the person's words. The client sends it with the turn id (section 1) as Pine's idempotency key, so a resend never runs a turn twice ([agent turns](https://console.pinecomputer.io/docs/agent)).
-- **The drama on the Computer** is the folder `drama/` in the session's working directory. The shell keeps the directory the agent's last command left it in, so the client learns the working directory's absolute path with its first `exec` in a new session, before any turn, and gives it as the `cwd` of every later `exec`.
-- **One turn at a time.** A session sends its next turn only after its previous turn has ended on Pine and its files are applied (4.3).
-- **Any number of sessions** may work on one drama, and none owns an object. Each session has its own working directory, so a new session starts with a full `put`.
-- **Pine's shell.** The client runs its operations with Pine's `exec` ([files and shell](https://console.pinecomputer.io/docs/files-and-shell)), which the project must have. Each command runs in a subshell, so it leaves the session's directory and environment as they were for the agent.
+- **The message.** A turn is one message to a session on a Pine Computer: the person's words. The client sends it with its send id (section 1) as Pine's idempotency key, so a resend never runs a turn twice ([agent turns](https://console.pinecomputer.io/docs/agent)).
+- **On the Computer**, in the session's working directory: the drama's files in `drama/`, and the session's git directory `pine-drama.git` beside it, outside the files the agent works on. Every git command there that takes the drama's files names them by a pathspec that leaves out each name starting with `.` (section 1), with `--force`, so no `.gitignore` the agent writes decides anything. Its `info/attributes` holds the byte rule of 2.1.
+- **Pine's shell.** The client runs every command with Pine's `exec` ([files and shell](https://console.pinecomputer.io/docs/files-and-shell)), which the project must have.
+  - `exec` keeps the directory and environment each command ends with for the next `exec` of the session. So the client learns the working directory's absolute path with its first `exec` in a new session, gives it as every `exec`'s `cwd`, and runs each command in a subshell.
+  - An `exec` runs as its own process, so it may run while a turn's command is running.
+  - Git runs there with no global or system configuration, no hooks, and no line-ending conversion.
+- **Bytes travel only as files**, since `exec` output is text. A bundle goes up as Pine `write_file` parts of at most 64 MiB, joined on the Computer. A bundle comes down by `read_file`. Each one is removed once it is read.
+- **One turn at a time.** A session sends its next turn only after its previous turn is settled (4.3).
+- **Any number of sessions** may work on one drama, and none owns an object. Each session has its own working directory, and so its own git directory.
 
-### 4.2 Three operations (client)
+### 4.2 The session's last commit
 
-| Operation | What the client does |
-|---|---|
-| `list` | One `exec` that prints the hash and path of every file under `drama/` whose path is a path (section 1): a name starting with `.`, such as a lock or a temporary file, is left out. |
-| `put(paths)` | Writes those files' bytes as a tar, in parts of at most 64 MiB, with Pine's `write_file` (into `attachments/`). Then one `exec` extracts the tar into `drama/`, deletes its parts, and deletes every path under `drama/` that the client does not hold. |
-| `get(paths)` | One `exec` writes a tar of those files outside `drama/`. The client reads it with Pine's `read_file`, then deletes it. |
-
-Bytes travel only as files: `exec` output is text.
+For each session, the client keeps the commit the Computer and the client last agreed on: the last put, or the last collection that landed. Every bundle builds on it.
+- **When the Computer still has it** (`git cat-file -e`), a put's commit has it as its parent, and the bundle carries only what is new since.
+- **When it does not** (a new session, or a lost git directory), the put is a **parentless snapshot** of the client's current files, with no history, so the first bundle is only the current files.
+- **The client's full history stays with the client.**
 
 ### 4.3 A turn
 
-1. **Before.** A folder client first records what the folder holds that no record does, as `client-found-changes-on-disk`. Then: `list`, and `put` every path whose hash differs from the client's, along with the deletions. Then `list` again, kept as the turn's `before`: the files as the agent finds them.
+1. **Put.**
+   - A folder client first records what the folder holds that no record does, as `client-found-changes-on-disk`.
+   - It commits a snapshot of its current files: every path (section 1), with no name starting with `.`, no link and no gitlink. The parent is the session's last commit (4.2).
+   - It sends the bundle. One `exec` then fetches it on the Computer and makes `drama/` exactly that tree (`git read-tree --reset -u`, then `git clean -ffdx` with that pathspec): every other file is removed, also when the git directory was made anew, and names starting with `.` stay.
+   - The snapshot becomes the session's last commit.
 2. **The turn.** The client sends the message (4.1).
-3. **After.** Once Pine reports the turn ended, however it ended: `list` as `after`. The client applies every path whose hash in `after` differs from `before`, or that is new: it does a `get`, writes the files, and deletes every path of `before` missing from `after`. Then it records all of them as one `pine-computer` change with the trailer `Pine-Turn-Id` (2.1). Applying a turn again is a no-op.
-   - A file gone by the time `get` reads it is left out, and the turn is applied without it.
-   - A changed name that is no path (section 1) stays on the Computer, and the client says so.
-   - A change whose paths collide by case, or whose destination is a link, is refused whole and tried again at the next collection.
+3. **Collect.**
+   - One `exec` captures what `drama/` holds (`git add -A --force` with that pathspec, then a commit whose parent is the session's last commit) and writes a bundle of it. When the tree is unchanged, there is no commit and no bundle.
+   - The client fetches the bundle under a ref of its own and takes the changed paths with `git diff-tree -r -z --no-renames`. It applies each path on its own. A path the person edited by hand there is first recorded as `client-found-changes-on-disk`, so history keeps their version. Deletions go first, each removing the folders it leaves empty. Then each write, streamed from its blob, receipts before the outputs they describe (2.3).
+   - **While the turn runs**, the client MAY collect, for example every few seconds. Such a collection only writes the files changed since the previous one into the folder, so the person sees the turn's results as they come. It makes no commit, and the session's last commit stays.
+   - **Once the turn has ended on Pine, however it ended**, a last collection writes what changed since the previous one. Then the client records exactly what landed of the turn's changes since the session's last commit as the turn's **one** `pine-computer` change, with its trailers (2.1). The change is built from the result's files, whatever the folder holds now. In the same step it moves the session's last commit to the result, so a collection again finds nothing new.
+   - A path is **left out**, and the person is told once, when it:
+     - is no path of the project (section 1);
+     - is a link or a gitlink;
+     - has the same name as another but for case, changed or kept;
+     - is reached through a link, a deletion included;
+     - is in the way of a folder or a file (a file where a folder is needed, or a folder that is not empty where a file goes).
 
-- **An ended turn is always applied before the next put.** The client keeps a turn's `before` until the turn's change is recorded. A session's next turn, or the drama's next opening, first applies any ended turn that has no change yet. A `put` deletes what the client does not hold, so it would otherwise delete that turn's results and Pine Computer's records (2.4).
-- **The newest result lands.** There is no check against what a file held before, and no refusal: whatever is applied last is the file's current content, and its history keeps every earlier one. The same rule covers a reroll, two sessions writing one file, and a turn writing over a person's edit. A turn's files are applied as they are at its end, so a file the turn wrote twice is in history once, as it ended. "Use" (5) brings any earlier one back.
-- **Only on the Computer until applied.** A turn's files exist on the Computer alone until the client applies them. If the Computer stops first (an idle timeout, for example), they are lost with the session's files ([limits](https://console.pinecomputer.io/docs/limits)).
+     The rest lands. Nothing blocks the turn.
+
+- **A turn is settled** once it has ended on Pine and its one change is recorded. Until then, the files a running turn's collections wrote are in the folder but not yet in its history. A folder client's recording of changes found on disk (3) leaves those paths out, so the turn's change records them.
+- **A put waits for the session's last collection.** A session's next turn, or the drama's next opening, first collects any ended turn not settled yet. A put makes `drama/` the client's files, so it would otherwise remove that turn's results and Pine Computer's records (2.4).
+- **The newest result lands.** There is no check against what a file held before, and no refusal: whatever lands last is the file's current content, and its history keeps every earlier one. The same rule covers a reroll, two sessions writing one file, and a turn writing over a person's edit. A turn's change records each file as it was at the turn's end, so a file the turn wrote twice is in history once. "Use" (5) brings any earlier one back.
+- **Only on the Computer until collected.** A turn's files exist on the Computer alone until a collection lands them. If the Computer stops first (an idle timeout, for example), what no collection took is lost with the session's files ([limits](https://console.pinecomputer.io/docs/limits)).
 
 ### 4.4 How a turn ends
 
