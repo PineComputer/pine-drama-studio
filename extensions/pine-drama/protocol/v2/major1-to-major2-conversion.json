@@ -147,11 +147,7 @@
     "newest_version_to_root": {
       "folder": "config",
       "file": "drama-cli.cfg.yaml",
-      "drop_top_level_keys": [
-        "project"
-      ],
-      "drop_top_level_keys_how": "delete each line that starts with \"<key>:\" at column 0: drama-cli writes these configs itself, one top-level key per line (turn.py config_version), so no YAML library is needed",
-      "paths": "none to change: drama-cli wrote every config version with project \".\" and inputs relative to it, and refused an input outside the drama (turn.py config_version, D326)"
+      "copied_as_it_is": "drama-cli drops an old config's project key itself when it reads one (its migrated_config, D329), so the conversion copies the file unchanged"
     },
     "kept": [
       "inputs"
