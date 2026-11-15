@@ -26,8 +26,8 @@ for (const response of ['missing', 'question', 'event'] as const) {
 		try {
 			await drain(service.submit('main', 'fixture', 'fixture', [], folderOf(service)));
 			const op = store.db.prepare('select turn_id from saved_sends limit 1').get() as { turn_id: string };
-			// A reopened Chat starts its follower from its persisted running turn.
-			store.updateChat('main', { state: 'running', current_turn_id: op.turn_id });
+			// A reopened Chat starts its follower from its persisted running turn, with no ending of it recorded.
+			store.updateChat('main', { state: 'running', current_turn_id: op.turn_id, ending_event_id: null });
 			const original = store.chat('main')!;
 			const turn = pine.turn.bind(pine);
 			// Only the ended runtime's reads are held: the new session's own turn goes on.

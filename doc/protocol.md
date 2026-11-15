@@ -183,7 +183,7 @@ A turn ends as Pine reports it ([agent turns](https://console.pinecomputer.io/do
 
 - **What Pine Computer could not do** it says to the person in its answer.
 - **The turn's own cost** is the one Pine reports for the turn (its turn result's `usage.cost`, `{total, currency}`). Receipts carry only the paid calls' costs (2.3).
-- **Stop.** The client cancels the Pine turn, and Pine Computer sends no new paid call. A run cut off midway (Stop, the Computer lost, a timeout) runs nothing paid again by itself: Pine never reruns a turn, and the ledger never sends a call again whose outcome it could not learn (2.4).
+- **Stop.** The client cancels the Pine turn, and Pine Computer sends no new paid call. A Stop once the client has recorded how the turn ended does nothing. A cancel can still close a question the agent asked just before it (Pine's cancel closes a waiting question), so the client records a turn's ending in Pine's order (the turn's `lastEventId`): an ending read before the cancel never replaces the one after it. A run cut off midway (Stop, the Computer lost, a timeout) runs nothing paid again by itself: Pine never reruns a turn, and the ledger never sends a call again whose outcome it could not learn (2.4).
 
 ## 5. What the client shows
 

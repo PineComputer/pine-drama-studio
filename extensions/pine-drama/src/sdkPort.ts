@@ -173,7 +173,7 @@ export class SdkPort implements PinePort {
 	}
 
 	async cancel(env: PineConnection, s: PineSession, turnId: string) {
-		await this.mapped(async () => (await this.session(env, s)).agent.cancel(turnId), 'none');
+		return this.mapped(async () => turnView(await (await this.session(env, s)).agent.cancel(turnId)), 'none');
 	}
 
 
@@ -278,7 +278,7 @@ function isLostResponse(error: unknown, s: { ApiError: abstract new (...args: ne
 	return error instanceof s.ApiError && [408, 502, 503, 504].includes(error.status);
 }
 
-function turnView(turn: { turnId: string; state: string; question: string; nextTurnId: string; result?: { summary: string; terminalReason: string; usage: { cost: { total: number | null; currency: string } } } | undefined }): TurnView {
+function turnView(turn: { turnId: string; state: string; question: string; nextTurnId: string; lastEventId: number; result?: { summary: string; terminalReason: string; usage: { cost: { total: number | null; currency: string } } } | undefined }): TurnView {
 	const cost = turn.result?.usage.cost;
 	return {
 		turnId: turn.turnId,
@@ -288,6 +288,7 @@ function turnView(turn: { turnId: string; state: string; question: string; nextT
 		nextTurnId: turn.nextTurnId,
 		terminalReason: turn.result?.terminalReason ?? '',
 		cost: cost ? { total: cost.total, currency: cost.currency } : null,
+		lastEventId: turn.lastEventId,
 	};
 }
 

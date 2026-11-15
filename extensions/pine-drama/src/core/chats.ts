@@ -114,6 +114,8 @@ export interface ChatServiceOptions {
 }
 
 type SendResult = { kind: 'sent'; turn: TurnView } | { kind: 'unknown' } | { kind: 'failed' } | { kind: 'ended' };
+/** Pine's answer to a Stop's cancel, with what recording it needs (stopTurn). */
+type Cancelled = { turn: TurnView; env: PineConnection; epoch: number; session: PineSession };
 
 const LABEL = 'pine-drama-studio';
 
@@ -986,19 +988,37 @@ export class ChatService {
 	 * cancelled request's reply, pineSessions.ts reply), so what it changed reaches the project while the Computer still
 	 * has it. That pass waits in the Chat's line behind the reply it closed, so one follower at a time follows the turn,
 	 * and it runs whether or not Pine confirmed the cancel: a cancel whose answer was lost may still have ended the turn.
+	 * The Stop only sends the cancel; how the turn ended is recorded from Pine's answer, in the line (as codex-rs records
+	 * an interrupted turn once, from the turn's own abort: core/src/tasks/mod.rs handle_task_abort).
 	 */
 	private async stopTurn(key: string): Promise<void> {
+		let cancelled: Cancelled | undefined;
 		try {
-			await this.cancelTurn(key);
+			cancelled = await this.cancelTurn(key);
 		} finally {
-			this.followStoppedTurn(key);
+			this.followStoppedTurn(key, cancelled);
 		}
 	}
 
-	/** stopTurn's pass: the Chat's turn followed to its end and collected, in the Chat's line, logged. */
-	private followStoppedTurn(key: string): void {
+	/**
+	 * stopTurn's pass, logged: Pine's answer to the cancel recorded in the Chat's line, then the Chat's turn followed to its
+	 * end and collected, in a line item of its own. Nothing in the line waits for another of its items.
+	 */
+	private followStoppedTurn(key: string, cancelled: Cancelled | undefined): void {
 		void (async () => {
 			// Not a reply the person sees: what it says is in the Chat's history, and logged.
+			if (cancelled && cancelled.turn.state !== 'running' && cancelled.turn.state !== 'canceling') {
+				const release = await this.queueExecution(key);
+				try {
+					const recording = this.recordTurnEnding(key, cancelled.env, cancelled.epoch, cancelled.session, cancelled.turn);
+					for (let step = await recording.next(); ; step = await recording.next()) {
+						for (const update of step.done ? step.value : [step.value]) { this.log(`${key}: after Stop: ${update.text.trim()}`); }
+						if (step.done) { break; }
+					}
+				} finally {
+					release();
+				}
+			}
 			for await (const update of this.attachChatToPineTurn(key)) {
 				if (update.kind !== 'progress') { this.log(`${key}: after Stop: ${update.text.trim()}`); }
 			}
@@ -1006,20 +1026,25 @@ export class ChatService {
 	}
 
 	/**
-	 * Pine cancels the Chat's turn, the one it runs or that waits on a question (PinePort.cancel). A Chat with no turn of
-	 * its own running has nothing to cancel.
+	 * Pine cancels the turn the Chat records as running (PinePort.cancel) and answers with it. A turn whose ending the
+	 * Chat has recorded is not cancelled: a Stop after the end is a no-op, as codex-rs app-server refuses "no active turn
+	 * to interrupt" (app-server/src/request_processors/turn_processor.rs turn_interrupt_inner) and Code-OSS cancels
+	 * nothing once a request is complete (chatServiceImpl.ts cancelCurrentRequestForSession).
 	 */
-	private async cancelTurn(key: string): Promise<void> {
+	private async cancelTurn(key: string): Promise<Cancelled | undefined> {
 		const conv = this.store.chat(key);
-		if (!conv?.current_turn_id || !conv.pine_session_name || (conv.state !== 'running' && conv.state !== 'needs_input')) {
-			return;
+		if (!conv?.current_turn_id || !conv.pine_session_name || conv.state !== 'running') {
+			return undefined;
 		}
 		const secrets = await this.secrets(conv);
 		if (!secrets?.binding || !secrets.sessionToken) {
-			return;
+			return undefined;
 		}
+		const env = this.pineOf(conv);
+		const epoch = this.pineSessionGeneration(key);
+		const session: PineSession = { credentials: secrets.credentials, binding: secrets.binding, name: conv.pine_session_name, token: secrets.sessionToken };
 		this.log(`${key}: Stop: cancelling turn ${conv.current_turn_id}`);
-		await this.port.cancel(this.pineOf(conv), { credentials: secrets.credentials, binding: secrets.binding, name: conv.pine_session_name, token: secrets.sessionToken }, conv.current_turn_id);
+		return { turn: await this.port.cancel(env, session, conv.current_turn_id), env, epoch, session };
 	}
 
 	/**
@@ -1112,7 +1137,7 @@ export class ChatService {
 	private sent(key: string, epoch: number, op: Pick<SavedSend, 'id'>, turn: TurnView): void {
 		this.write(key, epoch, () => {
 			this.store.updateSavedSend(op.id, { state: 'sent', turn_id: turn.turnId });
-			this.store.updateChat(key, { state: 'running', current_turn_id: turn.turnId, question_turn_id: null });
+			this.store.updateChat(key, { state: 'running', current_turn_id: turn.turnId, question_turn_id: null, ending_event_id: null });
 		});
 		this.log(`${key}: run ${op.id} -> turn ${turn.turnId} ${turn.state}`);
 	}
@@ -1248,7 +1273,7 @@ export class ChatService {
 				touched(turn);
 				while (turn.state === 'answered' && turn.nextTurnId) {
 					turnId = turn.nextTurnId;
-					this.write(key, epoch, () => this.store.updateChat(key, { current_turn_id: turnId }));
+					this.write(key, epoch, () => this.store.updateChat(key, { current_turn_id: turnId, ending_event_id: null }));
 					turn = await this.held(key, epoch, () => this.port.turn(env, session, turnId!, 0));
 				}
 				if (turn.state !== 'running' && turn.state !== 'canceling') {
@@ -1302,11 +1327,9 @@ export class ChatService {
 			if (failure) {
 				throw failure;
 			}
-			const last = await ended;
-			const ending = this.composeTurnEnding(key, epoch, last);
+			const ending = yield* this.recordTurnEnding(key, env, epoch, session, await ended);
 			// Collected as every other pass, in the Chat's line (collectResultsFromPine).
 			yield* this.collectResultsFromPine(key, env, epoch, ending);
-			yield* this.tendIdle(key, env, epoch, session);
 			return undefined;
 		} finally {
 			stream.abort();
@@ -1428,38 +1451,57 @@ export class ChatService {
 	 * and :4088-4093, at 235ceeb5), so a question said before the "Fetching the stop's files" lines disappeared from
 	 * Chat (master's run 1, turn _419; run 2, turns _564 and _674).
 	 */
-	private composeTurnEnding(key: string, epoch: number, turn: TurnView): Update[] {
+	private composeTurnEnding(key: string, epoch: number, turn: TurnView): { said: Update[]; recorded: boolean } {
 		const out = this.write(key, epoch, () => {
-			const final = (kind: Message['kind'], text: string) =>
-				this.store.addMessage({ chat_key: key, turn_id: turn.turnId, saved_send_id: null, kind, text, cost: null, currency: null });
-			// How the turn ended is Pine's turn state (its agent turns).
-			switch (turn.state) {
-				case 'needs_input':
-					// The question is the turn result's summary, which Pine's turn gives as its question.
-					final('question', turn.question);
-					this.store.updateChat(key, { state: 'needs_input', question_turn_id: turn.turnId });
-					break;
-				case 'completed':
-					if (turn.summary) { final('result', turn.summary); }
-					this.store.updateChat(key, { state: 'idle', question_turn_id: null });
-					break;
-				case 'canceled':
-					final('result', `You stopped this turn. ${turn.summary}`.trim());
-					this.store.updateChat(key, { state: 'idle', question_turn_id: null });
-					break;
-				default:
-					final('failed', `The work broke off${turn.terminalReason ? ` (${turn.terminalReason})` : ''}. ${turn.summary}`.trim());
-					this.store.updateChat(key, { state: 'failed', question_turn_id: null });
+			// How the turn ended is Pine's turn state (its agent turns), recorded only if Pine ordered no later ending of the
+			// turn that is recorded already (Store.recordEnding): a Stop's cancel can close a question after a follower read it.
+			const state: Pick<Chat, 'state' | 'question_turn_id'> = turn.state === 'needs_input' ? { state: 'needs_input', question_turn_id: turn.turnId }
+				: turn.state === 'completed' || turn.state === 'canceled' ? { state: 'idle', question_turn_id: null }
+					: { state: 'failed', question_turn_id: null };
+			const recorded = this.store.recordEnding(key, turn.turnId, state, turn.lastEventId);
+			if (recorded) {
+				const final = (kind: Message['kind'], text: string) =>
+					this.store.addMessage({ chat_key: key, turn_id: turn.turnId, saved_send_id: null, kind, text, cost: null, currency: null });
+				switch (turn.state) {
+					case 'needs_input':
+						// The question is the turn result's summary, which Pine's turn gives as its question.
+						final('question', turn.question);
+						break;
+					case 'completed':
+						if (turn.summary) { final('result', turn.summary); }
+						break;
+					case 'canceled':
+						final('result', `You stopped this turn. ${turn.summary}`.trim());
+						break;
+					default:
+						final('failed', `The work broke off${turn.terminalReason ? ` (${turn.terminalReason})` : ''}. ${turn.summary}`.trim());
+				}
 			}
-			const ending: Update[] = withoutRepeatedQuestion(this.store.messages(key).filter(m => m.turn_id === turn.turnId && ['result', 'question', 'failed'].includes(m.kind)))
+			// The ending recorded is this one, by this reply or the other writer: the reply says it. An older one says nothing.
+			if (this.store.chat(key)?.ending_event_id !== turn.lastEventId) {
+				return { said: [], recorded };
+			}
+			const said: Update[] = withoutRepeatedQuestion(this.store.messages(key).filter(m => m.turn_id === turn.turnId && ['result', 'question', 'failed'].includes(m.kind)))
 				.map(m => ({ kind: 'markdown' as const, question: m.kind === 'question', text: m.kind === 'question' ? `\n\n**The agent asks:** ${m.text}` : m.kind === 'failed' ? `\n\n**${m.text}**` : `\n\n${m.text}` }));
 			if (turn.cost && this.store.setTurnCost(key, turn.turnId, turn.cost.total, turn.cost.currency, true)) {
-				ending.push({ kind: 'usage', text: usageText(turn.cost.total, turn.cost.currency) });
+				said.push({ kind: 'usage', text: usageText(turn.cost.total, turn.cost.currency) });
 			}
-			return ending;
+			return { said, recorded };
 		});
-		this.log(`${key}: turn ${turn.turnId} ended ${turn.state}; cost ${turn.cost?.total ?? 'unknown'} ${turn.cost?.currency ?? ''}`);
+		this.log(`${key}: turn ${turn.turnId} ended ${turn.state} (Pine event ${turn.lastEventId})${out.recorded ? '' : ', not recorded: the Chat records this ending or a later one'}; cost ${turn.cost?.total ?? 'unknown'} ${turn.cost?.currency ?? ''}`);
 		return out;
+	}
+
+	/**
+	 * The one way a turn's ending is recorded, always in the Chat's line: composeTurnEnding, then the Computer's idle timeout
+	 * for the state just recorded (tendIdle), so no two of a Chat's idle-timeout changes overlap. Returns what the reply says.
+	 */
+	private async *recordTurnEnding(key: string, env: PineConnection, epoch: number, session: PineSession, turn: TurnView): AsyncGenerator<Update, Update[]> {
+		const { said, recorded } = this.composeTurnEnding(key, epoch, turn);
+		if (recorded) {
+			yield* this.tendIdle(key, env, epoch, session);
+		}
+		return said;
 	}
 
 	// ---- idle timeout ----

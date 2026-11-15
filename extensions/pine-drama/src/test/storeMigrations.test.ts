@@ -151,3 +151,36 @@ for (const start of ['current', 'fresh', 'schema 11'] as const) {
 		}
 	});
 }
+
+test('a schema-20 store gains the ending order as one step: its Chats keep everything, with no ending recorded', () => {
+	const path = place();
+	const store = new Store(path, Date.now, MIGRATIONS.filter(m => m.version === 20));
+	store.insertChat({ key: 'k', endpoint: 'https://pine.test', label: 'before', secret_ref: 'k' });
+	store.updateChat('k', { state: 'running', current_turn_id: 't1' });
+	store.close();
+	const after = new Store(path);
+	assert.equal(versionOf(after.db), LATEST);
+	assert.equal(after.chat('k')?.state, 'running');
+	assert.equal(after.chat('k')?.current_turn_id, 't1');
+	assert.equal(after.chat('k')?.ending_event_id, null);
+	after.close();
+});
+
+test('an ending is recorded only when Pine ordered it after the one recorded, and only for the Chat\'s current turn', () => {
+	const store = new Store(place());
+	store.insertChat({ key: 'k', endpoint: 'https://pine.test', label: 'chat', secret_ref: 'k' });
+	store.updateChat('k', { state: 'running', current_turn_id: 't1', ending_event_id: null });
+	const waiting = { state: 'needs_input' as const, question_turn_id: 't1' };
+	const stopped = { state: 'idle' as const, question_turn_id: null };
+	assert.equal(store.recordEnding('k', 't1', waiting, 7), true, 'the first ending');
+	assert.equal(store.recordEnding('k', 't1', stopped, 7), false, 'the same place is the same ending: not written twice');
+	assert.equal(store.recordEnding('k', 't1', stopped, 9), true, 'a later ending replaces it');
+	assert.equal(store.recordEnding('k', 't1', waiting, 7), false, 'an earlier read never replaces a later ending');
+	assert.equal(store.chat('k')?.state, 'idle');
+	assert.equal(store.chat('k')?.question_turn_id, null);
+	assert.equal(store.chat('k')?.ending_event_id, 9);
+	assert.equal(store.recordEnding('k', 't0', waiting, 99), false, 'not the current turn');
+	store.updateChat('k', { state: 'running', current_turn_id: 't2', ending_event_id: null });
+	assert.equal(store.recordEnding('k', 't2', waiting, 3), true, 'a new turn starts with no ending');
+	store.close();
+});

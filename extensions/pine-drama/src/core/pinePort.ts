@@ -50,6 +50,13 @@ export interface TurnView {
 	readonly nextTurnId: string;
 	readonly terminalReason: string;
 	readonly cost: { readonly total: number | null; readonly currency: string } | null;
+	/**
+	 * The turn's place in its Task's ordered event log (SDK `AgentTurn.lastEventId`): every later ending of the same turn
+	 * has a larger one, as a cancel that closes a waiting question appends a second terminal result and moves it there
+	 * (PineSandbox session-coordinator/pkg/taskbroker/turns.go, the fold's `closesFoldedQuestion`; broker.go
+	 * `cancelQuestion`). It orders a turn's endings only: an answer or revised usage does not move it (publicturns.go).
+	 */
+	readonly lastEventId: number;
 }
 
 export interface PineEvent {
@@ -164,9 +171,10 @@ export interface PinePort {
 	/**
 	 * Asks Pine to cancel the turn (SDK `session.agent.cancel`, POST /v2/sessions/{name}/agent/cancel): a running turn is
 	 * `canceling` until its run unwinds, then `canceled`; a waiting question closes and its turn ends `canceled`; an
-	 * ended turn is left as it is (PineSandbox session-coordinator pkg/server/agent_turns.go, handleAgentCancelV2).
+	 * ended turn is left as it is (PineSandbox session-coordinator pkg/server/agent_turns.go, handleAgentCancelV2). Returns
+	 * the turn as Pine holds it after the cancel (SDK `agent.cancel`, an `AgentTurn`).
 	 */
-	cancel(env: PineConnection, session: PineSession, turnId: string): Promise<void>;
+	cancel(env: PineConnection, session: PineSession, turnId: string): Promise<TurnView>;
 	/** The turn once it ends, or after `timeoutMs` while it runs; 0 reads it once. */
 	turn(env: PineConnection, session: PineSession, turnId: string, timeoutMs: number, signal?: AbortSignal): Promise<TurnView>;
 	events(env: PineConnection, session: PineSession, after: number | undefined, taskId: string | undefined, signal: AbortSignal): AsyncIterable<PineEvent>;
