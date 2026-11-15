@@ -240,7 +240,7 @@ test('an alias retargeted before the first send gives the message back and never
 });
 
 
-test('a result that is not used is a native warning part of its own in the history, between the notices around it', async () => {
+test('a row of a kind this build no longer writes, an earlier build\'s, shows in the history as a notice', async () => {
 	const f = fixture(); f.add('main', f.root, 'main');
 	try {
 		f.service.history = () => [
@@ -248,14 +248,12 @@ test('a result that is not used is a native warning part of its own in the histo
 			{ kind: 'notice', text: 'Before.', turn_id: null },
 			{ kind: 'unused', text: 'This task\'s result was not used: x does not match its hash.', turn_id: null },
 			{ kind: 'notice', text: 'After.', turn_id: null },
-		] as ReturnType<ChatService['history']>;
+		] as unknown as ReturnType<ChatService['history']>;
 		const session = await content.provideChatSessionContent(Uri.parse('main') as unknown as vscode.Uri, {} as vscode.CancellationToken, {} as Parameters<vscode.ChatSessionContentProvider['provideChatSessionContent']>[2]);
 		const response = (session.history as vscode.ChatResponseTurn2[]).find(r => Array.isArray(r.response))!;
-		const parts = response.response as unknown as { value?: unknown; warning?: unknown }[];
-		assert.equal(parts.length, 3, 'text, the unused result, text');
-		assert.ok(parts[1] instanceof native.ChatResponseWarningPart);
-		assert.match(String(parts[1].warning), /result was not used: x does not match its hash/);
-		assert.match(String(parts[0].value), /Before/); assert.match(String(parts[2].value), /After/);
+		const parts = response.response as unknown as { value?: { value?: string } | string }[];
+		assert.equal(parts.length, 1, 'one markdown part');
+		assert.match(JSON.stringify(parts[0].value), /_Before\._[^]*_This task's result was not used: x does not match its hash\._[^]*_After\._/);
 	} finally { f.store.close(); }
 });
 

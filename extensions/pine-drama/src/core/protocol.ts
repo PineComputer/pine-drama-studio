@@ -45,6 +45,18 @@ export const PROMPT_FILE = 'prompt.md';
 /** The suffix of a paid output's receipt beside it, `<file>.receipt.json` (doc/protocol.md 2.3). */
 export const RECEIPT_SUFFIX = '.receipt.json';
 
+/** Pine Computer's records, ordinary files of the drama that come back as changes (doc/protocol.md 2.4). */
+export const PINE_COMPUTER_RECORDS = 'pine-computer-records';
+
+/** Each paid call's states, `<paid call id>/<state>.json`, under Pine Computer's records (doc/protocol.md 4.5). */
+export const PAID_CALLS_FOLDER = `${PINE_COMPUTER_RECORDS}/paid-calls`;
+
+/** Each turn's own record, `<turn id>.json`, under Pine Computer's records (doc/protocol.md 2.4, `$defs/pineComputerTurnRecord`). */
+export const TURN_RECORDS_FOLDER = `${PINE_COMPUTER_RECORDS}/turns`;
+
+/** The request a client puts into the session right before a turn's message (doc/protocol.md 4.1, 4.2). */
+export const REQUEST_ATTACHMENT = 'pine-drama-request.json';
+
 /** The folder of the files the person attaches to a note or a chat message, `<id>.<ext>` (doc/protocol.md section 3). */
 export const PERSON_ATTACHMENTS_FOLDER = 'person-attachments';
 
@@ -68,12 +80,11 @@ export interface Note {
 	readonly seconds_into_video?: number;
 }
 
-/** `turns/<turn id>/request.json` (doc/protocol.md 4.2, `$defs/request`). */
+/** The session attachment `pine-drama-request.json` (doc/protocol.md 4.1, 4.2, `$defs/request`). */
 export interface Request {
 	readonly schema: 2;
 	readonly turn_id: string;
 	readonly seed_files: Readonly<Record<string, Hash>>;
-	readonly session_private_state: Hash | null;
 	readonly notes_for_pine_computer: readonly Note[];
 }
 
@@ -92,29 +103,6 @@ export interface ProtocolError {
 	readonly message: string;
 	readonly action?: string;
 	/** On a refusal of another major: the lowest client version that reads it, and where to download it (section 7). */
-}
-
-/** `turns/<turn id>/return.json` (doc/protocol.md 4.6, `$defs/return`), written last. */
-export interface Return {
-	readonly schema: 2;
-	readonly turn_id: string;
-	readonly state: 'pine_computer_is_waiting_for_person_answer' | 'pine_computer_finished_the_work' | 'pine_computer_broke_off_the_turn_partway'
-		| 'pine_computer_refused_the_turn_before_running';
-	readonly last_change?: { readonly change_number: number; readonly sha256: Hash } | null;
-	readonly session_private_state?: Hash | null;
-	readonly pine_computer_could_not_do?: readonly { readonly object_or_file: string; readonly error: ProtocolError }[];
-	readonly question_for_person?: string;
-	readonly error?: ProtocolError;
-}
-
-/** `turns/<turn id>/paid-calls/<paid call id>/<state>.json` (doc/protocol.md 4.5, `$defs/paidCallState`). */
-export interface PaidCallState {
-	readonly schema: 2;
-	readonly paid_call_id: string;
-	readonly object_id: string;
-	readonly state: 'pine_computer_sent_request_to_provider' | 'provider_returned_output_to_pine_computer' | 'provider_reported_failure_to_pine_computer'
-		| 'pine_computer_cancelled_call_after_person_pressed_stop' | 'pine_computer_cannot_learn_call_outcome';
-	readonly state_written_at: string;
 }
 
 /**

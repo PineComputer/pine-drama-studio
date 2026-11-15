@@ -66,9 +66,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	// The project may arrive later: a session bound to an empty folder receives its config at the first publication
 	// (core/projectFinder.ts). The parts that read it register once, when it first appears, and then meet the session.
 	let opened: { views: ProjectViews; canvas: { refresh(): void }; galleries: ReturnType<typeof registerGalleries> } | undefined;
-	// What the project's running turns are making (doc/protocol.md 4.5), which the Chat service reads once it exists below.
-	let makingNow: (root: string) => ReadonlySet<string> = () => new Set();
-	let projectChanged: (() => void) | undefined;
 	let projectOpened: (() => void) | undefined;
 	let protocolStorage: string | undefined;
 	const projects = await registerProjectViews(context, output, views => {
@@ -82,7 +79,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 			timer = setTimeout(() => { views.refresh(); opened?.galleries.refresh(); opened?.canvas.refresh(); }, 1000);
 		};
 		context.subscriptions.push(watcher, watcher.onDidCreate(changed), watcher.onDidChange(changed), watcher.onDidDelete(changed), { dispose: () => clearTimeout(timer) });
-		projectChanged = changed;
 		opened = {
 			views,
 			// An episode's two views of one model: its seg editor and its canvas, refreshed together.
@@ -95,7 +91,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 		// once as client-found-changes-on-disk (core/projectHistory.ts): from here on, each change the Studio makes is its own commit.
 		void commitFilesFoundOnDisk(root, 'Changes found on disk when the project opened')
 			.catch(error => log(`project: committing the changes found on disk in ${root}: ${(error as Error).message}`));
-	}, root => makingNow(root));
+	});
 
 	registerProjectCommands(context, output, held);
 
@@ -152,8 +148,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 		},
 		protocol: { storage: protocolStorage },
 		log,
-		// What is being made shows on the cards as a change of the folder does.
-		onMakingNowChange: () => projectChanged?.(),
 		onChange: key => {
 			sessions?.refresh(key);
 			onChanged?.();
@@ -162,7 +156,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 			projects.possibleChange();
 		},
 	});
-	makingNow = root => service.makingNow(root);
 	registerPineConnection(context, config, vault, log, () => { connectionCurrent = false; }, () => connectionCurrent, () => disconnectProblem(service.chats()));
 	log(`conversation store ${dbPath}`);
 	// One title per session wherever it is named: the sessions list, the pickers, the status bar: its first message.

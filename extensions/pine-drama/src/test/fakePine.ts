@@ -4,7 +4,8 @@
 
 import { sha256 } from '../core/sha256';
 import { STANDING_PARAGRAPH } from '../core/instructions';
-import { changeKey, fileKey, privateStateKey, requestKey, returnKey, type ArtifactStore } from '../core/taskArtifacts';
+import { changeKey, fileKey, type ArtifactStore } from '../core/taskArtifacts';
+import { REQUEST_ATTACHMENT } from '../core/protocol';
 import { ConnectionLostError, MissingError, NoSuchFileError, StartNotConfirmedError, UnconfirmedError, type FolderEntry, type IdlePolicy, type PineConnection, type PineEvent, type PinePort, type PineSession, type SecretVault, type TurnFile, type TurnView } from '../core/pinePort';
 
 interface FakeTurn { id: string; state: string; question: string; summary: string; next: string; cost: number; returned: Map<string, Uint8Array> }
@@ -13,24 +14,14 @@ interface FakeSession { name: string; token: string; taskId: string; turns: Map<
 interface FakeComputer { id: string; state: 'running' | 'stopped' | 'stopping' | 'terminated'; binding: string; revision: number; idleTimeout: number; sessions: Map<string, FakeSession> }
 
 export type TurnPlan = {
-	/** The Computer side refuses the turn before running it (doc/protocol.md 4.6) with this message. */
-	refused?: string;
-	/** The run broke off partway (4.6) with this message, returning what it finished. */
-	failed?: string;
-	/** Pine Computer asks the person this (4.6, `question_for_person`): one of the five stops. */
-	question?: string;
 	state: 'completed' | 'needs_input' | 'running' | 'failed';
 	text?: string;
-	/** The result summary of a turn that stops to ask: Pine sends one with the question, often the same text. */
-	summary?: string;
 	/** Files the turn writes to the working directory and returns, by relative path. */
 	files?: Record<string, string | Uint8Array>;
 	/** Files the turn writes to the working directory but does not return (Pine lists only what the agent returns). */
 	hidden?: Record<string, string | Uint8Array>;
 	/** What the agent reports, in order, after its first progress line: activity events (SDK `AgentActivity`: upsert by id) and its own messages. */
 	steps?: ({ id: string; title: string; state: string } | { said: string })[];
-	/** The turn's run is cut off before it returns: its changes are stored, no return.json (doc/protocol.md 4.7). */
-	noReturn?: boolean;
 };
 
 const TYPES: Record<string, string> = { png: 'image/png', mp4: 'video/mp4', md: 'text/markdown', json: 'application/json', txt: 'text/plain' };
@@ -130,20 +121,16 @@ export class FakePine implements PinePort {
 	}
 
 	/**
-	 * The Computer side of a turn, protocol major 2 (doc/protocol.md 4.3, 4.6): each file the turn wrote under drama/ is one
-	 * change, its bytes stored at files/<hash> first, numbered from 1 with the previous change's hash; return.json is written
-	 * last. A message that does not start a turn returns nothing this way; `skip` leaves the turn without a return, its
-	 * changes stored (4.7).
+	 * The Computer side of a turn, protocol major 2 (doc/protocol.md 4.3): the files the turn wrote under drama/, one change
+	 * per object folder, their bytes stored at files/<hash> first, numbered after the turn's changes stored already with the
+	 * previous change's hash. A message that does not start a turn stores nothing this way.
 	 */
-	private returnTask(session: FakeSession, text: string, returned: ReadonlyMap<string, Uint8Array>, skip = false, refused?: string, failed?: string, question?: string): void {
+	private storeTurnChanges(session: FakeSession, text: string, returned: ReadonlyMap<string, Uint8Array>): void {
 		const turn = /^pine-drama-turn ([\w-]+)/.exec(text)?.[1];
 		const computer = [...this.computers.values()].find(c => c.sessions.get(session.name) === session);
 		const store = computer && this.artifactFiles.get(computer.id);
-		if (!turn || !store || !store.get(requestKey(turn))) {
-			return;
-		}
-		if (refused) {
-			store.set(returnKey(turn), Buffer.from(JSON.stringify({ schema: 2, turn_id: turn, state: 'pine_computer_refused_the_turn_before_running', error: { code: 'pine_computer_found_request_not_matching_protocol', message: refused } })));
+		const request = session.attachments.get(REQUEST_ATTACHMENT);
+		if (!turn || !store || !request || (JSON.parse(Buffer.from(request).toString('utf8')) as { turn_id: string }).turn_id !== turn) {
 			return;
 		}
 		// A change is one result: the files of one object folder, an output with its receipt (doc/protocol.md 4.3). Changes
@@ -170,14 +157,6 @@ export class FakePine implements PinePort {
 			store.set(changeKey(turn, number), change);
 			previous = change;
 		}
-		if (skip) { return; }
-		const state = Buffer.from(`private state of ${turn}`);
-		store.set(privateStateKey(sha256(state)), state);
-		store.set(returnKey(turn), Buffer.from(JSON.stringify({
-			schema: 2, turn_id: turn, state: failed ? 'pine_computer_broke_off_the_turn_partway' : question ? 'pine_computer_is_waiting_for_person_answer' : 'pine_computer_finished_the_work',
-			last_change: previous && { change_number: number, sha256: sha256(previous) }, session_private_state: sha256(state), pine_computer_could_not_do: [],
-			...failed ? { error: { code: 'pine_computer_broke_off_the_work', message: failed } } : {}, ...question ? { question_for_person: question } : {},
-		})));
 	}
 
 
@@ -272,14 +251,15 @@ export class FakePine implements PinePort {
 		const turn: FakeTurn = {
 			id: `turn-${++this.seq}`, state: plan.state, next: '', cost: 0.01,
 			question: plan.state === 'needs_input' ? (plan.text ?? 'Which episode?') : '',
-			summary: plan.state === 'completed' ? (plan.text ?? `done: ${text.replace(`\n\n${STANDING_PARAGRAPH}`, '')}`) : plan.state === 'needs_input' ? (plan.summary ?? '') : '',
+			// Pine's turn result: a waiting turn's summary is its question (its SDK, parse.ts: question = summary).
+			summary: plan.state === 'completed' ? (plan.text ?? `done: ${text.replace(`\n\n${STANDING_PARAGRAPH}`, '')}`) : plan.state === 'needs_input' ? (plan.text ?? 'Which episode?') : '',
 			returned: new Map(Object.entries(plan.files ?? {}).map(([path, content]) => [path, bytesOf(content)])),
 		};
 		for (const [path, content] of Object.entries({ ...plan.hidden, ...plan.files })) {
 			session.files.set(path, bytesOf(content));
 		}
 		session.turns.set(turn.id, turn);
-		this.returnTask(session, text, turn.returned, plan.noReturn, plan.refused, plan.failed, plan.question);
+		this.storeTurnChanges(session, text, turn.returned);
 		const id = () => session.events.length + 1;
 		session.inputs.push({ kind: 'run', text, turnId: turn.id, eventId: session.events.length });
 		const base = { taskId: session.taskId, turnId: turn.id, text: '' };
@@ -346,13 +326,13 @@ export class FakePine implements PinePort {
 				if (turn) {
 					turn.state = plan.state;
 					turn.question = plan.state === 'needs_input' ? (plan.text ?? 'Which episode?') : '';
-					turn.summary = plan.state === 'completed' ? (plan.text ?? 'done') : '';
+					turn.summary = plan.state === 'completed' ? (plan.text ?? 'done') : plan.state === 'needs_input' ? turn.question : '';
 					for (const [path, content] of Object.entries(plan.files ?? {})) {
 						turn.returned.set(path, bytesOf(content));
 						session.files.set(path, bytesOf(content));
 					}
 					const input = session.inputs.find(i => i.turnId === turnId);
-					this.returnTask(session, input?.text ?? '', turn.returned, plan.noReturn, plan.refused, plan.failed, plan.question);
+					this.storeTurnChanges(session, input?.text ?? '', turn.returned);
 					return;
 				}
 			}
@@ -397,9 +377,13 @@ export class FakePine implements PinePort {
 		return this.sessionNamed(sessionName).attachments;
 	}
 
+	/** Every attachment the Studio wrote, in order: a turn's request replaces the one before it in the session. */
+	readonly written: { readonly session: string; readonly name: string; readonly content: Uint8Array }[] = [];
+
 	async writeFile(_env: PineConnection, s: PineSession, name: string, content: Uint8Array): Promise<void> {
 		await this.count('writeFile');
 		this.sessionOf(s).attachments.set(name, content);
+		this.written.push({ session: s.name, name, content });
 	}
 
 	async turnFiles(_env: PineConnection, s: PineSession, turnId: string): Promise<TurnFile[]> {

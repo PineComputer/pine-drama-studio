@@ -79,10 +79,6 @@ export function registerPineSessions(
 					stream.markdown(update.text);
 				}
 				break;
-			case 'unused':
-				// Native Chat's warning part: a result that is not used, with its reason; its detail is in Output.
-				stream.warning(update.text);
-				break;
 			case 'notStarted':
 				stream.markdown(`**${update.text}.**`);
 				break;
@@ -387,22 +383,11 @@ function showTurnCost(): boolean {
 function toHistory(all: readonly Message[], showCost: boolean): (vscode.ChatRequestTurn | vscode.ChatResponseTurn2)[] {
 	const messages = withoutRepeatedQuestion(all);
 	const history: (vscode.ChatRequestTurn | vscode.ChatResponseTurn2)[] = [];
-	let parts: (string | vscode.ChatResponseWarningPart)[] = [];
+	let parts: string[] = [];
 	const flush = () => {
 		if (parts.length > 0) {
-			// Consecutive text is one markdown part, as before; an unused result keeps its own native warning part.
-			const response: vscode.ChatResponseMarkdownPart[] = [];
-			let text: string[] = [];
-			const markdown = () => { if (text.length) { response.push(new vscode.ChatResponseMarkdownPart(text.join('\n\n'))); text = []; } };
-			for (const part of parts) {
-				if (typeof part === 'string') { text.push(part); continue; }
-				markdown();
-				// Contributed history converts a warning part like a streamed one (extHostTypeConverters.ts, ChatResponsePart.from,
-				// `ChatResponseWarningPart`); the proposed d.ts omits it from ChatResponseTurn2.response, hence the cast.
-				response.push(part as unknown as vscode.ChatResponseMarkdownPart);
-			}
-			markdown();
-			history.push(new vscode.ChatResponseTurn2(response, {}, SESSION_TYPE));
+			// Consecutive text is one markdown part.
+			history.push(new vscode.ChatResponseTurn2([new vscode.ChatResponseMarkdownPart(parts.join('\n\n'))], {}, SESSION_TYPE));
 			parts = [];
 		}
 	};
@@ -421,17 +406,18 @@ function toHistory(all: readonly Message[], showCost: boolean): (vscode.ChatRequ
 			case 'failed':
 				parts.push(`**${m.text}**`);
 				break;
-			case 'unused':
-				parts.push(new vscode.ChatResponseWarningPart(m.text));
-				break;
-			case 'notice':
-				parts.push(`_${m.text}_`);
+			case 'instructions':
+			case 'progress':
+			case 'activity':
 				break;
 			case 'usage':
 				if (showCost) {
 					parts.push(`_cost of this turn: ${m.cost === null ? 'not priced' : `${m.cost} ${m.currency ?? ''}`}_`);
 				}
 				break;
+			default:
+				// A notice, and a row of a kind this build no longer writes (an earlier build's), shown as one.
+				parts.push(`_${m.text}_`);
 		}
 	}
 	flush();

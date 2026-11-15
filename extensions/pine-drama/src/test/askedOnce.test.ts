@@ -30,19 +30,12 @@ async function send(service: ChatService, text = 'go'): Promise<string> {
 }
 const times = (text: string, part: string) => text.split(part).length - 1;
 
-test('live: a question that is also the turn\'s result text is shown once; a different result keeps both', async () => {
+test('live: a waiting turn\'s question, which is also its result\'s summary, is shown once', async () => {
 	const same = setup();
-	same.pine.plans = [{ state: 'needs_input', text: QUESTION, summary: QUESTION }];
+	same.pine.plans = [{ state: 'needs_input', text: QUESTION }];
 	const shown = await send(same.service);
 	assert.equal(times(shown, QUESTION), 1, shown);
 	assert.match(shown, /Your next message answers it/);
-
-	const different = setup();
-	different.pine.plans = [{ state: 'needs_input', text: 'Which preset?', summary: 'I read your files and found a screenplay.' }];
-	const both = await send(different.service);
-	assert.match(both, /I read your files and found a screenplay\./);
-	assert.match(both, /The agent asks:\*\* Which preset\?/);
-	assert.match(both, /Your next message answers it/);
 });
 
 test('history: the same text shows once under the question; a longer result that holds the question shows once; different texts keep both', () => {

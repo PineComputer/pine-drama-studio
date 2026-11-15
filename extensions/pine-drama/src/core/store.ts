@@ -13,8 +13,7 @@ export type PineSessionState = 'none' | 'open' | 'ended';
 export type ChatState = 'idle' | 'running' | 'needs_input' | 'failed';
 export type SavedSendKind = 'run';
 export type SavedSendState = 'pending' | 'sent' | 'unknown' | 'failed';
-/** `unused`: a turn's outcome the person must know, with its reason (chats.ts, the turn's end), shown as a native warning. */
-export type MessageKind = 'prompt' | 'instructions' | 'progress' | 'activity' | 'result' | 'question' | 'usage' | 'failed' | 'notice' | 'unused';
+export type MessageKind = 'prompt' | 'instructions' | 'progress' | 'activity' | 'result' | 'question' | 'usage' | 'failed' | 'notice';
 
 
 export interface Chat {
@@ -132,7 +131,7 @@ create table if not exists messages (
   chat_key text not null references chats(key),
   turn_id text,
   saved_send_id text,
-  kind text not null,                 -- prompt | instructions | progress | activity | result | question | usage | failed | notice | unused
+  kind text not null,                 -- prompt | instructions | progress | activity | result | question | usage | failed | notice
   text text not null,
   cost real,
   currency text,

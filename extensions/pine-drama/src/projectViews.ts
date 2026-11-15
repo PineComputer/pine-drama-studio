@@ -295,8 +295,7 @@ export interface ProjectViews {
  * Step 5). The tree views are created once; only their providers' project changes.
  * `opened` is told the views when the window's project first appears.
  */
-export async function registerProjectViews(context: vscode.ExtensionContext, output: vscode.OutputChannel, opened: (views: ProjectViews) => void,
-	makingNow: (root: string) => ReadonlySet<string>): Promise<ProjectFinder> {
+export async function registerProjectViews(context: vscode.ExtensionContext, output: vscode.OutputChannel, opened: (views: ProjectViews) => void): Promise<ProjectFinder> {
 	const projectTree = new ProjectProvider();
 	const versions = new TimelineProvider();
 	projectTree.folders = () => (vscode.workspace.workspaceFolders ?? []).filter(folder => folder.uri.scheme === 'file').map(folder => folder.uri.fsPath);
@@ -437,7 +436,7 @@ export async function registerProjectViews(context: vscode.ExtensionContext, out
 					.then(reload => reload && vscode.commands.executeCommand('workbench.action.reloadWindow'));
 				return;
 			}
-			const project = root ? first?.project ?? new DramaProject(root, false, () => makingNow(root)) : undefined;
+			const project = root ? first?.project ?? new DramaProject(root) : undefined;
 			projectTree.project = project;
 			versions.project = project;
 			await vscode.commands.executeCommand('setContext', 'pineDrama.projectOpen', !!project);
