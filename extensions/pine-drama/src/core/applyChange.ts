@@ -8,7 +8,7 @@ import { existsSync } from 'node:fs';
 import { mkdir, rm, rmdir } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { throughNoLink, writeWhole } from './placement';
-import { commitEntriesToHistory, commitIndexPaths, commitPathsToHistory, listPathsOfIndex, runInProjectWriteQueue, stagePaths, turnTrailers, unstagedPaths, writeBlob, type PineTurnIds, type TreeEntry } from './projectHistory';
+import { commitEntriesToHistory, commitIndexPaths, commitPathsToHistory, listPathsOfIndex, recordFilesFoundOnDisk, runInProjectWriteQueue, stagePaths, turnTrailers, unstagedPaths, writeBlob, type PineTurnIds, type TreeEntry } from './projectHistory';
 import { isProtocolPath, RECEIPT_SUFFIX } from './protocol';
 import { sha256, sha256OfFile } from './sha256';
 
@@ -42,6 +42,9 @@ export function applyPersonChange(projectRoot: string, commitMessage: string,
 		// A path to delete is as the change wants it when nothing is there, so what goes is never read (git rm -r).
 		const asWanted = async (path: string) => { const got = bytes.get(path)!; return got === null ? !existsSync(join(projectRoot, path)) : await sha256OfFile(join(projectRoot, path)) === sha256(got); };
 		if ((await Promise.all(paths.map(asWanted))).every(Boolean)) { return 'already on disk'; }
+		// What the person saved by hand and no commit holds is recorded first, as a turn's landing does, so a change
+		// written over it never loses it from history.
+		await recordFilesFoundOnDisk(projectRoot, 'Changes found on disk before the person\'s change');
 		// Receipts before the outputs they describe (2.3), so an output is never on disk without its receipt.
 		for (const path of [...paths].sort((a, b) => Number(!a.endsWith(RECEIPT_SUFFIX)) - Number(!b.endsWith(RECEIPT_SUFFIX)))) {
 			const file = join(projectRoot, path);
@@ -86,10 +89,7 @@ export function landTurnFiles(projectRoot: string, ids: PineTurnIds, entries: re
 	return runInProjectWriteQueue(projectRoot, async () => {
 		const unstaged = new Set(await unstagedPaths(projectRoot));
 		const edited = entries.map(e => e.path).filter(path => unstaged.has(path) || [...unstaged].some(p => p.startsWith(`${path}/`)));
-		if (last && edited.length) {
-			await stagePaths(projectRoot, edited);
-			await commitIndexPaths(projectRoot, 'client-found-changes-on-disk', edited, 'Changes found on disk before a turn\'s result', {});
-		}
+		if (last) { await recordFilesFoundOnDisk(projectRoot, 'Changes found on disk before a turn\'s result'); }
 		const leftOut = new Map<string, LeftOut>();
 		const writes = entries.filter(e => e.blob !== null);
 		const gone = new Set(entries.filter(e => e.blob === null).map(e => e.path));

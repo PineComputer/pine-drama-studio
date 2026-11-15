@@ -27,7 +27,7 @@ test("the person's change is written and committed as theirs, with only its path
 	assert.equal(readFileSync(join(dir, LOOK), 'utf8'), 'picture one');
 	assert.equal(await out(dir, 'log', '-1', '--format=%an'), 'person');
 	assert.deepEqual((await out(dir, 'show', '--name-only', '--format=', 'HEAD')).split('\n').sort(), [LOOK, RECEIPT]);
-	assert.equal(await out(dir, 'status', '--porcelain', '--', 'notes.txt'), '?? notes.txt', 'the hand edit is left for its own commit');
+	assert.equal(await out(dir, 'log', '-1', '--format=%an', 'HEAD~1', '--', 'notes.txt'), 'client-found-changes-on-disk', 'the hand edit gets its own commit, first');
 	const commits = await commitCount(dir);
 	assert.equal(await person(dir, { [LOOK]: 'picture one' }), 'already on disk');
 	assert.equal(await commitCount(dir), commits);
@@ -99,4 +99,18 @@ test('a path the folder will not take (a read-only folder) is left out with why,
 	} finally {
 		chmodSync(join(dir, 'locked'), 0o755);
 	}
+});
+
+// Codex's production review, item A8: a card action wrote over a hand edit the person had saved but no commit held,
+// so history went A → C and B was lost.
+test("a person's change first records the hand edit it writes over, so history keeps it", async () => {
+	const dir = project();
+	const prompt = 'assets/characters/lin/prompt.md';
+	await person(dir, { [prompt]: 'A' });
+	writeFileSync(join(dir, prompt), 'B');
+	await person(dir, { [prompt]: 'C' });
+	const shown = (await out(dir, 'log', '--format=%an %s', '--', prompt)).split('\n');
+	assert.deepEqual(shown.map(line => line.split(' ')[0]), ['person', 'client-found-changes-on-disk', 'person']);
+	assert.equal(await out(dir, 'show', `HEAD~1:${prompt}`), 'B');
+	assert.equal(readFileSync(join(dir, prompt), 'utf8'), 'C');
 });
