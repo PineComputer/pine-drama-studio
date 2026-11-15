@@ -6,7 +6,7 @@ import { webviewPageHtml, type WebviewPage } from './core/webviewPage';
 
 /**
  * The extension's global storage as a file: URI, for a webview's `localResourceRoots`: the files under it (the live
- * previews a turn downloads, the preview copies ChatService.preview writes) reach the page through
+ * previews a turn downloads) reach the page through
  * `asWebviewUri(vscode.Uri.file(…))`. On desktop `globalStorageUri` is a vscode-userdata: URI (Code-OSS
  * environmentService.ts:68, userDataProfile.ts:353), and a webview loads a resource only under a root of the same
  * scheme (resourceLoading.ts:136-159), so that URI as a root refuses every file: one.

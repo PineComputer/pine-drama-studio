@@ -23,10 +23,8 @@ test("a session row opens its project; whole-Computer shutdown is absent from cr
 	]);
 });
 
-test('the package shows Review beside Chat on first launch, and no Copilot or Agents window entry in the title bar', () => {
+test('the package shows the secondary side bar\'s labels on first launch, and no Copilot or Agents window entry in the title bar', () => {
 	const defaults = (manifest.contributes as unknown as { configurationDefaults: Record<string, unknown> }).configurationDefaults;
-	// The secondary side bar opens 300 px wide (Code-OSS layout.ts, AUXILIARYBAR_SIZE); two labelled tabs beside Chat's
-	// title actions overflow there, so Review was only in "…". Icons fit; each is named in its tooltip.
 	assert.equal(defaults['workbench.secondarySideBar.showLabels'], true);
 	assert.equal(defaults['chat.titleBar.signIn.enabled'], false);
 	assert.equal(defaults['chat.titleBar.openInAgentsWindow.enabled'], false);

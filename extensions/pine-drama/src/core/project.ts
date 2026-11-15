@@ -180,8 +180,8 @@ export async function readProjectFromFolder(projectRoot: string, makingNow: Read
 
 /**
  * What the installed snapshots say now (doc/protocol.md, 5.3): each object from the latest snapshot that lists it, and
- * the edges from it, after the removals readDrama describes. readDrama reads the drama's files on top of it; a reader
- * that needs only names, types and edges, such as a review card's titles, reads this alone.
+ * the edges from it. An object a later snapshot of its scope no longer lists is removed, when that turn's request
+ * knew it: a version folder of it was in the request, or a snapshot installed before then listed it (5.3).
  */
 export function snapshotState(snapshots: readonly ScopedSnapshot[], tasks?: TasksOf): { readonly listed: ReadonlyMap<string, { readonly object: Snapshot['objects'][string]; readonly at: string; readonly from: Snapshot }>; readonly edges: readonly Edge[] } {
 	const requested = new Map((tasks?.requests() ?? []).map(r => [r.request.turn, Object.keys(r.request.versions)]));

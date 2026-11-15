@@ -19,7 +19,7 @@ export interface ComputerSecrets {
 
 /**
  * Idle timeouts (open-pinedrama docs/PROPOSAL.md section 5.3, src/engine/config.ts). Work keeps a Computer running;
- * a question or review waiting for the person does not, so a waiting Computer gets longer.
+ * a question waiting for the person does not, so a waiting Computer gets longer.
  */
 export const IDLE_WORKING_SECONDS = 60 * 60;
 export const IDLE_WAITING_SECONDS = 3 * 60 * 60;
