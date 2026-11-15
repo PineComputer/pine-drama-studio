@@ -104,8 +104,7 @@
               "kind": {
                 "enum": [
                   "inside_of",
-                  "appears_in",
-                  "needs"
+                  "appears_in"
                 ]
               },
               "to": {

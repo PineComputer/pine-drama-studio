@@ -26,7 +26,7 @@ A client can be built from this page and one schema file, [`protocol/v2/protocol
 | Path | A file or folder of the drama: project-relative, `/`-separated, Unicode NFC. No segment is empty or starts with `.`. No segment contains `\` or a control character (U+0000–U+001F, U+007F–U+009F), is a Windows reserved name (`CON`, `PRN`, `AUX`, `NUL`, `COM1`–`COM9`, `LPT1`–`LPT9`, with or without an extension), or ends with `.` or a space. There is no leading or trailing `/`, and a path is at most 240 characters. Two paths that differ only by case are the same path. A name starting with `.` (`.git`, `.gitattributes`) is never a path of this protocol, so it never travels. |
 | Object id | The path of the object's folder, for example `assets/characters/lin`. Whoever creates the object chooses it. |
 | Turn id | Pine's id of a turn. |
-| Paid call id | An id the Computer side chooses for one paid call, unique in the drama, matching the same pattern. |
+| Paid call id | An id the Computer side chooses for one paid call, unique in the drama, matching `^[A-Za-z0-9_-]{8,64}$`. |
 | Time | An RFC 3339 `date-time` in UTC, whole seconds, with the `Z` suffix, for example `2026-11-15T10:00:00Z`. |
 | Hash | The lowercase hex SHA-256 of a file's bytes. Git's own object ids never appear in a document. |
 
@@ -63,10 +63,10 @@ An object is a folder holding **`object.json`** (`$defs/object`):
 | `variant_of` | For a variant: the object id it derives from. |
 | `segment` | Its segment within the episode, or absent. |
 | `setting` | For a scene: `interior` or `exterior`. |
-| `relations` | Other relations, each `{kind, to}`: `inside_of` (a scene inside a scene), `appears_in` (an asset in an episode), `needs` (an episode needs an object before it can be shot). |
+| `relations` | Other relations, each `{kind, to}`: `inside_of` (a scene inside a scene), `appears_in` (an asset in an episode). |
 | `objects_sent_by_draw_request` | The object ids this object's draw request sends, in the order it sends them (`Image 1`…`Image N`), or absent for an object that is not drawn from others. Every object drawn from others has it, whatever its type (a storyboard, a keyframe, a take, a cut, and any drawn kind added later), under this one rule. Pine Computer writes it only when a turn plans that object: never as a side effect of another object changing, and never when it reads. The person may add to, remove from or reorder it on any object, drawn or not, and it then stays as they set it until they, or a turn that plans that object again, change it. The draw builds its request from this list and nothing else, so what is drawn and what the canvas shows cannot differ. |
 
-- **One source for lines.** Every line the client draws between objects comes from `objects_sent_by_draw_request` (plus `variant_of` and `relations`), for a drawn object and an undrawn one alike. A receipt's `inputs_sent_in_order` is the record of what a past draw sent, shown with that result; it is never read for lines. `needs` is only an episode's, for what it needs before it can be shot.
+- **One source for lines.** Every line the client draws between objects comes from `objects_sent_by_draw_request` (plus `variant_of` and `relations`), for a drawn object and an undrawn one alike. A receipt's `inputs_sent_in_order` is the record of what a past draw sent, shown with that result; it is never read for lines.
 - **Every drawn picture is an object.** A picture other pictures are drawn from has a folder with `object.json` of its own:
   - `character_face`, at `assets/characters/<id>/looks/face`: the face a character's sheets are drawn from;
   - `scene_floor_plan`, at `assets/scenes/<id>/plan`: the floor plan a scene's views are drawn from.
@@ -93,7 +93,7 @@ Each output of a paid call has a receipt beside it, **`<file>.receipt.json`** (`
 |---|---|
 | `paid_call_id` | The paid call that made it (2.4). |
 | `finished_at` | When the output was finished. |
-| `inputs_sent_in_order` | The record of what this call sent, for money and history (never for lines, 2.2): the files the call was sent, in the order it was given them (`Image 1`…`Image N`), each `{path, sha256}` as it was then. Their bytes are in the drama's history: the client records every file before it puts it (4.3), and a turn's own inputs come back with its files. |
+| `inputs_sent_in_order` | The record of what this call sent, for money and history (never for lines, 2.2): the files the call was sent, in the order it was given them (`Image 1`…`Image N`), each `{path, sha256}` as it was then. Their bytes are in the drama's history when the file was in the drama before the turn or at its end (4.3). An input that the same turn made and then replaced is recorded by its hash alone. |
 | `prompt_sent` | The prompt the call was sent, or `null`. |
 | `cost` | `{usd, reported_by}`, for example `"reported_by": "pine"`, or `null` when unknown. |
 
@@ -127,7 +127,7 @@ The client is the turn's harness, as Codex's cloud harness is: it puts the drama
 ### 4.1 The session
 
 - **The message.** A turn is one message to a session on a Pine Computer: the person's words. The client sends it with Pine's idempotency key, so a resend never runs a turn twice ([agent turns](https://console.pinecomputer.io/docs/agent)).
-- **The drama on the Computer** is the folder `drama/` in the session's working directory.
+- **The drama on the Computer** is the folder `drama/` in the session's working directory. The shell keeps the directory the agent's last command left it in, so the client learns the working directory's absolute path with its first `exec` in a new session, before any turn, and gives it as the `cwd` of every later `exec`.
 - **One turn at a time.** A session sends its next turn only after its previous turn has ended on Pine and its files are applied (4.3).
 - **Any number of sessions** may work on one drama, and none owns an object. Each session has its own working directory, so a new session starts with a full `put`.
 - **Pine's shell.** The client runs its operations with Pine's `exec` ([files and shell](https://console.pinecomputer.io/docs/files-and-shell)), which the project must have. Each command runs in a subshell, so it leaves the session's directory and environment as they were for the agent.
@@ -149,7 +149,7 @@ Bytes travel only as files: `exec` output is text.
 3. **After.** Once Pine reports the turn ended, however it ended: `list` as `after`. The client applies every path whose hash in `after` differs from `before`, or that is new: it does a `get`, writes the files, and deletes every path of `before` missing from `after`. Then it records all of them as one `pine-computer` change with the trailer `Pine-Turn-Id` (2.1). Applying a turn again is a no-op.
 
 - **An ended turn is always applied before the next put.** The client keeps a turn's `before` until the turn's change is recorded. A session's next turn, or the drama's next opening, first applies any ended turn that has no change yet. A `put` deletes what the client does not hold, so it would otherwise delete that turn's results and Pine Computer's records (2.4).
-- **The newest result lands.** There is no check against what a file held before, and no refusal: whatever is applied last is the file's current content, and its history keeps every earlier one. The same rule covers a reroll's attempts, two sessions writing one file, and a turn writing over a person's edit. "Use" (5) brings any earlier one back.
+- **The newest result lands.** There is no check against what a file held before, and no refusal: whatever is applied last is the file's current content, and its history keeps every earlier one. The same rule covers a reroll, two sessions writing one file, and a turn writing over a person's edit. A turn's files are applied as they are at its end, so a file the turn wrote twice is in history once, as it ended. "Use" (5) brings any earlier one back.
 - **Only on the Computer until applied.** A turn's files exist on the Computer alone until the client applies them. If the Computer stops first (an idle timeout, for example), they are lost with the session's files ([limits](https://console.pinecomputer.io/docs/limits)).
 
 ### 4.4 How a turn ends

@@ -190,7 +190,7 @@
   "object_json": {
     "written_for": "every object the kept snapshots list, every asset or variant with an entry stage, and every folder that pictures_that_become_objects names",
     "one_source_per_field": {
-      "type, name, setting, variant_of, relations": "from the object's current entry version when it has an entry stage (record_stages /entry), otherwise from the latest snapshot that lists it (type, name, segment; relations from its edges inside_of, appears_in, needs; variant_of from its edge variant_of)",
+      "type, name, setting, variant_of, relations": "from the object's current entry version when it has an entry stage (record_stages /entry), otherwise from the latest snapshot that lists it (type, name, segment; relations from its edges inside_of and appears_in; a needs edge is dropped, since nothing in major 2 writes or reads it; variant_of from its edge variant_of)",
       "segment": "from that snapshot",
       "shown_file": "the version.json file of the version the commit describes: each version's own in its commit, the current version's in the last commit",
       "objects_sent_by_draw_request": "for the version the commit describes: that version's version.json inputs, in order, keeping only inputs whose version has a shown file (the pictures the draw sent), each mapped to its object id; for a planned object with no version: the inputs of the latest snapshot that lists it, in order. Absent when the list would be empty."
