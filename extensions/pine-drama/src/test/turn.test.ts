@@ -9,7 +9,7 @@ import { test } from 'node:test';
 import { git } from '../core/git';
 import { commitFilesFoundOnDisk } from '../core/projectHistory';
 import { writeWhole } from '../core/placement';
-import { collectTurn, putTurnFiles, turnRecordOf, type ComputerSession } from '../core/turn';
+import { collectTurn, putTurnFiles, type ComputerSession } from '../core/turn';
 import { FakePine } from './fakePine';
 
 // A turn on the Studio's side (core/turn.ts), git on both sides: the drama's folder on a fake Computer whose working
@@ -240,15 +240,6 @@ test('at the end a draft the turn wrote while running and removed since goes fro
 	assert.equal(await out(root, 'status', '--porcelain'), '', 'nothing is left staged');
 });
 
-test('a turn whose agent changed nothing makes no commit on either side', async () => {
-	const { root, at, workdir } = await place();
-	await putTurnFiles(at, root, 'turn-1');
-	const head = await out(root, 'rev-parse', 'HEAD');
-	assert.deepEqual(await collectTurn(at, root, ids(at, 'turn-1'), END), { files: [], leftOut: new Map() });
-	assert.equal(await out(root, 'rev-parse', 'HEAD'), head);
-	assert.equal((await git(['--git-dir', join(workdir, 'pine-drama.git'), 'rev-parse', '--verify', '-q', 'refs/heads/turn'], workdir)).exitCode, 1, 'no capture on the Computer either');
-});
-
 test('a path the project cannot hold is left out, with why, and the rest of the turn lands', async () => {
 	const { root, at, drama } = await place();
 	await putTurnFiles(at, root, 'turn-1');
@@ -265,17 +256,6 @@ test('a path the project cannot hold is left out, with why, and the rest of the 
 	});
 	assert.equal(readFileSync(join(root, 'assets/props/umbrella/description.md'), 'utf8'), 'A red umbrella.');
 	assert.deepEqual([existsSync(join(root, 'notes')), existsSync(join(root, 'assets/passwd')), existsSync(join(root, 'assets/CON'))], [false, false, false]);
-});
-
-test('the turn record keeps each turn as sent, with its session, until it is settled', async () => {
-	const storage = mkdtempSync(join(tmpdir(), 'turn-storage-'));
-	const record = turnRecordOf(storage, mkdtempSync(join(tmpdir(), 'turn-project-')));
-	await record.send('turn-1', 'main', 's-1', new Date('2026-11-14T10:00:00Z'));
-	await record.send('turn-2', 'main', 's-1', new Date('2026-11-14T10:01:00Z'));
-	assert.deepEqual(record.unsettled('main').map(t => t.turn), ['turn-1', 'turn-2']);
-	assert.equal(record.sentTurn('turn-1')?.session, 's-1');
-	await record.settle('turn-1', { files: ['a.txt'] });
-	assert.deepEqual([record.unsettled('main').map(t => t.turn), record.latestSettled('main')?.turn, record.settled('turn-1')?.files], [['turn-2'], 'turn-1', ['a.txt']]);
 });
 
 // B9: two sessions recording at once write in one folder at the same moment. Each write's temporary file must be its

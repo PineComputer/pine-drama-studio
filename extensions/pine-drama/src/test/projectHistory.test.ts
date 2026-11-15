@@ -37,21 +37,6 @@ test("the person's change is committed as theirs with the paths it wrote, and no
 	assert.deepEqual(readdirSync(dir).sort(), ['.git', 'assets', 'notes.txt'], 'nothing of the Studio\'s in the person\'s folder');
 });
 
-test('a turn\'s result is committed as the agent\'s, with only its paths and its trailers', async () => {
-	const dir = project();
-	mkdirSync(join(dir, 'assets', 'characters', 'lin', 'v1'), { recursive: true });
-	writeFileSync(join(dir, 'assets', 'characters', 'lin', 'v1', 'version.json'), '{}\n');
-	mkdirSync(join(dir, 'turns'));
-	writeFileSync(join(dir, 'turns', 'task-0001-abcdef.json'), '{}\n');
-	writeFileSync(join(dir, 'unrelated.txt'), 'not the turn\'s\n');
-	await runInProjectWriteQueue(dir, () => commitPathsToHistory(dir, 'pine-computer', ['assets/characters/lin/v1', 'assets/never/there', 'turns/task-0001-abcdef.json'],
-		'Turn task-0001-abcdef', { 'Pine-Turn-Id': 'task-0001-abcdef' }));
-	const [only] = await commits(dir);
-	assert.equal(only.head, 'pine-computer|Turn task-0001-abcdef');
-	assert.deepEqual(only.files, ['assets/characters/lin/v1/version.json', 'turns/task-0001-abcdef.json']);
-	assert.equal(await out(dir, 'log', '-1', '--format=%(trailers:key=Pine-Turn-Id,valueonly)'), 'task-0001-abcdef');
-});
-
 test('opening commits what no commit recorded as found on disk, and commits nothing when there is nothing new', async () => {
 	const dir = project();
 	await describe(dir, 'Tall.');

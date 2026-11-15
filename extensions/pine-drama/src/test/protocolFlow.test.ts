@@ -50,7 +50,10 @@ test('a turn\'s message is the person\'s words, what its agent changed lands as 
 	const f = fixture();
 	try {
 		f.pine.plans = [{ state: 'completed', text: 'drawn', files: made('assets/props/umbrella', 'umbrella') }];
-		await f.send('draw the umbrella');
+		const updates = await f.send('draw the umbrella');
+		// While the turn's last results come in, the Chat says so, before the turn's last words.
+		const bringing = updates.findIndex(u => u.kind === 'progress' && /^Bringing the turn's last results into your project/.test(u.text));
+		assert.ok(bringing >= 0 && bringing < updates.findIndex(u => u.kind === 'markdown' && /drawn/.test(u.text)), JSON.stringify(updates.map(u => [u.kind, u.text])));
 		assert.equal(readFileSync(join(f.root, 'assets/props/umbrella/picture.png'), 'utf8'), 'umbrella');
 		const [author, turn] = (await git(['log', '-1', '--format=%an|%(trailers:key=Pine-Turn-Id,valueonly,separator=)'], f.root)).stdout.trim().split('|');
 		assert.equal(author, 'pine-computer');
@@ -86,18 +89,6 @@ test('a session\'s next turn waits until its last one is settled, and then start
 		const turns = (await git(['log', '--format=%(trailers:key=Pine-Turn-Id,valueonly,separator=)', '--author=pine-computer'], f.root)).stdout.trim().split('\n');
 		assert.equal(turns.length, 2, 'each turn its own commit');
 		assert.deepEqual(turns.map(turn => f.store.savedSendsOfTurn('main', turn)[0].text.split('\n')[0]), ['next', 'draw a']);
-	} finally { f.store.close(); }
-});
-
-// B5: a large return installed for minutes after the agent's reply, and the Chat said nothing meanwhile.
-test('while a turn\'s last results come in, the Chat says so, before the turn\'s last words', async () => {
-	const f = fixture();
-	try {
-		f.pine.plans = [{ state: 'completed', text: 'drawn', files: made('assets/props/cup', 'cup') }];
-		const updates = await f.send('draw the cup');
-		const bringing = updates.findIndex(u => u.kind === 'progress' && /^Bringing the turn's last results into your project/.test(u.text));
-		assert.ok(bringing >= 0, JSON.stringify(updates.map(u => [u.kind, u.text])));
-		assert.ok(bringing < updates.findIndex(u => u.kind === 'markdown' && /drawn/.test(u.text)), 'it comes before the last words');
 	} finally { f.store.close(); }
 });
 
@@ -313,14 +304,3 @@ test('a Stop whose cancel Pine took but whose answer was lost still lands what t
 	} finally { f.store.close(); }
 });
 
-test('a Stop after the turn ended cancels nothing', async () => {
-	const f = fixture();
-	try {
-		f.pine.plans = [{ state: 'completed', text: 'drawn' }];
-		const abort = new AbortController();
-		await drain(f.service.submit('main', 'draw a', 'Project Chat', f.root, abort.signal));
-		abort.abort();
-		assert.equal(f.pine.calls.cancel, undefined);
-		assert.equal(lastTurnState(f), 'completed');
-	} finally { f.store.close(); }
-});

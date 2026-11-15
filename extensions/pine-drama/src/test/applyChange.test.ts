@@ -52,13 +52,22 @@ test("a turn's result lands over the person's edit, and the file's history keeps
 	]);
 });
 
-test('nothing of the person\'s change is written when a name is not a path of the project', async () => {
+test('nothing of the person\'s change is written when a name is not a path of the project, or leads through a link', async () => {
 	const dir = project();
 	for (const path of ['.git/config', 'assets/../../outside.txt', '/etc/passwd', 'assets/CON', 'a/b.', `${LOOK.toUpperCase()}`]) {
 		const files = path === LOOK.toUpperCase() ? { [LOOK]: 'x', [path]: 'y' } : { [path]: 'x' };
 		await assert.rejects(person(dir, files), (error: Error) => error instanceof NotAProjectPathError, path);
 	}
 	assert.equal(existsSync(join(dir, 'assets')), false, 'nothing of a refused change is written');
+	// A folder linked into .git, or another of the project, is never written through.
+	await person(dir, { [LOOK]: 'one' });
+	symlinkSync(join(dir, '.git'), join(dir, 'linked'));
+	const config = readFileSync(join(dir, '.git', 'config'), 'utf8');
+	await assert.rejects(person(dir, { 'linked/config': 'x' }), (error: Error) => error instanceof NotAProjectPathError);
+	assert.equal(readFileSync(join(dir, '.git', 'config'), 'utf8'), config);
+	symlinkSync(join(dir, 'assets'), join(dir, 'also-assets'));
+	await assert.rejects(person(dir, { 'also-assets/characters/lin/look.png': 'x' }), (error: Error) => error instanceof NotAProjectPathError);
+	assert.equal(readFileSync(join(dir, LOOK), 'utf8'), 'one');
 });
 
 test("the person's change takes nothing else staged, and a file whose name is words and spaces keeps its history", async () => {
@@ -70,18 +79,6 @@ test("the person's change takes nothing else staged, and a file whose name is wo
 	assert.deepEqual((await out(dir, 'show', '--name-only', '--format=', 'HEAD')).split('\n').sort(), ['a blob 1000', LOOK]);
 	assert.equal(await out(dir, 'diff', '--cached', '--name-only'), 'notes.txt', 'the person\'s staged file stays staged');
 	assert.deepEqual((await listHistory(dir, 'a blob 1000')).map(h => h.files.get('a blob 1000')), [null, blob('x')]);
-});
-
-test('a folder linked into .git, or another of the project, is never written through', async () => {
-	const dir = project();
-	await person(dir, { [LOOK]: 'one' });
-	symlinkSync(join(dir, '.git'), join(dir, 'linked'));
-	const config = readFileSync(join(dir, '.git', 'config'), 'utf8');
-	await assert.rejects(person(dir, { 'linked/config': 'x' }), (error: Error) => error instanceof NotAProjectPathError);
-	assert.equal(readFileSync(join(dir, '.git', 'config'), 'utf8'), config);
-	symlinkSync(join(dir, 'assets'), join(dir, 'also-assets'));
-	await assert.rejects(person(dir, { 'also-assets/characters/lin/look.png': 'x' }), (error: Error) => error instanceof NotAProjectPathError);
-	assert.equal(readFileSync(join(dir, LOOK), 'utf8'), 'one');
 });
 
 test('a path the folder will not take (a read-only folder) is left out with why, and the rest of the turn lands', async () => {
