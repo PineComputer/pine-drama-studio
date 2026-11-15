@@ -66,6 +66,27 @@ test('a folder without object.json, or under a name starting with ".", is no obj
 		'right after the bible every asset is planned');
 });
 
+test('an object is being made while Pine Computer\'s records hold a paid call for it under way, under either name of its ledger', async () => {
+	const root = copy('after-bible');
+	const ledger = (object: string, attempt: string, name: string, content: string) => {
+		mkdirSync(join(root, 'pine-computer-records', object, attempt), { recursive: true });
+		writeFileSync(join(root, 'pine-computer-records', object, attempt, name), content);
+	};
+	const call = (state: string) => JSON.stringify({ kind: 'image', state, estimate_usd: 0.04 });
+	ledger('assets/characters/lin', '20261114T100000000000-0000000a', 'drama_cli_paid_call_ledger.json', call('running'));
+	ledger('assets/scenes/office', '20261114T100000000000-0000000b', 'job.json', call('submitted'));
+	// A sub-stage's call (its describe work) is its object's.
+	ledger('screenplay/describe', '20261114T100000000000-00000010', 'drama_cli_paid_call_ledger.json', call('queued'));
+	// A settled call; an older name beside a settled one of the new; gen create's hidden jobs; a ledger that is no JSON.
+	ledger('assets/props/umbrella', '20261114T100000000000-0000000c', 'drama_cli_paid_call_ledger.json', call('downloaded'));
+	ledger('assets/props/umbrella', '20261114T110000000000-0000000d', 'drama_cli_paid_call_ledger.json', call('succeeded'));
+	ledger('assets/props/umbrella', '20261114T110000000000-0000000d', 'job.json', call('running'));
+	ledger('.gen', '20261114T100000000000-0000000e', 'drama_cli_paid_call_ledger.json', call('running'));
+	ledger('bible', '20261114T100000000000-0000000f', 'drama_cli_paid_call_ledger.json', 'not JSON');
+	const drama = await readProjectFromFolder(root);
+	assert.deepEqual([...drama.objects.values()].filter(o => o.makingNow).map(o => o.id).sort(), ['assets/characters/lin', 'assets/scenes/office', 'screenplay']);
+});
+
 test('Script lists the episodes under way, folds the ones not started into one row, and says so in plain words', async () => {
 	const root = copy('full');
 	for (const [id, name] of [['EP002', 'EP002 Second'], ['EP003', 'EP003 Third']]) {

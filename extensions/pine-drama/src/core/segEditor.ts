@@ -29,7 +29,7 @@ export async function segEditorModel(projectRoot: string, drama: ProjectReadMode
 		return {
 			id: seg.id, take: object?.id ?? null, src: video ? uri(video) : null,
 			request: object ? await receiptDetail(projectRoot, drama, object, uri) : null, prompt: object?.prompt ?? null,
-			badge: video ? '' : notMadeText('take'), poster,
+			badge: video ? '' : notMadeText('take', object?.makingNow ?? false), poster,
 		};
 	}));
 	const cut = episodeCut(drama, episode)?.shownFile ?? null;

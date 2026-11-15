@@ -15,10 +15,11 @@ export const shortDate = (iso: string): string => iso.slice(0, 16).replace('T', 
 
 /**
  * What an object with nothing shown yet says, the one wording for the canvas card, the seg editor's badge and the tree:
- * not shot yet for a take or a cut, not drawn yet for the rest.
+ * being made while a paid call for it is under way (project.ts makingNow), else not shot yet for a take or a cut, not
+ * drawn yet for the rest.
  */
-export function notMadeText(type: string): string {
-	return type === 'take' || type === 'cut' ? 'Not shot yet' : 'Not drawn yet';
+export function notMadeText(type: string, makingNow: boolean): string {
+	return makingNow ? 'Being made' : type === 'take' || type === 'cut' ? 'Not shot yet' : 'Not drawn yet';
 }
 
 /** The global assets canvas's key, in place of an episode (the assets canvas). */
@@ -53,6 +54,8 @@ export interface CanvasCard {
 	readonly appearsIn: readonly string[] | null;
 	/** Its segment within its episode, or null. */
 	readonly segment: string | null;
+	/** A paid call for it is under way (project.ts makingNow). */
+	readonly makingNow: boolean;
 	/** On the assets canvas, its asset's name and its node's own (assetsCanvas.ts), which its box names; null otherwise. */
 	readonly name: NodeName | null;
 }

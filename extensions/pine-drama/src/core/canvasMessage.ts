@@ -29,7 +29,7 @@ async function card(read: CanvasRead, s: LineageStage, board: AssetsBoard | unde
 	const media = s.shows ? mediaOf(s.shows) : 'none';
 	const missing = s.shows !== null && !(await exists(read.root, s.shows));
 	return {
-		id: s.id, kind: s.kind, label: s.label, section: s.section, column: s.column, segment: s.segment,
+		id: s.id, kind: s.kind, label: s.label, section: s.section, column: s.column, segment: s.segment, makingNow: s.makingNow,
 		file: s.shows, media, missing,
 		src: s.shows && !missing && (media === 'image' || media === 'video') ? read.src(s.shows) : null,
 		appearsIn: board ? board.appearsIn[s.id] ?? [] : null,

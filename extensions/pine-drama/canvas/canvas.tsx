@@ -85,12 +85,12 @@ function measure(card: CanvasCard): Promise<Loaded> {
 
 /** A card's state in words, the same on both canvases: not made yet where it shows nothing; the episodes an asset is used in. */
 function statusOf(card: CanvasCard): string {
-	return [card.file ? '' : notMadeText(card.kind), card.appearsIn?.length ? `used in ${card.appearsIn.join(', ')}` : ''].filter(Boolean).join(' · ');
+	return [card.file ? '' : notMadeText(card.kind, card.makingNow), card.appearsIn?.length ? `used in ${card.appearsIn.join(', ')}` : ''].filter(Boolean).join(' · ');
 }
 
 /** What stands where the picture would: each state says what is actually known (review, finding 4). */
 function Placeholder({ card, loaded }: CardData) {
-	const text = !card.file ? notMadeText(card.kind)
+	const text = !card.file ? notMadeText(card.kind, card.makingNow)
 		: card.missing ? `File missing: ${card.file}`
 		// A file the canvas does not draw (an object of a type it does not know, a sound): its name, as a plain card.
 		: card.media !== 'image' && card.media !== 'video' ? card.file.split('/').at(-1)!

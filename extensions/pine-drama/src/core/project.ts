@@ -3,13 +3,13 @@
 // view reads it here (readProjectFromFolder); nothing writes. The major-1 turn flow's snapshots stay below until the
 // turn flow moves to major 2. No vscode import.
 
-import { readFileSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { CHOICES_FILE } from './major1';
-import { noFileThere, writeWhole } from './placement';
+import { noFileThere, throughNoLink, writeWhole } from './placement';
 import { projectIdentity } from './projectPlace';
-import { DESCRIPTION_FILE, OBJECT_FILE, PROJECT_MARKER_FILE, PROMPT_FILE, RECEIPT_SUFFIX, majorTwo, type Edge, type ObjectType } from './protocol';
+import { DESCRIPTION_FILE, OBJECT_FILE, PAID_CALL_ATTEMPT, PAID_CALL_LEDGER, PAID_CALL_LEDGER_BEFORE, PAID_CALL_UNDER_WAY, PINE_COMPUTER_RECORDS, PROJECT_MARKER_FILE, PROMPT_FILE, RECEIPT_SUFFIX, majorTwo, type Edge, type ObjectType } from './protocol';
 
 
 
@@ -55,6 +55,8 @@ export interface ProjectObject {
 	/** The text of its description.md and prompt.md, or null without one. */
 	readonly description: string | null;
 	readonly prompt: string | null;
+	/** A paid call for it is under way, by Pine Computer's records in the folder (objectsBeingMade). */
+	readonly makingNow: boolean;
 }
 
 /** The project as every view reads it, from its folder alone (readProjectFromFolder). */
@@ -103,13 +105,14 @@ function receiptOf(raw: unknown): Receipt {
 }
 
 /**
- * Every object.json below `dir` (project-relative `prefix`), never descending into a name starting with "." (.git, a
- * cache): such a name is never a path of the protocol (doc/protocol.md section 1).
+ * Every file named one of `names` below `dir` (`prefix`-relative), never descending into a name starting with "." (.git,
+ * a cache, gen create's .gen) or through a link: such a name is never a path of the protocol (doc/protocol.md
+ * section 1), and a link's entry is no directory (readdir's Dirent).
  */
-async function objectFiles(dir: string, prefix: string): Promise<string[]> {
+async function filesNamed(dir: string, prefix: string, names: ReadonlySet<string>): Promise<string[]> {
 	const entries = await readdir(dir, { withFileTypes: true });
-	const below = await Promise.all(entries.filter(e => e.isDirectory() && !e.name.startsWith('.')).map(e => objectFiles(join(dir, e.name), `${prefix}${e.name}/`)));
-	return [...entries.some(e => e.isFile() && e.name === OBJECT_FILE) ? [`${prefix}${OBJECT_FILE}`] : [], ...below.flat()];
+	const below = await Promise.all(entries.filter(e => e.isDirectory() && !e.name.startsWith('.')).map(e => filesNamed(join(dir, e.name), `${prefix}${e.name}/`, names)));
+	return [...entries.filter(e => e.isFile() && names.has(e.name)).map(e => `${prefix}${e.name}`), ...below.flat()];
 }
 
 /** An object's object.json as written, every field kept, a document of protocol major 2 (doc/protocol.md 2.2). */
@@ -118,11 +121,37 @@ export async function readObjectFile(projectRoot: string, id: string): Promise<R
 }
 
 /**
+ * Where a paid call is under way, from Pine Computer's records in the folder (doc/protocol.md 2.4), which show the
+ * person a card being made and decide nothing: the path, below the records, before the attempt folder of each call
+ * whose ledger's state says it is under way (PAID_CALL_UNDER_WAY). The records come in as a running turn's other files
+ * do, so a card shows its call as it goes. A ledger gone or no JSON by the time it is read says nothing.
+ */
+async function callsUnderWay(projectRoot: string): Promise<string[]> {
+	if (!existsSync(join(projectRoot, PINE_COMPUTER_RECORDS)) || !throughNoLink(projectRoot, PINE_COMPUTER_RECORDS)) { return []; }
+	const ledgers = new Set(await filesNamed(join(projectRoot, PINE_COMPUTER_RECORDS), '', new Set([PAID_CALL_LEDGER, PAID_CALL_LEDGER_BEFORE])));
+	const found = await Promise.all([...ledgers].map(async ledger => {
+		const parts = ledger.split('/');
+		// An older drama's name only where the call has no ledger under the new one (records.py call_file).
+		if (parts.at(-1) === PAID_CALL_LEDGER_BEFORE && ledgers.has([...parts.slice(0, -1), PAID_CALL_LEDGER].join('/'))) { return []; }
+		const attempt = parts.findIndex(part => PAID_CALL_ATTEMPT.test(part));
+		if (attempt <= 0) { return []; }
+		const text = await readTextOrNull(join(projectRoot, PINE_COMPUTER_RECORDS, ...parts));
+		try {
+			return text !== null && PAID_CALL_UNDER_WAY.has(String(Object(JSON.parse(text)).state)) ? [parts.slice(0, attempt).join('/')] : [];
+		} catch (error) {
+			if (error instanceof SyntaxError) { return []; }
+			throw error;
+		}
+	}));
+	return found.flat();
+}
+
+/**
  * Reads the project at `projectRoot` from its folder (doc/protocol.md 2.2, section 5), the one reader every view uses:
  * every folder holding object.json, outside names starting with "." (section 1), is an object.
  */
 export async function readProjectFromFolder(projectRoot: string): Promise<ProjectReadModel> {
-	const listed = await objectFiles(projectRoot, '');
+	const [listed, underWay] = await Promise.all([filesNamed(projectRoot, '', new Set([OBJECT_FILE])), callsUnderWay(projectRoot)]);
 	const read = await Promise.all(listed.map(async name => {
 		const id = name === OBJECT_FILE ? '' : name.slice(0, -OBJECT_FILE.length - 1);
 		const at = (file: string) => join(projectRoot, ...id.split('/'), file);
@@ -135,13 +164,15 @@ export async function readProjectFromFolder(projectRoot: string): Promise<Projec
 		};
 	}));
 	const ids = new Set(read.map(o => o.id));
+	// A call belongs to the deepest object whose folder holds where it was made: its sub-stage's work (a describe call) too.
+	const making = new Set(underWay.flatMap(path => owning(ids, `${path}/`) ?? []));
 	const objects = new Map(read.map(({ id, raw, ...files }): [string, ProjectObject] => [id, {
 		id, type: raw.type, name: String(raw.name),
 		episode: episodeIn(id) ?? null, segment: typeof raw.segment === 'string' ? raw.segment : null,
 		setting: raw.setting === 'interior' || raw.setting === 'exterior' ? raw.setting : null,
 		variantOf: typeof raw.variant_of === 'string' ? raw.variant_of : null,
 		objectsSentByDrawRequest: Array.isArray(raw.objects_sent_by_draw_request) ? raw.objects_sent_by_draw_request.map(String) : [],
-		...files,
+		makingNow: making.has(id), ...files,
 	}]));
 	const relations = read.flatMap(({ id, raw }) => (Array.isArray(raw.relations) ? raw.relations : []).map((r: unknown) => ({ from: id, to: String(Object(r).to), kind: Object(r).kind })));
 	const edges: ObjectEdge[] = [...[...objects.values()].filter(o => o.variantOf).map(o => ({ from: o.id, to: o.variantOf!, kind: 'variant_of' as const })), ...relations]

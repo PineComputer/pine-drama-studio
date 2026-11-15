@@ -27,6 +27,8 @@ export interface LineageStage {
 	readonly section: string;
 	/** Its segment within its episode, or null. */
 	readonly segment: string | null;
+	/** A paid call for it is under way (project.ts makingNow). */
+	readonly makingNow: boolean;
 }
 
 /** A line: the draw request of `to` sends `from`. */
@@ -73,7 +75,7 @@ function sectionOf(drama: ProjectReadModel, object: ProjectObject): string {
 function stageOf(drama: ProjectReadModel, object: ProjectObject): LineageStage {
 	return {
 		id: object.id, kind: object.type, column: TYPES.indexOf(object.type), shows: object.shownFile,
-		label: object.name, section: sectionOf(drama, object), segment: object.segment,
+		label: object.name, section: sectionOf(drama, object), segment: object.segment, makingNow: object.makingNow,
 	};
 }
 

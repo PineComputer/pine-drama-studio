@@ -45,6 +45,20 @@ export const PROMPT_FILE = 'prompt.md';
 /** The suffix of a paid output's receipt beside it, `<file>.receipt.json` (doc/protocol.md 2.3). */
 export const RECEIPT_SUFFIX = '.receipt.json';
 
+/** Pine Computer's records of the drama, ordinary files that travel both ways; a client may show them and decides nothing from them (doc/protocol.md 2.4). */
+export const PINE_COMPUTER_RECORDS = 'pine-computer-records';
+
+/**
+ * A paid call's ledger among them, drama-cli's: its name, and the one an older drama's calls keep (short_drama
+ * drama_cli/records.py LEDGER and NAMED_BEFORE, D334), in the call's attempt folder, named by when it was made
+ * (records.py ATTEMPT_ID), under the object's path (drama_cli/project.py Object.work); and the states in which its
+ * call is under way (records.py IN_FLIGHT).
+ */
+export const PAID_CALL_LEDGER = 'drama_cli_paid_call_ledger.json';
+export const PAID_CALL_LEDGER_BEFORE = 'job.json';
+export const PAID_CALL_ATTEMPT = /^\d{8}T\d{12}-[0-9a-f]{8}$/;
+export const PAID_CALL_UNDER_WAY: ReadonlySet<string> = new Set(['submitting', 'submitted', 'queued', 'running', 'unknown', 'verifying']);
+
 /** The drama's folder on Pine Computer, in the session's working directory (where Pine's exec starts). */
 export const DRAMA_FOLDER = 'drama';
 

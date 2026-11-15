@@ -185,7 +185,7 @@ class ProjectProvider implements vscode.TreeDataProvider<OutlineNode> {
 		if (node.stagePath && this.project) {
 			const object = (await this.project.drama()).objects.get(node.stagePath);
 			item.contextValue = 'stage';
-			item.description = !object || object.shownFile ? undefined : notMadeText(object.type);
+			item.description = !object || object.shownFile ? undefined : notMadeText(object.type, object.makingNow);
 			item.tooltip = [node.stagePath, item.description].filter(Boolean).join('\n');
 		}
 		if (node.role === 'script-episode') {
