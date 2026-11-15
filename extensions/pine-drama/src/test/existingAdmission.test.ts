@@ -21,7 +21,7 @@ function fixture(validateProject?: (root: string) => Promise<void>) {
 	const store = new Store(join(dir, 'studio.sqlite'));
 	const pine = new FakePine(); pine.plans = [{ state: 'completed', files: {} }, { state: 'completed', files: {} }];
 	const options = { holdsProject: () => true, store, port: pine, vault: new MemoryVault(), pine: env, validateProject,
-		files: { projectsRoot: join(dir, 'projects'), libraryRoot: join(dir, 'library') } };
+		files: { projectsRoot: join(dir, 'projects') } };
 	return { dir, root, store, pine, options, service: new ChatService(options) };
 }
 

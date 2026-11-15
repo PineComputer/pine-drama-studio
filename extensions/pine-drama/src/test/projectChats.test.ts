@@ -82,7 +82,7 @@ test('a session of a project that has no Project Chat cannot provision or submit
 	const pine = new FakePine();
 	const service = new ChatService({ holdsProject: () => true, turnEndGraceMs: 0, store, port: pine, vault: new MemoryVault(), log: () => undefined,
 		pine: { endpoint: 'https://pine.test', apiKey: 'pk_fixture', controlHost: 'api.pine.test' },
-		files: { projectsRoot: join(dir, 'projects'), libraryRoot: join(dir, 'library') } });
+		files: { projectsRoot: join(dir, 'projects') } });
 	for (const folder of [root, undefined]) {
 		const updates = [];
 		for await (const update of service.submit('ep1', 'continue EP001', 'episode', folder)) { updates.push(update); }

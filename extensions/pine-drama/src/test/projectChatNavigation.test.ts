@@ -44,13 +44,13 @@ test('initial restore and the exact destination are serialized across focus even
 		prepare: async () => { calls.push('prepare'); return ready.then(savedChat); },
 		takeRequested: root => { calls.push('take'); return store.takeChatReveal(root, 60_000); },
 		show: async key => { calls.push(`show:${key}`); selected = key; },
-		review: async () => { calls.push('review'); }, failed: error => { throw error; },
+		failed: error => { throw error; },
 	});
 	const first = restore(); const focused = restore();
 	await Promise.resolve(); assert.deepEqual(calls, ['prepare']);
 	restored('main');
 	await Promise.all([first, focused]);
-	assert.deepEqual(calls, ['prepare', 'take', 'show:episode', 'review', 'take', 'review'], 'the focus waits for the startup, and prepares nothing again');
+	assert.deepEqual(calls, ['prepare', 'take', 'show:episode', 'take'], 'the focus waits for the startup, and prepares nothing again');
 	assert.equal(selected, 'episode', 'the restored main never overrides the named episode destination');
 	assert.equal(store.takeChatReveal(root, 60_000), undefined);
 	store.close();
@@ -62,15 +62,13 @@ test('the startup default runs once: a later focus after a failed restore does n
 	const scope = projectSessions(root, store.chats());
 	const shown: string[] = [];
 	const failures: unknown[] = [];
-	let reviewCalls = 0;
 	const restore = projectWindowRestorer({
 		scope: () => scope,
 		// Before the first default nothing related is open; later the person has opened an empty untitled New Chat,
 		// which is neither a draft nor a project Chat (pineProjectChat.ts:67-69).
 		prepare: async () => savedChat('pine-computer:/untitled-empty'),
 		takeRequested: () => undefined,
-		show: async key => { shown.push(key); },
-		review: async () => { if (++reviewCalls === 1) { throw new Error('review reveal failed'); } },
+		show: async key => { shown.push(key); if (shown.length === 1) { throw new Error('the Chat could not be shown'); } },
 		failed: error => { failures.push(error); },
 	});
 	await restore();
@@ -78,7 +76,6 @@ test('the startup default runs once: a later focus after a failed restore does n
 	assert.equal(failures.length, 1, 'the failure is reported');
 	await restore();
 	assert.deepEqual(shown, [scope.mainKey], 'the default is not applied again');
-	assert.equal(reviewCalls, 2, 'the rest of the sequence still runs on the next focus');
 	store.close();
 });
 
@@ -123,7 +120,7 @@ for (const input of ['text', 'attachments'] as const) {
 			scope: () => projectSessions(root, store.chats()), prepare: async () => ({ resource, isUntitledDraft: true }),
 			takeRequested: () => undefined,
 			show: async key => { selected = key; },
-			review: async () => {}, failed: error => { throw error; },
+			failed: error => { throw error; },
 		});
 		await restore();
 		assert.equal(selected, resource, 'the native draft must remain reachable in the active Chat');

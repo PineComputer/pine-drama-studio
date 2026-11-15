@@ -3,35 +3,17 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 
-// The right region's layout: Review is its own tab, never a pane
-// moved into Chat. A moved view is what gave Chat a second "Chat" header (its container no longer held one view) and
-// Review the "Pine:" prefix (viewPane.ts, calculateTitle).
+// The layout: no view is moved into another container. A moved view is what gave Chat a second "Chat" header (its
+// container no longer held one view) and its view the "Pine:" prefix (viewPane.ts, calculateTitle).
 const root = join(__dirname, '..', '..');
 const manifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as {
 	contributes: { viewsContainers: Record<string, { id: string; title: string }[]>; views: Record<string, { id: string; name: string; contextualTitle?: string }[]> };
 };
 
-test('the Review view is declared in the Review tab of the secondary side bar, titled like it, so it shows no prefix if moved', () => {
-	assert.deepEqual(manifest.contributes.viewsContainers.secondarySidebar.map(c => [c.id, c.title]), [['pine-review', 'Review']]);
-	const review = manifest.contributes.views['pine-review'].find(v => v.id === 'pine.sessionReview');
-	assert.equal(review?.name, 'Review');
-	assert.equal(review?.contextualTitle ?? 'Review', 'Review', 'a contextual title other than the view\'s name prefixes it ("Pine: Review")');
-});
-
 test('no code moves a view into another container', () => {
 	const sources = readdirSync(join(root, 'src'), { recursive: true, encoding: 'utf8' }).filter(f => f.endsWith('.ts') && !f.includes('test'));
 	const moving = sources.filter(f => readFileSync(join(root, 'src', f), 'utf8').includes("'vscode.moveViews'"));
 	assert.deepEqual(moving, []);
-});
-
-test('Review is one view, always present, with a welcome when nothing waits', () => {
-	const views = manifest.contributes.views['pine-review'] as { id: string; when?: string }[];
-	assert.deepEqual(views.map(v => v.id), ['pine.sessionReview'], 'the screenplay is a node of Review, not a second view');
-	assert.equal(views[0].when, undefined, 'the tab does not come and go');
-	const welcome = (manifest.contributes as unknown as { viewsWelcome: { view: string; contents: string }[] }).viewsWelcome.filter(w => w.view === 'pine.sessionReview');
-	assert.equal(welcome.length, 1);
-	assert.match(welcome[0].contents, /^Nothing waits for your decision in this folder\./);
-	assert.match(welcome[0].contents, /\[Open Recent…\]\(command:workbench\.action\.openRecent\)/, "another project is reached through Code-OSS's own recent list (D27)");
 });
 
 test("a session row opens its project; whole-Computer shutdown is absent from creator menus", () => {

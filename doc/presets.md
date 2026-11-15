@@ -12,7 +12,7 @@ Put each preset in its own folder under `inputs/preset/` in your project folder:
 
 ```
 my-drama/
-  choices.json
+  pine-drama-project.json
   inputs/
     my screenplay.fountain
     brief.md

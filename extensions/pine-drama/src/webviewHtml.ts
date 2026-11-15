@@ -1,7 +1,6 @@
 // A Studio webview page's HTML at the webview's own addresses (core/webviewPage.ts), and the folder webviews show
 // preview copies from.
 import { randomBytes } from 'node:crypto';
-import { join } from 'node:path';
 import * as vscode from 'vscode';
 import { webviewPageHtml, type WebviewPage } from './core/webviewPage';
 
@@ -14,11 +13,6 @@ import { webviewPageHtml, type WebviewPage } from './core/webviewPage';
  */
 export function globalStorageFolder(context: vscode.ExtensionContext): vscode.Uri {
 	return vscode.Uri.file(context.globalStorageUri.fsPath);
-}
-
-/** The folder of a webview's preview copies under the global storage, as a file: URI (globalStorageFolder). */
-export function previewFolder(context: vscode.ExtensionContext, name: string): vscode.Uri {
-	return vscode.Uri.file(join(context.globalStorageUri.fsPath, name));
 }
 
 export function webviewHtml(webview: vscode.Webview, media: vscode.Uri, page: WebviewPage, title: string, data: Record<string, string>): string {

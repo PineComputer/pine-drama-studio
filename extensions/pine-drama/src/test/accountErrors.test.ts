@@ -55,7 +55,7 @@ test('a message that meets an account problem is given back once with its line, 
 		const store = new Store(join(dir, 'studio.sqlite'));
 		const pine = new FakePine();
 		const service = new ChatService({ holdsProject: () => true, turnEndGraceMs: 0, store, port: pine, vault: new MemoryVault(), pine: { endpoint: 'https://offline.invalid', apiKey: 'offline' },
-			files: { libraryRoot: join(dir, 'library'), projectsRoot: join(dir, 'projects') }, protocol: testProtocol(dir) });
+			files: { projectsRoot: join(dir, 'projects') }, protocol: testProtocol(dir) });
 		try {
 			pine.fail(op, new AccountError(problem));
 			const said: Update[] = [];

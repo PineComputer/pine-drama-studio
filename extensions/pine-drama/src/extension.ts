@@ -20,14 +20,12 @@ import { registerSegEditor } from './segEditor';
 /** Two views refreshed as one. */
 const both = (a: { refresh(): void }, b: { refresh(): void }) => ({ refresh: () => { a.refresh(); b.refresh(); } });
 import { registerProjectViews, type ProjectViews } from './projectViews';
-import { DramaProject, episodeIn, type OutlineNode } from './core/project';
+import { episodeIn, type OutlineNode } from './core/project';
 import { owningChat } from './core/projectPlace';
 import { SdkPort } from './sdkPort';
 import { showInChatView, startInChatView } from './chatView';
 import { startEpisodeRequest } from './core/threeSteps';
-import { registerReviewView } from './reviewView';
-import { waitingReason } from './core/reviews';
-import { destinationOf, statusText, waitingItems, type WaitingItem } from './core/attention';
+import { statusText, waitingItems, type WaitingItem } from './core/attention';
 import { openProjectChat, projectWindowRestorer, type RestoredProjectChat } from './projectChatNavigation';
 
 // Wires the Studio's parts to the workbench: business state in SQLite
@@ -136,7 +134,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 		delete: name => Promise.resolve(context.secrets.delete(name)),
 	};
 	let sessions: ReturnType<typeof registerPineSessions> | undefined;
-	let reviews: ReturnType<typeof registerReviewView> | undefined;
 	let onChanged: (() => void) | undefined;
 	let chatsChanged: (() => void) | undefined;
 	const service = new ChatService({
@@ -147,14 +144,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 		connectionCurrent: () => connectionCurrent,
 		holdsProject: root => root === held,
 		files: {
-			libraryRoot: join(connectionRoot, 'library'),
 			projectsRoot: join(connectionRoot, 'projects'),
 		},
 		protocol: { storage: protocolStorage },
 		log,
 		onChange: key => {
 			sessions?.refresh(key);
-			reviews?.refresh(key);
 			onChanged?.();
 			chatsChanged?.();
 			// A stop this window settled may have initialized the project's root; the watcher sees it too, later.
@@ -163,12 +158,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	});
 	registerPineConnection(context, config, vault, log, () => { connectionCurrent = false; }, () => connectionCurrent, () => disconnectProblem(service.chats()));
 	log(`conversation store ${dbPath}`);
-	// One title per session wherever it is named: the sessions list, the pickers, Review, the status bar: its first message.
+	// One title per session wherever it is named: the sessions list, the pickers, the status bar: its first message.
 	const titleOf = (key: string) => service.chat(key)?.label;
-	// The open reviews with each item's verdict so far: a session's project window shows its own Chat's. Registered
-	// before the sessions, whose Chat cards submit through it.
-	reviews = registerReviewView(context, output, service, titleOf);
-	sessions = registerPineSessions(context, output, config, service, reviews);
+	sessions = registerPineSessions(context, output, config, service);
 
 	// A session's project is its locally published folder,
 	// matched by the root the Project view chose. The stops may be
@@ -187,7 +179,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	const windowFolders = (vscode.workspace.workspaceFolders ?? []).filter(folder => folder.uri.scheme === 'file').map(folder => folder.uri.fsPath);
 	const projectSession = () => owningChat(service.chats(), projectsRoot, opened ? [opened.views.project.root] : windowFolders);
 	let session = projectSession();
-	reviews.scope(sessions?.scope()?.root);
 	/**
 	 * Meets the window's project with its session, once both are known: at activation, when the project arrives, or when
 	 * a Chat binds the folder later (ChatService's onChange, after `bound to`). Code-OSS's git extension does the same with
@@ -201,7 +192,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 		}
 		const { views, canvas } = opened;
 		session = projectSession();
-		reviews!.scope(sessions?.scope()?.root);
 		if (!session) {
 			return; // a local project: no session's lineage, arrivals or Chat
 		}
@@ -209,7 +199,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 		const owner = session;
 		const title = titled(owner);
 		const label = `Pine · ${title}`;
-		// Script remains read-only; explicit decisions use the shared local Review path.
 		views.setOrigin(label);
 		canvas.refresh();
 		log(`project: ${owner.label}'s project (${views.project.root})`);
@@ -266,31 +255,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 		await vscode.commands.executeCommand('agentSessions.showAgentSessionsSidebar');
 		await vscode.commands.executeCommand('pine.workbench.showProjectSessions');
 	}));
-	// What waits for the person, and where a click takes them: to the waiting item by its kind and this window's scope,
-	// or to a pick of them (core/attention.ts; change 4).
-	const waiting = (): WaitingItem[] => waitingItems(
-		(sessions?.scope()?.chats ?? []),
-		key => { const open = service.openReview(key); return open && { id: open.review.id, items: open.review.items.length }; },
-		conv => waitingReason(titled(conv), service.openReview(conv.key)?.review),
-		titled,
-	);
-	const goTo = async (item: WaitingItem) => {
-		const hasProject = await DramaProject.isProject(service.projectRoot(item.key)!);
-		const to = destinationOf(item, (sessions?.scope()?.chats ?? []).map(c => c.key), hasProject);
-		log(`waiting: ${item.label} → ${to.to}`);
-		if (to.to === 'review' && await reviews?.reveal(to.reviewId)) {
-			return;
-		}
-		if (to.to === 'window') {
-			// The project window reveals it when it activates or gains focus: opening a folder a window already shows only
-			// focuses that window (windowsMainService.ts, "Check for existing instances"), so the request goes through the
-			// store every window shares.
-			studioStore.requestReveal(item.key, to.reviewId);
-			await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(service.projectRoot(item.key)!), { forceNewWindow: true });
-			return;
-		}
-		await openProjectWindow(item.key);
-	};
+	// What waits for the person, and where a click takes them: its session's Chat, or a pick of them (core/attention.ts).
+	const waiting = (): WaitingItem[] => waitingItems((sessions?.scope()?.chats ?? []), conv => `${titled(conv)}: the agent asks you something`, titled);
+	const goTo = (item: WaitingItem) => openProjectWindow(item.key);
 	context.subscriptions.push(vscode.commands.registerCommand('pineDrama.showWaiting', async () => {
 		const items = waiting();
 		if (!items.length) {
@@ -305,23 +272,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 			await goTo(picked);
 		}
 	}));
-	// A review another window asked this project's window to reveal ("Revealing a decision in another window").
-	// The project's Chats are read at each focus: a Chat bound after activation is a member from then on.
-	const revealReviewAsked = async () => {
-		const reviewId = studioStore.takeReveal((sessions?.scope()?.chats ?? []).map(c => c.key), 60_000);
-		if (reviewId) {
-			const shown = await reviews?.reveal(reviewId);
-			log(`waiting: review ${reviewId} ${shown ? 'revealed' : 'is no longer open'}`);
-		}
-	};
-
 	const restoreWindow = projectWindowRestorer({
 		scope: () => sessions?.scope(),
 		// The private window API reports Local only; L2 awaits native extension-session restoration.
 		prepare: key => Promise.resolve(vscode.commands.executeCommand<RestoredProjectChat | undefined>('pine.workbench.prepareProjectChat', key)),
 		takeRequested: root => studioStore.takeChatReveal(root, 60_000),
 		show: showInChat,
-		review: revealReviewAsked,
 		failed: error => {
 			log(`window navigation: ${(error as Error).stack ?? error}`);
 			void vscode.window.showErrorMessage(`Pine: the Chat could not be restored: ${(error as Error).message}. See Output › Pine Drama Studio.`);

@@ -1,15 +1,12 @@
-import { registerReviewCards, reviewCardMarkdown } from './reviewCard';
 import { CONVERT_MAJOR_1_PROJECT_COMMAND, NEW_PROJECT_COMMAND } from './projectCommands';
 import * as vscode from 'vscode';
 import { activityRow } from './core/activityRow';
 import { withoutRepeatedQuestion } from './core/askedOnce';
 import { linkFiles } from './core/chatLinks';
-import { stopLine, type ReviewView } from './core/reviews';
 import { BusyElsewhereError, type ChatFile, type ChatService, type Update } from './core/chats';
 import { endpointHost, NoPineError, OtherPineError } from './core/pinePort';
 import type { Chat, Message } from './core/store';
 import { notSetUpText, PINE_MODEL, sendGate, type PineConfig } from './pineConfig';
-import { OPEN_REVIEW_COMMAND, VIEW_ID } from './reviewView';
 import { chatRows, NOT_LISTED_YET } from './core/chatPick';
 import { itemTiming } from './core/sessionTiming';
 import { chatLine, enabledCommands, refusalOf, type Refusal, type RefusalCommands, type Situation } from './core/refusal';
@@ -51,16 +48,12 @@ export function registerPineSessions(
 	output: vscode.OutputChannel,
 	config: PineConfig,
 	service: ChatService,
-	/** The Review index's submit, and its record of a continuation in flight (reviewView.ts), which the Chat cards show. */
-	review: { submitReviewDecisions(key: string, id: string, words?: string): Promise<void>; continuing(id: string): boolean; readonly onDidChangeContinuing: vscode.Event<void> },
 ): { refresh(key: string): void; scope(): ProjectSessions | undefined; newSession(key?: string): vscode.ChatSessionItem } {
 	const titleOf = (key: string) => service.chat(key)?.label;
 
 	const openFolder = (folder: vscode.Uri) => vscode.commands.executeCommand('vscode.openFolder', folder, { forceNewWindow: false });
 
-	/** A file the agent names as `drama/x`, as its place in the drama's mirror when this turn's own file has arrived (core/chatLinks.ts). */
-	const filesOf = (key: string) => (turnId: string | undefined) => (relPath: string) => service.projectFile(key, turnId, relPath);
-	const toStream = (stream: vscode.ChatResponseStream, key: string, update: Update) => {
+	const toStream = (stream: vscode.ChatResponseStream, update: Update) => {
 		switch (update.kind) {
 			case 'progress':
 				stream.progress(update.text);
@@ -76,24 +69,17 @@ export function registerPineSessions(
 				break;
 			}
 			case 'markdown':
-				// A reply drawn while its turn runs has no evidence yet that its files have arrived: names only, and the
-				// plumbing links dropped; the history links what has arrived (core/chatLinks.ts).
-				stream.markdown(linkFiles(update.text, filesOf(key)(undefined)));
+				// The agent's links to its Computer's files as their names, and the plumbing links dropped (core/chatLinks.ts).
+				stream.markdown(linkFiles(update.text));
 				break;
 			case 'unsent':
 				// The person's own words, as typed: no link of theirs is rewritten.
 				stream.markdown(update.text);
 				break;
-			case 'reviewRequired':
-				stream.markdown(reviewSubmissionMarkdown(key, update.reviewId, update.text));
-				break;
 			case 'usage':
 				if (showTurnCost()) {
 					stream.markdown(update.text);
 				}
-				break;
-			case 'review':
-				renderReview(stream, key, update.review);
 				break;
 			case 'unused':
 				// Native Chat's warning part: a result that is not used, with its reason; its detail is in Output.
@@ -139,7 +125,7 @@ export function registerPineSessions(
 				if (token.isCancellationRequested) {
 					break;
 				}
-				toStream(stream, key, update);
+				toStream(stream, update);
 			}
 		} catch (error) {
 			output.appendLine(`${new Date().toISOString()} error in ${key}: ${(error as Error).stack ?? error}`);
@@ -209,8 +195,7 @@ export function registerPineSessions(
 		}
 		// Files added with the chat input's own Add Context go up with the message (core/chats.ts, submitWithFiles).
 		await reply(key, stream, token, service.submitWithFiles(key, request.prompt, firstLine(request.prompt), request.references.map(chatFile), entry.folder));
-		const review = service.openReview(key)?.review;
-		return review ? { metadata: { pineReviewId: review.id } } : {};
+		return {};
 	};
 	const participant = vscode.chat.createChatParticipant(SESSION_TYPE, handler);
 
@@ -232,17 +217,15 @@ export function registerPineSessions(
 			}
 			// A reserved, interrupted first-send row is not yet this project's saved history or runtime.
 			const visible = conv?.folder === project?.root ? conv : undefined;
-			const reviews = visible ? service.reviews(key) : [];
-			const history = visible ? toHistory(service.history(key), showTurnCost(), filesOf(key), reviews, key) : [];
+			const history = visible ? toHistory(service.history(key), showTurnCost()) : [];
 			return {
 				...(visible ? { title: titleOf(visible.key) ?? visible.label } : project?.mainKey === key ? { title: 'New Session' } : {}),
 				history,
 				requestHandler: handler,
-				// A Chat that ended but still owes the library some files is followed too: attachChatToPineTurn() settles them and
-				// sends nothing to the agent.
+				// A Chat that ended but still owes the project its turn's result is followed too: attachChatToPineTurn() installs it
+				// and sends nothing to the agent.
 				...(visible && (visible.state === 'running' || service.hasUnfinishedTurnFollowUp(key)) ? {
-					// The reviews this history shows: the follow ends with the card of one that waits and is not among them.
-					activeResponseCallback: (stream: vscode.ChatResponseStream, token: vscode.CancellationToken) => reply(key, stream, token, service.attachChatToPineTurn(key, new Set(reviews.map(r => r.id)))),
+					activeResponseCallback: (stream: vscode.ChatResponseStream, token: vscode.CancellationToken) => reply(key, stream, token, service.attachChatToPineTurn(key)),
 				} : {}),
 			};
 		},
@@ -250,8 +233,6 @@ export function registerPineSessions(
 
 	let root = sessionProjectRoot(windowFileFolders());
 	const scope = (): ProjectSessions | undefined => root ? projectSessions(root, service.chats()) : undefined;
-	const reviewCards = registerReviewCards(context, service, output, key => scope()?.chats.some(c => c.key === key) ?? false, (key, id, words) => review.submitReviewDecisions(key, id, words), id => review.continuing(id));
-	context.subscriptions.push(review.onDidChangeContinuing(() => reviewCards.refresh()));
 	const controller = vscode.chat.createChatSessionItemController(SESSION_TYPE, async () => refresh());
 	// New Session's native "+" makes a new session; Start Episode and Generate open the item owner's (ownerOf) the same
 	// way, as it is listed once it has been sent.
@@ -302,18 +283,14 @@ export function registerPineSessions(
 		item.description = episodes ? new vscode.MarkdownString([episodes, conv.state === 'running' ? 'working' : undefined, host].filter(Boolean).join(' · '), true) : host;
 		item.tooltip = row?.shared.size ? [...row.shared].map(([e, others]) => `${e} is also being made in ${others.map(k => titleOf(k) ?? k).join(', ')}`).join('\n') : undefined;
 		item.timing = itemTiming(conv.created_at, conv.updated_at, Date.now());
-		// A session that waits for the person shows Code-OSS's NeedsInput: a question, or a Review waiting for its decision,
-		// unsubmitted with items to decide.
-		const waiting = service.openReview(conv.key)?.review;
-		const reviewWaits = !!waiting && waiting.items.length > 0 && !waiting.submitted;
+		// A session whose agent asks the person something shows Code-OSS's NeedsInput.
 		item.status = conv.state === 'running' ? vscode.ChatSessionStatus.InProgress
-			: conv.state === 'needs_input' || reviewWaits ? vscode.ChatSessionStatus.NeedsInput
+			: conv.state === 'needs_input' ? vscode.ChatSessionStatus.NeedsInput
 				: conv.state === 'failed' ? vscode.ChatSessionStatus.Failed
 					: vscode.ChatSessionStatus.Completed;
 		return item;
 	};
 	const refresh = (_key?: string) => {
-		reviewCards.refresh();
 		const project = scope();
 		const episodes = project && rows(project);
 		controller.items.replace(project ? [
@@ -377,24 +354,6 @@ export function registerPineSessions(
 	return { refresh, scope, newSession };
 }
 
-/** Native output-renderer cards update from local state; pure questions retain ordinary Chat. */
-function reviewMarkdown(key: string, review: ReviewView): vscode.MarkdownString {
-	return review.items.length ? new vscode.MarkdownString(reviewCardMarkdown(key, review.id)) : reviewSubmissionMarkdown(key, review.id, stopLine(review, `command:${VIEW_ID}.focus`));
-}
-
-/** The same version-bound submission command from live refusals and reopened pending reviews, never a free-text approval. */
-export function reviewSubmissionMarkdown(key: string, reviewId: string, text: string): vscode.MarkdownString {
-	const md = new vscode.MarkdownString(undefined, true);
-	const submit = vscode.Uri.from({ scheme: 'command', path: OPEN_REVIEW_COMMAND, query: JSON.stringify([key, reviewId]) });
-	md.isTrusted = { enabledCommands: [OPEN_REVIEW_COMMAND] };
-	md.appendMarkdown(`\n\n${text}\n\n[Open review in Chat](${submit.toString()}) to choose Approve or Change, then submit.\n`);
-	return md;
-}
-
-function renderReview(stream: vscode.ChatResponseStream, key: string, review: ReviewView): void {
-	stream.markdown(reviewMarkdown(key, review));
-}
-
 /** The Chat a file or project goes to, chosen by the person; the most recently active first (core/chatPick.ts). */
 async function pickChat(service: ChatService, title: string, titleOf: (key: string) => string | undefined): Promise<{ key: string; label: string } | undefined> {
 	const root = sessionProjectRoot(windowFileFolders());
@@ -425,16 +384,12 @@ function showTurnCost(): boolean {
 	return vscode.workspace.getConfiguration('pineDrama').get<boolean>('chat.showTurnCost', false);
 }
 
-function toHistory(all: readonly Message[], showCost: boolean, files: (turnId: string | undefined) => (relPath: string) => string | undefined, reviews: readonly ReviewView[] = [], key = ''): (vscode.ChatRequestTurn | vscode.ChatResponseTurn2)[] {
+function toHistory(all: readonly Message[], showCost: boolean): (vscode.ChatRequestTurn | vscode.ChatResponseTurn2)[] {
 	const messages = withoutRepeatedQuestion(all);
 	const history: (vscode.ChatRequestTurn | vscode.ChatResponseTurn2)[] = [];
 	let parts: (string | vscode.ChatResponseWarningPart)[] = [];
-	let turn: string | undefined;
-	const rendered = new Set<string>();
 	const flush = () => {
 		if (parts.length > 0) {
-			const review = reviews.find(r => r.turnId === turn && !rendered.has(r.id));
-			if (review) { parts.push(reviewCardMarkdown(key, review.id)); rendered.add(review.id); }
 			// Consecutive text is one markdown part, as before; an unused result keeps its own native warning part.
 			const response: vscode.ChatResponseMarkdownPart[] = [];
 			let text: string[] = [];
@@ -447,7 +402,7 @@ function toHistory(all: readonly Message[], showCost: boolean, files: (turnId: s
 				response.push(part as unknown as vscode.ChatResponseMarkdownPart);
 			}
 			markdown();
-			history.push(new vscode.ChatResponseTurn2(response, review ? { metadata: { pineReviewId: review.id } } : {}, SESSION_TYPE));
+			history.push(new vscode.ChatResponseTurn2(response, {}, SESSION_TYPE));
 			parts = [];
 		}
 	};
@@ -455,16 +410,13 @@ function toHistory(all: readonly Message[], showCost: boolean, files: (turnId: s
 		switch (m.kind) {
 			case 'prompt':
 				flush();
-				turn = m.turn_id ?? undefined;
 				history.push(new vscode.ChatRequestTurn2(m.text, undefined, [], SESSION_TYPE, [], undefined, undefined, undefined, undefined) as unknown as vscode.ChatRequestTurn);
 				break;
 			case 'result':
-				turn = m.turn_id ?? turn;
-				parts.push(linkFiles(m.text, files(m.turn_id ?? undefined)));
+				parts.push(linkFiles(m.text));
 				break;
 			case 'question':
-				turn = m.turn_id ?? turn;
-				parts.push(`**The agent asks:** ${linkFiles(m.text, files(m.turn_id ?? undefined))}`);
+				parts.push(`**The agent asks:** ${linkFiles(m.text)}`);
 				break;
 			case 'failed':
 				parts.push(`**${m.text}**`);
@@ -473,15 +425,7 @@ function toHistory(all: readonly Message[], showCost: boolean, files: (turnId: s
 				parts.push(new vscode.ChatResponseWarningPart(m.text));
 				break;
 			case 'notice':
-				// Locally recovered reviews have a task-source notice, without a fabricated Pine result/question.
-				if (m.turn_id && m.turn_id !== turn && reviews.some(r => r.turnId === m.turn_id)) {
-					flush();
-					turn = m.turn_id;
-				}
 				parts.push(`_${m.text}_`);
-				break;
-			case 'decision':
-				parts.push(`**Your review, as sent to the agent:**\n\n${m.text.split('\n').map(line => `> ${line}`).join('\n')}`);
 				break;
 			case 'usage':
 				if (showCost) {
@@ -491,13 +435,6 @@ function toHistory(all: readonly Message[], showCost: boolean, files: (turnId: s
 		}
 	}
 	flush();
-	// A saved review is actionable even if collection completed before its Chat anchor was recorded.
-	// The persisted review row is the source; this does not invent a remote response or a new approval.
-	for (const review of reviews.filter(r => r.items.length > 0 && !rendered.has(r.id))) {
-		history.push(new vscode.ChatResponseTurn2([new vscode.ChatResponseMarkdownPart(
-			`_Saved review: ${review.subject}._\n\n${reviewCardMarkdown(key, review.id)}`,
-		)], { metadata: { pineReviewId: review.id } }, SESSION_TYPE));
-	}
 	return history;
 }
 

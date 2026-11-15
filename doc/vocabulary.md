@@ -15,13 +15,12 @@ How to read the columns:
 
 Each term belongs to one of three layers, named under each section below:
 1. **Production domain.** What the drama is made of: projects, episodes, assets, pictures and the cut. Industry terms are used wherever the industry has one.
-2. **Artifact and version model.** How each thing made is stored, approved and related: versions, approvals, notes and links. This layer is modelled on AYON.
+2. **Artifact and version model.** How each thing made is stored and related: versions, notes and links. This layer is modelled on AYON.
 3. **Agent execution model.** How the work runs: sessions, turns, scopes and the files that carry decisions between the person's machine and a Pine Computer. This layer is native to Pine.
 
 Three of our terms stay apart from their nearest industry terms. They name units of AI generation; they do not fill gaps in the industry's model:
 - **segment, not shot.** A segment is what a video model generates in one request, within the model's duration range. One segment may hold several shots, and the shot stays the editorial unit.
 - **take, not a separate Version kind.** A take is one paid generation of a segment. It is stored as a version, numbered `tNN`, so that generations of the same request are compared side by side, in the sense film gives a take: one attempt at the same material.
-- **agent's and person's approval, not one status.** An AI agent reviews every version before the person does. Keeping its acceptance apart from the person's lets the person's word always win ([protocol §3.2][p-resolution]), which a single status field cannot express.
 
 ## Base model
 
@@ -74,7 +73,7 @@ Layer: production domain.
 | **storyboard** (multi-panel storyboard) | One image per segment, with one panel per shot. | none in the base model | Pine Drama term: a project-defined product type The vendor's term: [Seedance 2.5 prompt guide][seedance-guide], "Multi-panel storyboards". |
 | **video prompts** | The text of each segment's video request. | none in the base model | Pine Drama term: the text a generation model takes The vendor's guide: [Seedance 2.5 prompt guide][seedance-guide], "Prompt writing recommendations". |
 | **take** | One video generation of a segment. | AYON **Version**: "A numbered iteration of a given Product" ([AYON Glossary][ayon-glossary]). | subset: a take is a version of the segment's video. **Under review** (row *version id*). |
-| **cut** | The edited episode, built from accepted takes, as one movie. | Flow Production Tracking **Cut** and **Cut Items**, which "make up the actual items of an EDL" ([Cut data model][sg-cut]); OpenTimelineIO **Timeline** ([OTIO timeline structure][otio]). | subset: we keep the movie, not the edit decisions |
+| **cut** | The edited episode, built from takes, as one movie. | Flow Production Tracking **Cut** and **Cut Items**, which "make up the actual items of an EDL" ([Cut data model][sg-cut]); OpenTimelineIO **Timeline** ([OTIO timeline structure][otio]). | subset: we keep the movie, not the edit decisions |
 | **subtitles** | The episode's subtitles. | none in the base model | Pine Drama term: a project-defined product type Defined in [protocol §5.1][p-objects] (object `type`). |
 
 ## Versions and approval
@@ -90,11 +89,6 @@ Layer: artifact and version model.
 | **shown file** (`file` in `version.json`) | The one image, video or text a version shows. | AYON **Representation** and **Reviewable** ([AYON Glossary][ayon-glossary], [Reviewables][ayon-reviewables]). | subset: one shown file per version |
 | **inputs** | The versions a version was made from. | AYON **Generative** link: "between two product versions where the input was used to generate the output" ([Project Anatomy][ayon-anatomy]). | exact |
 | **current** | The version the person chose, else the newest one not discarded. | AYON **latest** version ([entity URI][ayon-uri]); **Featured version** ([Products and Versions][ayon-products]). | Pine Drama term: latest unless the person chose one. **Under review: latest.** Defined in [protocol §3.2][p-resolution]. |
-| **accepted** | The version later steps use: the person's choice, else the newest the person reviewed, else the newest the agent reviewed. | AYON **latestDone**, "the highest numbered version that has a 'Done' status (like Approved)" ([Products and Versions][ayon-products], [entity URI][ayon-uri]). Flow Production Tracking **Final Approved** ([Tracking statuses][sg-status]). | subset, with the agent's level added. **Under review: approved.** |
-| **candidate** | The newest generated version, not yet judged. | Flow Production Tracking **Pending Review**: "not yet been reviewed by anyone" ([Tracking statuses][sg-status]). | subset |
-| **review**, **review file** | The record that a version was accepted, by the agent or, with the person's words, by the person. | Flow Production Tracking: a Version is "used for review and taking notes", and approval is a status ([Version and PublishedFile][sg-version], [Tracking statuses][sg-status]). | Pine Drama term: there, review is the act and approval the status. **Under review: approval.** Defined in [protocol §2.2][p-reviews]. |
-| **agent's acceptance**, **person's acceptance** | A review file without, or with, the person's verbatim words. | Flow Production Tracking **Viewed** and **Pending Director Review**, then **Final Approved**, "reviewed and approved by the director" ([Tracking statuses][sg-status]). | subset |
-| **chosen**, **Approve** | The version the person picks for an object. `chosen` is the protocol's key; **Approve** is the one verb the UI shows for it. | Flow Production Tracking **Final Approved** ([Tracking statuses][sg-status]). | Pine Drama term: the person's pick, kept apart from the agent's acceptance. Defined in [protocol §3.1][p-contents] and [§3.2][p-resolution]. |
 | **discarded** | A version the person removed from use. Its files stay and it can be brought back. | none in the base model | Pine Drama term: a reversible state that keeps every file and the version numbering Defined in [protocol §3.1][p-contents]. |
 | **import** | The person's own picture, made a version of an object. | AYON **Tray Publisher**: "publishing data into pipeline without going though DCC app" ([AYON docs][ayon-docs]). | subset |
 | **add** | A new asset or variant the person creates, before it has an id. | Creating a folder of a project-defined folder type ([Project Anatomy][ayon-anatomy]). | subset |
@@ -149,7 +143,6 @@ Layer: agent execution model.
 [seedance-guide]: https://ai.byteplus.com/ark/region:ap-southeast-1/docs/seedance-2-5-prompt-guide
 [ark-video-api]: https://ai.byteplus.com/ark/region:ap-southeast-1/docs/create-video-generation-task-api
 [p-conventions]: protocol.md#1-conventions
-[p-reviews]: protocol.md#22-review-files
 [p-choices]: protocol.md#3-the-choices-file-client
 [p-contents]: protocol.md#31-contents
 [p-resolution]: protocol.md#32-resolution

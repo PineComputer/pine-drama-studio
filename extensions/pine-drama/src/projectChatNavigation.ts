@@ -17,13 +17,12 @@ export function initialProjectChat(project: ProjectSessions | undefined, restore
 	return restored?.isUntitledDraft || contains(restored?.resource) ? undefined : project.mainKey;
 }
 
-/** One window's startup/focus sequence: the restored or default Chat, then a named destination, then a Review asked for. */
+/** One window's startup/focus sequence: the restored or default Chat, then a named destination. */
 export function projectWindowRestorer(window: {
 	scope(): ProjectSessions | undefined;
 	prepare(mainKey: string): Promise<RestoredProjectChat | undefined>;
 	takeRequested(root: string): string | undefined;
 	show(key: string): Promise<unknown>;
-	review(): Promise<unknown>;
 	failed(error: unknown): void;
 }): () => Promise<void> {
 	// What must not repeat is the default selection, not a successful startup: it is consumed when chosen, before
@@ -41,7 +40,6 @@ export function projectWindowRestorer(window: {
 			defaultChosen = true;
 			if (!requested && key) { await window.show(key); }
 			if (requested) { await window.show(requested); }
-			await window.review();
 		}).catch(window.failed);
 		return pending;
 	};

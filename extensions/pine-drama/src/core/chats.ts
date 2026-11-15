@@ -1,5 +1,4 @@
-import { sha256, sha256OfFileOnDisk } from './sha256';
-import { REVIEW_APPROVAL_STATEMENT } from './reviewCardProtocol';
+import { sha256 } from './sha256';
 // Chats with Pine Computer agents that survive restarts and several windows.
 // The rules this file keeps:
 // 1. Credentials are saved, and read back, before a Computer is created; a Computer whose
@@ -21,34 +20,29 @@ import { REVIEW_APPROVAL_STATEMENT } from './reviewCardProtocol';
 // 7. No cancellation in v1: nothing here cancels or steers a turn on Pine. A message that arrives while a turn runs
 //    waits for it and then goes as the answer or a new run; a reply whose view goes away is still followed to its end,
 //    and the history shows how it ended.
-// 8. When a turn ends, its returned files are settled into the library (core/settle.ts) under the same generation;
-//    a settle that fails is logged and shown, and is taken up again at the next send or follow.
-// 9. Files the person attaches wait in the library and go up with the Chat's next run, once each; the Studio's
-//    note about them is recorded as the Studio's text (core/uplink.ts).
+// 8. When a turn ends, its return is installed into the project folder under the same generation; an install that
+//    fails is logged and shown, and is taken up again at the next send or follow.
+// 9. Files the person attaches go into the project folder and up with the Chat's next run; the Studio's note about them
+//    is recorded as the Studio's text.
 // No vscode import.
 
 import { CHANGED_TARGET_NOTE, standingParagraph, withStandingInstructions } from './instructions';
 import { randomUUID } from 'node:crypto';
 import { AccountError, ConnectionLostError, IDLE_WAITING_SECONDS, IDLE_WORKING_SECONDS, MissingError, NoPineError, OtherPineError, START_WAIT_SECONDS, StartNotConfirmedError, StartTimeoutError, UnconfirmedError, endpointHost, type ComputerSecrets, type IdlePolicy, type PineConnection, type PineEvent, type PinePort, type SecretVault, type PineSession, type TurnView } from './pinePort';
-import { Library } from './library';
 import { projectIdentity, projectPlaceOf, projectRootOf } from './projectPlace';
 import { entryFor, type Entry } from './binding';
 import { givenBack, refusalLine } from './refusal';
 import { Holders, keptBytes, putAll, requestKey, returnKey } from './taskArtifacts';
-import { dramaRecordOf, installedSnapshots, requestKeys, requestOf, taskMessage, type DramaRecord } from './taskRun';
+import { dramaRecordOf, requestKeys, requestOf, taskMessage, type DramaRecord } from './taskRun';
 import { runInProjectWriteQueue } from './projectHistory';
 import { applyPersonChange } from './applyChange';
-import { installReturn, previewProgress, readReturn, type ReviewTarget } from './resultImporter';
+import { installReturn, previewProgress, readReturn } from './resultImporter';
 import { PERSON_ATTACHMENTS_FOLDER, UnsupportedMajor, type Return } from './protocol';
-import { readChoices, updateChoices, withObject } from './choices';
-import { resolveReturned, type ResolveSources, type Resolved } from './resolve';
-import { localProjectFile } from './chatLinks';
+import { readChoices } from './choices';
 import { type ProjectPlace, unusedName, within } from './placement';
-import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, statSync } from 'node:fs';
 import { basename, extname, join } from 'node:path';
 import { withoutRepeatedQuestion } from './askedOnce';
-import { answerFor, asks, complete, decisionRun, itemComplete, reviewKindOf, itemHere, subjectOf, viewOf, type ReviewFile, type ReviewItem, type ReviewView, type Verdict } from './reviews';
-import { snapshotState, versionTitle } from './project';
 import { EXTRACTED, extractText, textName, type Extraction } from './extract';
 import { PineSessionGenerations, PineSessionReplacedError } from './pineSessionGeneration';
 import { type Chat, type Message, type SavedSend, type SavedSendKind, type Store } from './store';
@@ -60,12 +54,8 @@ export type Update =
 	| { kind: 'markdown'; text: string; question?: boolean }
 	/** A message the Studio did not send, given back as typed (D72): drawn as it is, never through the agent's link rewriting. */
 	| { kind: 'unsent'; text: string }
-	/** An unsent Chat answer has an explicit local Review destination, not an inferred approval. */
-	| { kind: 'reviewRequired'; text: string; reviewId: string }
 	/** The cost line of a turn that ended; the cost itself is saved either way, only showing the line is optional. */
 	| { kind: 'usage'; text: string }
-	/** A stop that asks the person to decide: its items, with the folder their files are in. */
-	| { kind: 'review'; review: ReviewView; folder: string | undefined; text: string }
 	/** The session ended; the person decides whether a new one starts. */
 	| { kind: 'sessionEnded'; text: string }
 	/** A result that is not used: one native warning with its reason, its detail in Output (D43). */
@@ -75,7 +65,6 @@ export type Update =
 	/** Pine could not be reached for the follow's whole limit: the line offers Reload Window, which attaches again. */
 	| { kind: 'unreachable'; text: string };
 
-/** A review's card in a stream, and its line in a log. */
 /** What a follower brings to collect at a turn's end (streamPineTurnEvents): the turns it followed, and how the last one ended. */
 interface TurnEnd {
 	readonly session: PineSession;
@@ -85,16 +74,7 @@ interface TurnEnd {
 	readonly followUpDoneBefore: ReadonlyMap<string, boolean>;
 }
 
-function reviewUpdate(opened: { review: ReviewView; folder: string | undefined }): Extract<Update, { kind: 'review' }> {
-	return { kind: 'review', ...opened, text: `\n\n**To review (${opened.review.items.length}):** ${opened.review.items.map(item => item.label).join(', ')}` };
-}
-
 /** What became of a request to stop one session's Computer. */
-/** A decision is recorded only for the exact bytes the review was prepared with. */
-function filesChanged(paths: readonly string[], tail: string): string {
-	return `Review files are missing, inaccessible or changed after this review was prepared: ${paths.join(', ')}. ${tail}`;
-}
-
 export class BusyElsewhereError extends Error {
 	readonly name = 'BusyElsewhereError';
 }
@@ -121,7 +101,7 @@ export interface ChatServiceOptions {
 	pine: PineConnection | undefined;
 	/**
 	 * Whether this window holds the lock of the project at `root` (core/projectWindowLock.ts). A window drives, collects,
-	 * imports and records Review only for a Chat of the project it holds; a Chat of another project is left to the window
+	 * and imports only for a Chat of the project it holds; a Chat of another project is left to the window
 	 * that holds that project, and a window that holds none drives no bound Chat.
 	 */
 	holdsProject(root: string): boolean;
@@ -132,8 +112,6 @@ export interface ChatServiceOptions {
 	 * tests that are not about files; the extension always gives it.
 	 */
 	files?: {
-		/** The library's bytes, by SHA-256 (the extension's global storage). */
-		libraryRoot: string;
 		/** Each Chat's project folder is made under it. */
 		projectsRoot: string;
 	};
@@ -231,7 +209,6 @@ export class ChatService {
 	private readonly vault: SecretVault;
 	private readonly log: (line: string) => void;
 	private readonly generations = new PineSessionGenerations();
-	private readonly library: Library | undefined;
 	/** The publication pass this window runs now for each Chat, ended when it settles (collect). */
 	private readonly settling = new Map<string, Promise<void>>();
 	/** Chats whose remote session this process has verified. */
@@ -240,16 +217,12 @@ export class ChatService {
 	private readonly idleApplied = new Map<string, number>();
 	/** The idle-timeout policy of the Pine project, by endpoint, read once (open-pinedrama `limits`). */
 	private readonly idlePolicies = new Map<string, Promise<IdlePolicy>>();
-	private readonly localSubmissions = new Map<string, Promise<string>>();
-	private readonly reviewContinuations = new Set<string>();
 
 	constructor(private readonly options: ChatServiceOptions) {
 		this.store = options.store;
 		this.port = options.port;
 		this.vault = options.vault;
 		this.log = options.log ?? (() => undefined);
-		const files = options.files;
-		this.library = files && new Library(this.store, files.libraryRoot);
 	}
 
 	/**
@@ -318,19 +291,8 @@ export class ChatService {
 		// Capture the question/turn before waiting in the local send queue; a preceding reply may ask a new question.
 		const atSend = this.store.chat(key);
 		const intendedAtSend = atSend ? intent(atSend) : { kind: 'run' as const, target: null };
-		const recorded = this.store.submittedReviewForAnswer(key, text);
-		if (recorded && (recorded.state !== 'open' || this.reviewContinuations.has(recorded.id))) {
-			yield { kind: 'markdown', text: '_This review was already submitted for continuation. No additional task was started._' };
-			return;
-		}
 		const release = await this.queueExecution(key);
 		try {
-			const currentReview = this.store.submittedReviewForAnswer(key, text);
-			if (currentReview && currentReview.state !== 'open') {
-				yield { kind: 'markdown', text: '_This review was already submitted for continuation. No additional task was started._' };
-				return;
-			}
-			if (recorded) { this.reviewContinuations.add(recorded.id); }
 			// A restart while this message waited (a preceding send's item g) ended every question and turn it could be
 			// for, with their session. It goes as the restarting message does, against what the new session starts from
 			// (replacePineSessionAndSend), and is held to it: a question the new session asks meanwhile is not what it answers.
@@ -355,7 +317,6 @@ export class ChatService {
 			}
 			if (!ending.op && !shown.given) { yield unsentLine(text, files, 'the line above says why'); }
 		} finally {
-			if (recorded) { this.reviewContinuations.delete(recorded.id); }
 			release();
 		}
 	}
@@ -487,18 +448,9 @@ export class ChatService {
 		const standing = kind === 'run' && (!carried || carried.state === 'failed');
 		// A session that is not the Project Chat is told so with them (EPISODE_SESSION); the skill says what it means.
 		const episodesOnly = this.store.sessionScoped(key);
-		// A stop that asked the person to decide: their message is the decision, or the answer to a question in words.
-		const decided = this.decisionFor(key, kind, target, text);
-		if (decided.kind === 'incomplete') {
-			// The message is given back under the line, as every message the Studio does not send is.
-			yield { kind: 'reviewRequired', text: `${decided.text} Your message is below, to send again.\n\n${givenBack(text, attachedNames(files))}`, reviewId: decided.reviewId };
-			return;
-		}
-		const reviewId = decided.kind === 'none' ? null : decided.review.id;
 		// Files the person added are in the drama's folder already (placeFiles): the request carries them, the note names them.
 		const note = placedAttachments.length ? `Pine Drama Studio: the person added to the drama's folder: ${placedAttachments.join(', ')}.` : undefined;
-		const body = decided.kind === 'decision' ? decided.sent : text;
-		const noted = [body, changed ? CHANGED_TARGET_NOTE : undefined, note].filter((part): part is string => !!part).join('\n\n');
+		const noted = [text, changed ? CHANGED_TARGET_NOTE : undefined, note].filter((part): part is string => !!part).join('\n\n');
 		// A run or an answer is a task (doc/protocol.md, 4.1): its request and every archive and file it names are on the
 		// Computer before the message that starts it is sent, and the task id is the message's Idempotency-Key.
 		const opId = randomUUID();
@@ -511,19 +463,13 @@ export class ChatService {
 			return;
 		}
 		const said = standing ? withStandingInstructions(noted, episodesOnly) : noted;
-		const op: SavedSend = { id: opId, chat_key: key, kind, text: task ? taskMessage(opId, said) : said, target_turn_id: target, state: 'pending', turn_id: null, error: null, cancel_requested: 0, after_event: conv.last_applied_event_id, review_id: reviewId, created_at: '' };
+		const op: SavedSend = { id: opId, chat_key: key, kind, text: task ? taskMessage(opId, said) : said, target_turn_id: target, state: 'pending', turn_id: null, error: null, cancel_requested: 0, after_event: conv.last_applied_event_id, created_at: '' };
 		this.write(key, epoch, () => {
 			this.store.insertSavedSend(op);
 			// The person's message is recorded as typed; the instructions are the Studio's, in a message of their own.
-			const moved = resends ? this.store.moveMessages(resends, op.id, ['prompt', 'decision']) : [];
+			const moved = resends ? this.store.moveMessages(resends, op.id, ['prompt']) : [];
 			if (!moved.includes('prompt')) {
 				this.store.addMessage({ chat_key: key, turn_id: null, saved_send_id: op.id, kind: 'prompt', text, cost: null, currency: null });
-			}
-			if (decided.kind === 'decision' && !moved.includes('decision')) {
-				this.store.addMessage({ chat_key: key, turn_id: null, saved_send_id: op.id, kind: 'decision', text: decided.answer, cost: null, currency: null });
-			}
-			if (reviewId) {
-				this.store.setReviewAnswer(reviewId, decided.kind === 'decision' ? decided.answer : text);
 			}
 			if (note) {
 				this.store.addMessage({ chat_key: key, turn_id: null, saved_send_id: op.id, kind: 'instructions', text: note, cost: null, currency: null });
@@ -547,30 +493,8 @@ export class ChatService {
 	}
 
 
-	/**
-	 * Streams the turn that is running, e.g. when a restarted Studio opens the Chat, into the Chat whose history
-	 * showed the reviews `shown`. It ends with the card of the review that waits, when that history did not show it: a
-	 * publication pass that has no Chat (the resume at start, which only logs) may open it while this Chat is already
-	 * provided, and this Chat's follow waits for that pass and then finds nothing left to publish (collect). A
-	 * contributed Chat's history is not provided again while its model lives (Code-OSS ChatSessionsService
-	 * .getOrCreateChatSession, chatSessions.contribution.ts:1327-1331), so its live response is the one place the card
-	 * can reach it; without it the review gates the input with no card to answer it (the person's run).
-	 */
-	async *attachChatToPineTurn(key: string, shown: ReadonlySet<string> = new Set()): AsyncGenerator<Update> {
-		const seen = new Set(shown);
-		for await (const update of this.attachChatToRunningPineTurn(key)) {
-			if (update.kind === 'review') { seen.add(update.review.id); }
-			yield update;
-		}
-		const waiting = this.openReview(key);
-		// One already submitted waits only for its continuation, which its own card or the next message sends: it asks
-		// the person nothing.
-		if (waiting && waiting.review.items.length > 0 && !waiting.review.submitted && !seen.has(waiting.review.id)) {
-			yield reviewUpdate(waiting);
-		}
-	}
-
-	private async *attachChatToRunningPineTurn(key: string): AsyncGenerator<Update> {
+	/** Streams the turn that is running into the Chat, e.g. when a restarted Studio opens it. */
+	async *attachChatToPineTurn(key: string): AsyncGenerator<Update> {
 		const conv = this.store.chat(key);
 		// A Chat that is not running can still owe the folder the result of a task that ended before a restart.
 		if (!conv || (conv.state !== 'running' && !this.hasUnfinishedTurnFollowUp(key))) {
@@ -611,7 +535,7 @@ export class ChatService {
 			}
 			try {
 				// Not a reply the person sees: what it says is logged.
-				for await (const update of this.attachChatToRunningPineTurn(conv.key)) {
+				for await (const update of this.attachChatToPineTurn(conv.key)) {
 					if (update.kind !== 'progress') {
 						this.log(`${conv.key}: ${update.text.trim()}`);
 					}
@@ -652,9 +576,7 @@ export class ChatService {
 			return;
 		}
 		const why = failure ?? (said.map(update => update.text.replace(/\*\*The agent was not started again:\*\*\s*/, '').trim()).filter(Boolean).join(' ') || 'it did not start');
-		const review = said.find((update): update is Extract<Update, { kind: 'reviewRequired' }> => update.kind === 'reviewRequired');
-		const line = unsentLine(text, files, `the agent could not be started again: ${why.replace(/[.\s]+$/, '')}`);
-		yield review ? { ...review, text: line.text.trim() } : line;
+		yield unsentLine(text, files, `the agent could not be started again: ${why.replace(/[.\s]+$/, '')}`);
 	}
 
 	/** A new session on the same Computer, started again if stopped: the restart a send performs (replacePineSessionAndSend). */
@@ -745,13 +667,6 @@ export class ChatService {
 			notStarted();
 			this.log(`${key}: earlier results are not collected yet (stops ${unsettled.map(row => row.turn_id).join(', ') || 'none'}; tasks ${open.join(', ') || 'none'}), so no new session was started`);
 			yield notCollected(unsettled.map(row => row.save_error).find(Boolean) ?? 'they are still being collected');
-			return;
-		}
-		// A local fact, not a read: the person's decision is what the earlier work waits for.
-		const waiting = this.store.reviews(key).find(r => r.state === 'open' && !r.answer && viewOf(r).items.length > 0);
-		if (waiting) {
-			notStarted();
-			yield { kind: 'reviewRequired', reviewId: waiting.id, text: '**The agent was not started again:** a Review is waiting in this Chat. Submit it first; the agent starts with your decisions.' };
 			return;
 		}
 		const needsStart = stoppedConfirmed || !secrets.binding;
@@ -1069,7 +984,7 @@ export class ChatService {
 	}
 
 
-	// ---- reviews: a stop asks the person to decide ----
+	// ---- the project's place ----
 
 	/**
 	 * Where a session's project is on this desktop: its bound folder's project root, or its folder under the extension's
@@ -1081,285 +996,11 @@ export class ChatService {
 		return files && projectRootOf(files.projectsRoot, this.store.chat(key) ?? { key, folder: null });
 	}
 
-	/** The review that waits for the person, with the folder its files are in. */
-	openReview(key: string): { review: ReviewView; folder: string | undefined } | undefined {
-		const row = this.store.openReview(key);
-		const review = row && this.arrival(key, viewOf(row), false);
-		if (!review) { return undefined; }
-		// Submitted once its choices are written and its answer saved (recordReviewDecisions).
-		return { review: { ...review, submitted: !!row.answer, items: review.items.map(item => ({ ...item, recorded: !!row.answer && !!item.targets?.length })) }, folder: this.projectRoot(key) };
-	}
-
-	/** All recorded review batches for one durable Chat, newest first. */
-	reviews(key: string): ReviewView[] {
-		return this.store.reviews(key).map(row => this.review(key, row.id)!).filter(review => review.items.length > 0);
-	}
-
-	/** Version-bound history; a renderer cannot read a different Chat's review. */
-	review(key: string, id: string): ReviewView | undefined {
-		const row = this.store.review(id);
-		if (!row || row.chat_key !== key) { return undefined; }
-		return { ...this.arrival(key, viewOf(row), false), submitted: !!this.store.review(id)?.answer };
-	}
-
-	/**
-	 * Which of a review's files are here, from the stop's own records, by the
-	 * same resolver that opens them. Existing input files need not appear in a returned delta or have a library row; a row
-	 * alone is not proof that its bytes still exist. Older records without a hash retain their original availability.
-	 * `verify`: showing needs only that the file is recorded and present; a decision needs its exact bytes, so
-	 * the decision boundaries pass true and the read paths false, which hash nothing (fix plan, item 4). A file that cannot
-	 * be read is not here, and the reason goes to Output; the other files still show.
-	 */
-	private arrival(key: string, view: ReviewView, verify: boolean): ReviewView {
-		const here = (file: ReviewFile) => {
-			const sha = this.reviewFileSha(file);
-			if (!sha) { return true; }
-			try {
-				return this.resolveReturned(key, file.relPath, sha, verify)?.state === 'arrived';
-			} catch (error) {
-				this.log(`${key}: review file ${file.relPath} in project ${this.projectRoot(key) ?? 'unknown'} could not be read: ${(error as Error).stack ?? error}`);
-				return false;
-			}
-		};
-		return {
-			...view,
-			settling: this.store.turnFollowUp(view.turnId)?.done === 0,
-			items: view.items.map(item => ({ ...item, files: item.files.map(file => ({ ...file, here: here(file) })) })),
-		};
-	}
-
-	/**
-	 * Refuses a decision on files that show as here but are not the exact bytes the review was prepared with: changed,
-	 * replaced or unreadable since. Files still arriving are left to the caller's own message.
-	 */
-	private refuseChanged(key: string, row: Parameters<typeof viewOf>[0], verified: ReviewView, itemKeys: readonly string[], tail: string): void {
-		const shown = this.arrival(key, viewOf(row), false);
-		const changed = shown.items.filter(item => itemKeys.includes(item.key)).flatMap(item => item.files
-			.filter((file, index) => file.here && verified.items.find(v => v.key === item.key)?.files[index]?.here === false)
-			.map(file => file.relPath));
-		if (changed.length) {
-			throw new Error(filesChanged(changed, tail));
-		}
-	}
-
-
-
-
-	/** A live-read picture as a file a webview can show: the content store names bytes by hash, with no extension. */
-	/**
-	 * What a remote path the session returned is on this computer (core/resolve.ts): the one mapping Review and Chat use.
-	 * `verify` hashes the mirror's file before trusting it: for opening a version under review. Undefined without files.
-	 */
-	resolveReturned(key: string, remotePath: string, sha?: string, verify = false): Resolved | undefined {
-		const src = this.resolveSources(key);
-		return src && resolveReturned(src, remotePath, sha, verify);
-	}
-
-	/** A file the agent names as `drama/x` in the reply of `turnId`, linked only when that stop's own file has arrived (core/chatLinks.ts). */
-	projectFile(key: string, turnId: string | undefined, relPath: string): string | undefined {
-		const src = this.resolveSources(key);
-		return src && localProjectFile(src, turnId, relPath);
-	}
-
 	/** The session's project root and the folder nothing may leave; undefined without a project store. */
 	projectPlace(key: string): ProjectPlace | undefined {
 		const files = this.options.files;
 		return files && projectPlaceOf(files.projectsRoot, this.store.chat(key) ?? { key, folder: null });
 	}
-
-	private resolveSources(key: string): ResolveSources | undefined {
-		const place = this.projectPlace(key);
-		const library = this.library;
-		return place && library && { store: this.store, has: s => library.has(s), root: place.root, boundary: place.boundary, key };
-	}
-
-	/** The SHA-256 a review file shows: as its stop returned it, or from its library row. */
-	reviewFileSha(file: Pick<ReviewFile, 'id' | 'sha'>): string | undefined {
-		return file.sha ?? (file.id ? this.store.libraryFileById(file.id)?.sha : undefined);
-	}
-
-	preview(sha: string, relPath: string, folder: string): string | undefined {
-		if (!/^[a-f0-9]{64}$/.test(sha)) { throw new Error('Invalid preview SHA-256'); }
-		if (!this.library?.has(sha)) {
-			return undefined;
-		}
-		if (sha256OfFileOnDisk(this.library.blobPath(sha)) !== sha) {
-			throw new Error(`Live Preview: cached bytes do not match ${sha}; this preview cannot be opened.`);
-		}
-		const target = join(folder, `${sha}${extname(relPath).toLowerCase()}`);
-		// Named by its SHA-256, but the name proves nothing: its bytes are checked on every read, as git checks an object
-		// against its name (git-fsck, "hash mismatch"), and made again from the library when they differ.
-		if (!existsSync(target) || sha256OfFileOnDisk(target) !== sha) {
-			mkdirSync(folder, { recursive: true });
-			const temp = `${target}.pine-incoming-${randomUUID()}`;
-			copyFileSync(this.library.blobPath(sha), temp);
-			renameSync(temp, target);
-		}
-		return target;
-	}
-
-
-	/**
-	 * The person's verdict on one item of a review: kept as a draft, changeable until the decision is sent. Nothing goes to
-	 * the agent here; the decision is sent by the person's next message, when every item has a verdict.
-	 */
-	decideItem(key: string, reviewId: string, itemKey: string, verdict: Verdict, reason?: string): { decided: number; total: number } {
-		const epoch = this.pineSessionGeneration(key);
-		const row = this.store.review(reviewId);
-		if (!row || row.chat_key !== key || row.state !== 'open') {
-			throw new Error('this review is no longer waiting for a decision');
-		}
-		if (row.answer) {
-			throw new Error('This review is submitted; its decisions no longer change.');
-		}
-		const view = this.arrival(key, viewOf(row), true);
-		const item = view.items.find(i => i.key === itemKey);
-		if (!item) {
-			throw new Error(`the review has no item ${itemKey}`);
-		}
-		if (!itemComplete(item)) {
-			this.refuseChanged(key, row, view, [itemKey], 'No decision was recorded.');
-			const { here, of } = itemHere(item);
-			throw new Error(`${item.label} has ${here} of its ${of} files here: give its verdict once they all are, so it covers what you saw`);
-		}
-		const verdicts = { ...view.verdicts, [itemKey]: { verdict, reason: verdict === 'revise' && reason !== undefined ? reason : view.verdicts[itemKey]?.reason ?? '' } };
-		this.write(key, epoch, () => this.store.setVerdicts(reviewId, JSON.stringify(verdicts)));
-		this.changed(key);
-		return { decided: view.items.filter(item => verdicts[item.key] !== undefined).length, total: view.items.length };
-	}
-
-	/** Select the batch as an editable draft. One write; no acceptance or continuation. */
-	approveAll(key: string, reviewId: string): { decided: number; total: number } {
-		const epoch = this.pineSessionGeneration(key);
-		const row = this.store.review(reviewId);
-		if (!row || row.chat_key !== key || row.state !== 'open') {
-			throw new Error('this review is no longer waiting for a decision in this conversation');
-		}
-		if (row.answer) {
-			throw new Error('This review is submitted; its decisions no longer change.');
-		}
-		const view = this.arrival(key, viewOf(row), true);
-		if (!view.settling && !view.items.every(itemComplete)) {
-			this.refuseChanged(key, row, view, view.items.map(item => item.key), 'No decision was recorded.');
-		}
-		if (view.settling || !view.items.every(itemComplete)) {
-			throw new Error('Wait until all review files have arrived before deciding.');
-		}
-		const verdicts = Object.fromEntries(view.items.map(item => [item.key,
-			{ verdict: 'approve' as const, reason: view.verdicts[item.key]?.reason ?? '' }]));
-		this.write(key, epoch, () => this.store.setVerdicts(reviewId, JSON.stringify(verdicts)));
-		this.changed(key);
-		return { decided: view.items.length, total: view.items.length };
-	}
-
-
-	/**
-	 * The person explicitly selects the visible approval statement by submitting the card. `own`: the card's Anything else
-	 * field, sent to the agent as their own words and never recorded as the approval (Decisions in Chat).
-	 */
-	recordReviewDecisionsLocally(key: string, reviewId: string, own = ''): Promise<string> {
-		return this.recordReviewDecisionsLocallyOnce(key, reviewId, REVIEW_APPROVAL_STATEMENT, 'ui', own);
-	}
-
-	private recordReviewDecisionsLocallyOnce(key: string, reviewId: string, words: string, source: 'typed' | 'ui', own = ''): Promise<string> {
-		const running = this.localSubmissions.get(reviewId);
-		if (running) { return running; }
-		const work = this.recordReviewDecisions(key, reviewId, words, source, own);
-		this.localSubmissions.set(reviewId, work);
-		void work.finally(() => this.localSubmissions.delete(reviewId)).catch(() => undefined);
-		return work;
-	}
-
-	/**
-	 * Submit: each approved version becomes the person's choice, with their words, in the choices file (doc/protocol.md,
-	 * 3.1, `chosen`). The answer is sent as the Chat's next task, which carries the choices to the Computer.
-	 */
-	private async recordReviewDecisions(key: string, reviewId: string, words: string, source: 'typed' | 'ui', own: string): Promise<string> {
-		const epoch = this.pineSessionGeneration(key);
-		const row = this.store.review(reviewId);
-		const place = this.projectPlace(key);
-		if (!row || row.chat_key !== key || row.state !== 'open' || !place || !this.options.protocol) {
-			throw new Error('This review is no longer waiting in this project.');
-		}
-		const view = this.arrival(key, viewOf(row), true);
-		const unavailable = view.items.flatMap(item => item.files.filter(file => file.here === false).map(file => file.relPath));
-		if (unavailable.length) {
-			throw new Error(filesChanged(unavailable, 'Nothing was chosen.'));
-		}
-		if (!complete(view)) { throw new Error('Give every item a verdict after its files have arrived.'); }
-		const approved = view.items.filter(item => view.verdicts[item.key]?.verdict === 'approve').flatMap(item => item.targets ?? []);
-		const answer = source === 'ui' ? answerFor(view, own) + (approved.length ? `\nApproval selected in Studio: ${REVIEW_APPROVAL_STATEMENT}` : '') : answerFor(view, words);
-		await runInProjectWriteQueue(place.root, async () => {
-			this.generations.assert(key, epoch);
-			await updateChoices(place.root, choices => approved.reduce((next, target) => withObject(next, target.object, entry => ({ ...entry, chosen: { version: target.version, words } })), choices));
-		});
-		this.write(key, epoch, () => this.store.setReviewAnswer(reviewId, answer));
-		return answer;
-	}
-
-	/** The submitted review's answer (recordReviewDecisions), or undefined while it waits for the person. */
-	savedReviewWords(reviewId: string): string | undefined {
-		return this.store.review(reviewId)?.answer ?? undefined;
-	}
-
-	/**
-	 * Pure questions take ordinary Chat answers. Item reviews take only the exact feedback of a locally recorded
-	 * submission; Chat never becomes a second human-approval writer.
-	 */
-	private decisionFor(key: string, kind: SavedSendKind, target: string | null, text: string):
-		| { kind: 'none' }
-		| { kind: 'question'; review: { id: string } }
-		| { kind: 'incomplete'; text: string; reviewId: string }
-		| { kind: 'decision'; review: { id: string }; answer: string; sent: string } {
-		const row = target ? this.store.reviewOfTurn(key, target) : this.store.openReview(key);
-		if (!row || row.state !== 'open') {
-			return { kind: 'none' };
-		}
-		const asked = this.arrival(key, viewOf(row), true);
-		if (!asked) {
-			return { kind: 'none' };
-		}
-		const view = asked;
-		if (view.items.length === 0) {
-			return target ? { kind: 'question', review: row } : { kind: 'none' };
-		}
-		if (row.answer) {
-			// The review is submitted and recorded locally; only its continuation is not sent yet. The person's next
-			// message carries it: the recorded answer first, their words after, in one turn. Chat records no approval here: it
-			// sends the decision Review already recorded (the live run of 2026-11-05 refused this message as if undecided).
-			const both = row.answer === text ? text : `${row.answer}\n\n${text}`;
-			return { kind: 'decision', review: row, answer: row.answer, sent: kind === 'run' ? decisionRun(both) : both };
-		}
-		return { kind: 'incomplete', reviewId: row.id, text: '**Not sent:** decide and submit this review in Review. Chat does not record approval.' };
-	}
-
-	/** Opens the review a stop asks for, once per turn: the versions its return asks the person to choose, or a question in words. */
-	private createReviewForTurn(key: string, epoch: number, turn: { turnId: string; state: string; asked: string }, targets: readonly ReviewTarget[] = []): { review: ReviewView; folder: string | undefined } | undefined {
-		const existing = this.store.reviewOfTurn(key, turn.turnId);
-		if (existing) {
-			return existing.state === 'open' ? this.openReview(key) : undefined;
-		}
-		if (!targets.length && turn.state !== 'needs_input' && !asks(turn.asked)) { return undefined; }
-		const root = this.projectRoot(key);
-		// What the installed snapshots say of each object (core/project.ts, snapshotState): its type sets the review's
-		// kind, and its name the item's title, as the canvas names it. No version history is read for that.
-		const state = root ? snapshotState(installedSnapshots(root)) : undefined;
-		const named = { objects: new Map([...state?.listed ?? []].map(([id, { object }]) => [id, object])), edges: state?.edges ?? [] };
-		// Each version shows the file its version.json names (doc/protocol.md, 2.1).
-		const items: ReviewItem[] = root ? targets.map(target => {
-			const folder = `${target.object}/${target.version}`;
-			const shown = (JSON.parse(readFileSync(join(root, folder, 'version.json'), 'utf8')) as { file: string | null }).file;
-			// A version whose named file is missing has nothing to review: its review is not made (as reading the file failed before).
-			const sha = shown ? sha256OfFileOnDisk(join(root, folder, shown)) : null;
-			if (shown && sha === null) { throw new Error(`${folder} names ${shown}, which is not in the project`); }
-			const files: ReviewFile[] = shown ? [{ id: 0, relPath: `drama/${folder}/${shown}`, sha: sha!, type: '', here: true }] : [];
-			return { key: folder, label: versionTitle(named, target.object, target.version), files, targets: [target] };
-		}) : [];
-		const kind = reviewKindOf(targets.flatMap(t => { const type = named.objects.get(t.object)?.type; return type ? [type] : []; }));
-		this.write(key, epoch, () => this.store.insertReview({ id: randomUUID(), chat_key: key, turn_id: turn.turnId, kind, subject: subjectOf(kind), question: turn.asked, items: JSON.stringify(items) }));
-		return this.openReview(key);
-	}
-
 
 
 	// ---- the uplink: files the person gives the Chat ----
@@ -1479,12 +1120,6 @@ export class ChatService {
 		this.write(key, epoch, () => {
 			this.store.noteTurn(key, turn.turnId);
 			this.store.updateSavedSend(op.id, { state: 'sent', turn_id: turn.turnId, error: null });
-			const reviewId = this.store.savedSend(op.id)?.review_id;
-			if (reviewId) {
-				this.store.answerReview(reviewId);
-			}
-			// The Chat moved on: a review the person did not decide is no longer asked.
-			this.store.closeOpenReviews(key);
 			this.store.updateChat(key, { state: 'running', current_turn_id: turn.turnId, question_turn_id: null });
 		});
 		this.log(`${key}: ${op.kind} ${op.id} -> turn ${turn.turnId} ${turn.state}`);
@@ -1783,7 +1418,7 @@ export class ChatService {
 
 	/**
 	 * Keeps the Computer running while the agent waits for the person (as open-pinedrama does, docs/PROPOSAL.md section 5.3):
-	 * the longer window while a question or a review waits, the working one otherwise. Called when a turn ends and
+	 * the longer window while a question waits, the working one otherwise. Called when a turn ends and
 	 * when a message is sent. A failure is logged and shown, and asked again at the next call.
 	 */
 	private idlePolicy(env: PineConnection): Promise<IdlePolicy> {
@@ -1835,7 +1470,7 @@ export class ChatService {
 		if (conv.pine_session_state !== 'open') {
 			return;
 		}
-		const waiting = conv.state === 'needs_input' || this.openReview(key) !== undefined;
+		const waiting = conv.state === 'needs_input';
 		let wanted = waiting ? IDLE_WAITING_SECONDS : IDLE_WORKING_SECONDS;
 		try {
 			const policy = await this.held(key, epoch, () => this.idlePolicy(env));
@@ -1963,25 +1598,16 @@ export class ChatService {
 
 	/**
 	 * At a turn's end: each task the turn carried has its return read from the Computer that ran it and installed into the
-	 * folder (doc/protocol.md, 4.4), and the review the stop asks for opens from the return's `review`.
+	 * folder (doc/protocol.md, 4.4).
 	 */
 	private async *importTurnResultsIntoProjectFolder(key: string, env: PineConnection, epoch: number, turn: { turnId: string; state: string; asked: string }, ending: readonly Update[] = [], settledBefore?: boolean): AsyncGenerator<Update> {
-		const finalWords = (): Update[] => {
-			const review = this.store.reviewOfTurn(key, turn.turnId);
-			const needsReview = !!review && viewOf(review).items.length > 0;
-			return ending.map(update => update.kind === 'markdown' && update.question
-				? { kind: 'markdown', text: update.text + (needsReview ? '' : '\n\n_Your next message answers it._') } : update);
-		};
-		// A turn's end is its words, what this pass said, then its review while that review waits for the person, whichever
-		// pass opened it.
-		const ended = function* (this: ChatService, said: readonly Update[]): Generator<Update> {
+		const finalWords = (): Update[] => ending.map(update => update.kind === 'markdown' && update.question
+			? { kind: 'markdown', text: `${update.text}\n\n_Your next message answers it._` } : update);
+		// A turn's end is its words, then what this pass said.
+		const ended = function* (said: readonly Update[]): Generator<Update> {
 			yield* finalWords();
 			yield* said;
-			const open = this.openReview(key);
-			if (open && open.review.turnId === turn.turnId && open.review.items.length > 0 && !open.review.submitted) {
-				yield reviewUpdate(open);
-			}
-		}.bind(this);
+		};
 		if (settledBefore === false && this.store.turnFollowUp(turn.turnId)?.done) {
 			yield* ended([]);
 			return;
@@ -2005,8 +1631,6 @@ export class ChatService {
 			shown.push(unused ? { kind: 'unused', text: line } : { kind: 'markdown', text: `\n\n_${line}_` });
 			this.changed(key);
 		};
-		const review: ReviewTarget[] = [];
-		const returned: string[] = [];
 		try {
 			await runInProjectWriteQueue(root, async () => {
 				for (const task of tasks) {
@@ -2032,7 +1656,6 @@ export class ChatService {
 					}
 					const { done, leftOut } = await this.held(key, epoch, () => installReturn({ root, record, kept: join(proto.storage, 'kept'), store, request: sent.request, ret: back }));
 					const installed = Object.keys(done.versions).length;
-					returned.push(...Object.keys(done.versions));
 					// The Computer that returned them holds them: the next task copies from it rather than uploading.
 					await this.holders().set([...Object.values(done.versions), ...Object.values(done.reviews), ...(done.private_state ? [done.private_state] : [])], sent.computer);
 					// What could not be used is left out, never the whole result: said in one line (doc/protocol.md, 4.4).
@@ -2046,7 +1669,6 @@ export class ChatService {
 							? 'What it finished is in your project.' : 'No new version was added to your project. To go on, ask it to continue in a new message.'}`, true);
 					}
 					for (const problem of back.problems ?? []) { tell(`${problem.ref}: ${problem.error?.message}`); }
-					review.push(...(back.review ?? []));
 				}
 			});
 		} catch (error) {
@@ -2059,20 +1681,6 @@ export class ChatService {
 			yield* finalWords();
 			yield* shown;
 			yield { kind: 'markdown', text: `\n\n**The result of turn ${turn.turnId} could not be installed:** ${why}. It is tried again at your next message.` };
-			return;
-		}
-		this.write(key, epoch, () => this.store.updateTurnFollowUp(turn.turnId, { returned: JSON.stringify(returned) }));
-		try {
-			this.createReviewForTurn(key, epoch, turn, review);
-		} catch (error) {
-			const notice = `The files were installed, but Review could not be opened: ${(error as Error).message}`;
-			this.write(key, epoch, () => {
-				this.store.updateTurnFollowUp(turn.turnId, { done: 1, save_error: null });
-				this.store.addMessage({ chat_key: key, turn_id: turn.turnId, saved_send_id: null, kind: 'notice', text: notice, cost: null, currency: null });
-			});
-			yield* finalWords();
-			yield* shown;
-			yield { kind: 'markdown', text: `\n\n**${notice}**` };
 			return;
 		}
 		this.write(key, epoch, () => this.store.updateTurnFollowUp(turn.turnId, { done: 1, save_error: null }));
@@ -2186,7 +1794,7 @@ export class ChatService {
 	}
 
 	/**
-	 * Whether `key` is bound to a project this window does not hold. Such a Chat is driven, collected and reviewed
+	 * Whether `key` is bound to a project this window does not hold. Such a Chat is driven and collected
 	 * only by the window that holds its project. An unbound Chat has no project of the person's yet: a send binds it to
 	 * this window's folder before anything remote (entryFor).
 	 */
@@ -2299,10 +1907,10 @@ function secretRef(key: string): string {
 	return `pine.conversation.${sha256(key).slice(0, 24)}`;
 }
 
-/** `steps` as they are, noting in `shown` when one of them gave the message back (an `unsent` line, or a Review's refusal). */
+/** `steps` as they are, noting in `shown` when one of them gave the message back (an `unsent` line). */
 async function* givingBack(steps: AsyncGenerator<Update>, shown: { given: boolean }): AsyncGenerator<Update> {
 	for await (const update of steps) {
-		if (update.kind === 'unsent' || update.kind === 'reviewRequired') { shown.given = true; }
+		if (update.kind === 'unsent') { shown.given = true; }
 		yield update;
 	}
 }

@@ -14,7 +14,7 @@ export type ChatState = 'idle' | 'running' | 'needs_input' | 'failed';
 export type SavedSendKind = 'run';
 export type SavedSendState = 'pending' | 'sent' | 'unknown' | 'failed';
 /** `unused`: a result that is not used, with its reason (resultImporter.ts, notUsedLine), shown as a native warning. */
-export type MessageKind = 'prompt' | 'instructions' | 'decision' | 'progress' | 'activity' | 'result' | 'question' | 'usage' | 'failed' | 'notice' | 'unused';
+export type MessageKind = 'prompt' | 'instructions' | 'progress' | 'activity' | 'result' | 'question' | 'usage' | 'failed' | 'notice' | 'unused';
 
 
 export interface Chat {
@@ -63,8 +63,6 @@ export interface SavedSend {
 	cancel_requested: number;
 	/** The Chat's last applied event id when it was saved: its input event can only come after. */
 	after_event: number | null;
-	/** The review this send answers; the review is answered when the send is. */
-	review_id: string | null;
 	created_at: string;
 }
 
@@ -80,34 +78,6 @@ export interface Message {
 	at: string;
 }
 
-export interface LibraryFile {
-	id: number;
-	chat_key: string;
-	turn_id: string;
-	sha: string;
-	rel_path: string;
-	size: number;
-	type: string;
-	kind: string;
-	created_at: string;
-}
-
-export interface ReviewRow {
-	id: string;
-	chat_key: string;
-	turn_id: string;
-	kind: string;
-	subject: string;
-	question: string;
-	items: string;
-	verdicts: string;
-	state: 'open' | 'answered' | 'closed';
-	answer: string | null;
-	created_at: string;
-	decided_at: string | null;
-}
-
-
 export interface TurnFollowUp {
 	turn_id: string;
 	chat_key: string;
@@ -115,7 +85,6 @@ export interface TurnFollowUp {
 	asked: string;
 	done: number;
 	save_error: string | null;
-	returned: string;
 	created_at: string;
 }
 
@@ -158,7 +127,6 @@ create table if not exists saved_sends (
   error text,
   cancel_requested integer not null default 0, -- unused since D25 (no Stop); kept so a database opens unchanged
   after_event integer,                -- the last applied event id when it was saved
-  review_id text,                     -- the review this send answers; it is answered when the send is
   created_at text not null,
   updated_at text not null
 );
@@ -192,22 +160,7 @@ create table if not exists events (
   event_id integer not null,
   primary key (chat_key, task_id, event_id)
 );
--- The library's index (doc/adapters/computer-read.md): every file a turn returned. Bytes live outside the database, once
--- each, named by SHA-256 (core/library.ts). Ported from open-pinedrama src/engine/db.ts files table.
-create table if not exists library_files (
-  id integer primary key,
-  chat_key text not null references chats(key),
-  turn_id text not null,
-  sha text not null,
-  rel_path text not null,             -- relative to the session's working directory
-  size integer not null,
-  type text not null,                 -- media type
-  kind text not null,                 -- core/library.ts Origin.kind: archive, or other
-  created_at text not null,
-  unique (turn_id, rel_path)
-);
-create index if not exists library_files_path on library_files (chat_key, rel_path, sha);
--- One row per ended turn: the follow-up it still owes (import its results, then open its Review), marked done when finished,
+-- One row per ended turn: the follow-up it still owes (import its results), marked done when finished,
 -- so a follow-up the Studio stopped halfway is taken up again where it was (open-pinedrama turns.settled, turns.save_error).
 create table if not exists turn_follow_ups (
   turn_id text primary key,
@@ -216,34 +169,9 @@ create table if not exists turn_follow_ups (
   asked text not null,                -- its question, or its summary: the files it names are fetched
   done integer not null default 0,
   save_error text,
-  returned text not null default '[]', -- the paths the turn returned, as Pine listed them
   created_at text not null
 );
--- What a stop asks the person to decide (core/reviews.ts; open-pinedrama reviews table). The record is generic: a kind
--- and subject for the wording, the items to give a verdict on (JSON: key, label, files), and the verdicts given so far.
-create table if not exists reviews (
-  id text primary key,
-  chat_key text not null references chats(key),
-  turn_id text not null,
-  kind text not null,                 -- looks | references | storyboards | takes | cut | question, or another feature's own
-  subject text not null,              -- what was reviewed, as the answer words it
-  question text not null,
-  items text not null default '[]',
-  verdicts text not null default '{}',-- item key -> { verdict, reason }; the draft until the answer is sent
-  state text not null,                -- open | answered | closed (the Chat moved on without a decision)
-  answer text,
-  created_at text not null,
-  decided_at text,
-  unique (chat_key, turn_id)
-);
--- A review one window asks another to reveal: the session's project window reads it when it activates or gains focus
--- (doc/workbench/right-region.md, "Revealing a decision in another window").
-create table if not exists reveal_requests (
-  chat_key text primary key references chats(key),
-  review_id text not null,
-  requested_at integer not null
-);
--- A named Chat destination for another project window. Navigation only, never execution/Review authority.
+-- A named Chat destination for another project window. Navigation only, never execution authority.
 create table if not exists chat_reveal_requests (
   project text primary key,
   chat_key text not null references chats(key),
@@ -318,27 +246,6 @@ export class Store {
 		}
 	}
 
-	/** Asks the window of `key`'s project to reveal a review of the Chat `key`; a newer request replaces an older one. */
-	requestReveal(key: string, reviewId: string): void {
-		this.db.prepare('insert into reveal_requests (chat_key, review_id, requested_at) values (?, ?, ?) on conflict (chat_key) do update set review_id = excluded.review_id, requested_at = excluded.requested_at')
-			.run(key, reviewId, this.now());
-	}
-
-	/**
-	 * The review a project's window reveals: the newest request for any of its Chats (`keys`, the project's members) made
-	 * within `maxAgeMs`. Every request of the project is consumed either way. The request names its Chat and the window
-	 * takes by project, so no request is keyed by one session (fix plan, item 9).
-	 */
-	takeReveal(keys: readonly string[], maxAgeMs: number): string | undefined {
-		if (!keys.length) { return undefined; }
-		const marks = keys.map(() => '?').join(', ');
-		return this.tx(() => {
-			const row = this.db.prepare(`select review_id, requested_at from reveal_requests where chat_key in (${marks}) order by requested_at desc limit 1`).get(...keys) as { review_id: string; requested_at: number } | undefined;
-			this.db.prepare(`delete from reveal_requests where chat_key in (${marks})`).run(...keys);
-			return row && this.now() - row.requested_at <= maxAgeMs ? row.review_id : undefined;
-		});
-	}
-
 	requestChatReveal(key: string): string {
 		const conv = this.chat(key);
 		if (!conv?.folder) { throw new Error('This conversation has no associated project to open.'); }
@@ -380,14 +287,6 @@ export class Store {
 	}
 
 
-	/** Exact generated feedback identity, not language interpretation. A queued duplicate cannot start another turn. */
-	submittedReviewForAnswer(key: string, text: string): Pick<ReviewRow, 'id' | 'state'> | undefined {
-		return this.db.prepare(`select r.id, r.state from reviews r
-			where r.chat_key = ? and r.answer = ? order by r.created_at desc, r.rowid desc limit 1`)
-			.get(key, text) as Pick<ReviewRow, 'id' | 'state'> | undefined;
-	}
-
-
 	chat(key: string): Chat | undefined {
 		return this.db.prepare('select * from chats where key = ?').get(key) as Chat | undefined;
 	}
@@ -418,9 +317,8 @@ export class Store {
 	private assertUnboundHistory(conv: Chat): void {
 		if (conv.folder) { return; }
 		const history = this.db.prepare(`select 1 from saved_sends where chat_key = ?
-			union all select 1 from messages where chat_key = ?
-			union all select 1 from library_files where chat_key = ? limit 1`)
-			.get(conv.key, conv.key, conv.key);
+			union all select 1 from messages where chat_key = ? limit 1`)
+			.get(conv.key, conv.key);
 		if (conv.computer_id || conv.computer_state !== 'none' || conv.pine_session_state !== 'none' || conv.task_id || conv.state !== 'idle' || history) {
 			throw new Error('This conversation has execution history. Reconcile its existing project before assigning a folder.');
 		}
@@ -454,8 +352,7 @@ export class Store {
 			// No Project Chat is not evidence that old work finished. This path admits pristine Chats only;
 			// attributable recovery/handoff must reconcile retained runtime history separately.
 			for (const associated of [conv, ...this.projectChats(root).filter(c => c.key !== key)]) {
-				const work = this.db.prepare(`select 1 from saved_sends where chat_key = ?
-					union all select 1 from reviews where chat_key = ? limit 1`).get(associated.key, associated.key);
+				const work = this.db.prepare('select 1 from saved_sends where chat_key = ? limit 1').get(associated.key);
 				if (work || associated.computer_state !== 'none' || associated.pine_session_state !== 'none' || associated.computer_id || associated.task_id || associated.state !== 'idle') {
 					throw new Error('This project has execution history without its Project Chat. Reconcile its original runtime before continuing.');
 				}
@@ -480,10 +377,10 @@ export class Store {
 
 	// ---- operations ----
 
-	insertSavedSend(op: Pick<SavedSend, 'id' | 'chat_key' | 'kind' | 'text' | 'target_turn_id'> & { after_event?: number | null; review_id?: string | null }): void {
+	insertSavedSend(op: Pick<SavedSend, 'id' | 'chat_key' | 'kind' | 'text' | 'target_turn_id'> & { after_event?: number | null }): void {
 		const at = this.iso();
-		this.db.prepare(`insert into saved_sends (id, chat_key, kind, text, target_turn_id, state, after_event, review_id, created_at, updated_at)
-			values (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)`).run(op.id, op.chat_key, op.kind, op.text, op.target_turn_id, op.after_event ?? null, op.review_id ?? null, at, at);
+		this.db.prepare(`insert into saved_sends (id, chat_key, kind, text, target_turn_id, state, after_event, created_at, updated_at)
+			values (?, ?, ?, ?, ?, 'pending', ?, ?, ?)`).run(op.id, op.chat_key, op.kind, op.text, op.target_turn_id, op.after_event ?? null, at, at);
 	}
 
 	updateSavedSend(id: string, patch: Partial<Pick<SavedSend, 'state' | 'turn_id' | 'error'>>): void {
@@ -556,41 +453,6 @@ export class Store {
 		return result.changes > 0;
 	}
 
-	// ---- library ----
-
-	libraryFile(turnId: string, relPath: string): LibraryFile | undefined {
-		return this.db.prepare('select * from library_files where turn_id = ? and rel_path = ?').get(turnId, relPath) as LibraryFile | undefined;
-	}
-
-	/** The first row of this path with these bytes (open-pinedrama library.ts `seenBefore` and `save`). */
-	libraryFileBySha(key: string, relPath: string, sha: string): LibraryFile | undefined {
-		return this.db.prepare('select * from library_files where chat_key = ? and rel_path = ? and sha = ? order by id limit 1').get(key, relPath, sha) as LibraryFile | undefined;
-	}
-
-	libraryKnows(key: string, relPath: string): boolean {
-		return this.db.prepare('select 1 from library_files where chat_key = ? and rel_path = ? limit 1').get(key, relPath) !== undefined;
-	}
-
-	libraryFileById(id: number): LibraryFile | undefined {
-		return this.db.prepare('select * from library_files where id = ?').get(id) as LibraryFile | undefined;
-	}
-
-	/** Every settle of a Chat, oldest first: what each stop listed, and whether it finished. */
-	turnFollowUps(key: string): TurnFollowUp[] {
-		return this.db.prepare('select * from turn_follow_ups where chat_key = ? order by created_at, rowid').all(key) as unknown as TurnFollowUp[];
-	}
-
-	libraryFiles(turnId: string): LibraryFile[] {
-		return this.db.prepare('select * from library_files where turn_id = ? order by id').all(turnId) as unknown as LibraryFile[];
-	}
-
-
-	insertLibraryFile(f: Omit<LibraryFile, 'id' | 'created_at'>): number {
-		const result = this.db.prepare(`insert into library_files (chat_key, turn_id, sha, rel_path, size, type, kind, created_at)
-			values (?, ?, ?, ?, ?, ?, ?, ?)`).run(f.chat_key, f.turn_id, f.sha, f.rel_path, f.size, f.type, f.kind, this.iso());
-		return Number(result.lastInsertRowid);
-	}
-
 	// ---- settling ----
 
 	/** Opens the settle of an ended turn; a repeat keeps the steps already done. */
@@ -604,7 +466,7 @@ export class Store {
 		return this.db.prepare('select * from turn_follow_ups where turn_id = ?').get(turnId) as TurnFollowUp | undefined;
 	}
 
-	updateTurnFollowUp(turnId: string, patch: Partial<Pick<TurnFollowUp, 'done' | 'save_error' | 'returned'>>): void {
+	updateTurnFollowUp(turnId: string, patch: Partial<Pick<TurnFollowUp, 'done' | 'save_error'>>): void {
 		const entries = Object.entries(patch);
 		const sets = entries.map(([column]) => `${column} = ?`).join(', ');
 		this.db.prepare(`update turn_follow_ups set ${sets} where turn_id = ?`).run(...entries.map(([, value]) => value as string | number | null), turnId);
@@ -614,54 +476,6 @@ export class Store {
 	unfinishedTurnFollowUps(key: string): TurnFollowUp[] {
 		return this.db.prepare('select * from turn_follow_ups where chat_key = ? and done = 0 order by created_at, rowid').all(key) as unknown as TurnFollowUp[];
 	}
-
-	// ---- reviews ----
-
-
-	/** Records a stop once per turn; false when the turn already has its review. */
-	insertReview(r: Pick<ReviewRow, 'id' | 'chat_key' | 'turn_id' | 'kind' | 'subject' | 'question' | 'items'>): boolean {
-		const result = this.db.prepare(`insert into reviews (id, chat_key, turn_id, kind, subject, question, items, state, created_at)
-			values (?, ?, ?, ?, ?, ?, ?, 'open', ?) on conflict do nothing`).run(r.id, r.chat_key, r.turn_id, r.kind, r.subject, r.question, r.items, this.iso());
-		return Number(result.changes) > 0;
-	}
-
-	review(id: string): ReviewRow | undefined {
-		return this.db.prepare('select * from reviews where id = ?').get(id) as ReviewRow | undefined;
-	}
-
-	reviews(key: string): ReviewRow[] {
-		return this.db.prepare('select * from reviews where chat_key = ? order by created_at desc, rowid desc').all(key) as unknown as ReviewRow[];
-	}
-
-	reviewOfTurn(key: string, turnId: string): ReviewRow | undefined {
-		return this.db.prepare('select * from reviews where chat_key = ? and turn_id = ?').get(key, turnId) as ReviewRow | undefined;
-	}
-
-	/** The Chat's newest review that waits for the person. */
-	openReview(key: string): ReviewRow | undefined {
-		return this.db.prepare("select * from reviews where chat_key = ? and state = 'open' order by created_at desc, rowid desc limit 1").get(key) as ReviewRow | undefined;
-	}
-
-
-	setVerdicts(id: string, verdicts: string): void {
-		this.db.prepare("update reviews set verdicts = ? where id = ? and state = 'open'").run(verdicts, id);
-	}
-
-	/** The answer the person's decision makes, kept when it is saved to be sent. */
-	setReviewAnswer(id: string, answer: string): void {
-		this.db.prepare("update reviews set answer = ?, decided_at = ? where id = ? and state = 'open'").run(answer, this.iso(), id);
-	}
-
-	/** The Chat moved on without a decision on these: they are kept, no longer asked. */
-	closeOpenReviews(key: string): void {
-		this.db.prepare("update reviews set state = 'closed' where chat_key = ? and state = 'open'").run(key);
-	}
-
-	/** Pine took the answer. */
-	answerReview(id: string): void {
-		this.db.prepare("update reviews set state = 'answered' where id = ?").run(id);
-	}
-
 
 	// ---- task claims (local-first, 6.1) ----
 

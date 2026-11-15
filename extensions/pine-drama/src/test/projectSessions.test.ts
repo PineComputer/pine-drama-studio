@@ -30,7 +30,7 @@ for (const existing of [false, true]) {
 		let unboundNotifications = 0;
 		const service = new ChatService({ holdsProject: () => true, turnEndGraceMs: 0, store, port: pine, vault: new MemoryVault(),
 			pine: { endpoint: 'http://pine.test', apiKey: 'offline' },
-			files: { libraryRoot: join(dir, 'library'), projectsRoot: join(dir, 'projects') }, protocol: testProtocol(dir),
+			files: { projectsRoot: join(dir, 'projects') }, protocol: testProtocol(dir),
 			onChange: () => {
 				// The real extension refreshes scoped Sessions synchronously on every service notification.
 				assert.equal(projectSessions(root, store.chats()).mainKey, key);

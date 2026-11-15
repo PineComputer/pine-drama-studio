@@ -27,7 +27,7 @@ async function fixture(stopped: boolean) {
 	const store = new Store(path);
 	const pine = new FakePine(); const vault = new MemoryVault();
 	const options = { holdsProject: () => true, store, port: pine, vault, pine: { endpoint: 'https://offline.invalid', apiKey: 'offline' },
-		files: { libraryRoot: join(dir, 'library'), projectsRoot: join(dir, 'projects') } };
+		files: { projectsRoot: join(dir, 'projects') } };
 	const service = new ChatService(options);
 	if (stopped) {
 		await drain(service.submit('main', 'fixture', 'Project Chat', root));

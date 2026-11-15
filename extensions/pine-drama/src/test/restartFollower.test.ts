@@ -81,7 +81,7 @@ test('a send queued behind restart runs once, after it', async () => {
 	const pine = new FakePine();
 	const options = { holdsProject: () => true, store, port: pine, vault: new MemoryVault(),
 		pine: { endpoint: 'https://offline.invalid', apiKey: 'offline' },
-		files: { libraryRoot: join(dir, 'library'), projectsRoot: join(dir, 'projects') } };
+		files: { projectsRoot: join(dir, 'projects') } };
 	const service = new ChatService(options);
 	let release = () => {};
 	let restart: Promise<void> | undefined; let send: Promise<void> | undefined;

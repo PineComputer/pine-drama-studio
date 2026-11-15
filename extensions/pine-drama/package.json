@@ -127,11 +127,6 @@
         "category": "Pine"
       },
       {
-        "command": "pineDrama.review.submit",
-        "title": "Submit and continue",
-        "category": "Pine"
-      },
-      {
         "command": "pineDrama.goToEpisode",
         "title": "Go to Episode",
         "category": "Pine",
@@ -259,10 +254,6 @@
           "when": "activeWebviewPanelId == 'pineDrama.episodeCanvas'"
         },
         {
-          "command": "pineDrama.review.submit",
-          "when": "false"
-        },
-        {
           "command": "pineDrama.goToEpisode",
           "when": "false"
         },
@@ -357,12 +348,6 @@
           "contextualTitle": "Production",
           "when": "pineDrama.projectOpen"
         }
-      ],
-      "pine-review": [
-        {
-          "id": "pine.sessionReview",
-          "name": "Review"
-        }
       ]
     },
     "viewsContainers": {
@@ -371,13 +356,6 @@
           "id": "pine-production",
           "title": "Production",
           "icon": "media/production.svg"
-        }
-      ],
-      "secondarySidebar": [
-        {
-          "id": "pine-review",
-          "title": "Review",
-          "icon": "$(checklist)"
         }
       ]
     },
@@ -400,11 +378,7 @@
       {
         "view": "pine.versions",
         "when": "pineDrama.projectOpen && !pineDrama.versionsShown",
-        "contents": "Select an item in Project to see its versions, reviews and cost."
-      },
-      {
-        "view": "pine.sessionReview",
-        "contents": "Nothing waits for your decision in this folder. Reviews from this project’s conversations appear here; select a batch to open its message in Chat.\n[Open Recent…](command:workbench.action.openRecent)"
+        "contents": "Select an item in Project to see its versions and cost."
       }
     ],
     "keybindings": [
@@ -550,19 +524,10 @@
           ]
         }
       }
-    ],
-    "chatOutputRenderers": [
-      {
-        "viewType": "pine.review",
-        "mimeTypes": [],
-        "codeBlockLanguageIdentifiers": [
-          "pine-review"
-        ]
-      }
     ]
   },
   "scripts": {
-    "compile": "tsc -p . && tsc -p canvas && tsc -p tsconfig.media.json && node canvas/build.mjs",
+    "compile": "tsc -p . && tsc -p canvas && node canvas/build.mjs",
     "watch": "tsc -w -p .",
     "test": "npm run compile && node --test --test-concurrency=4 --test-timeout=120000 --test-force-exit \"out/test/*.test.js\""
   },
@@ -583,8 +548,7 @@
     "chatSessionsProvider",
     "chatProvider",
     "chatParticipantPrivate",
-    "chatParticipantAdditions",
-    "chatOutputRenderer"
+    "chatParticipantAdditions"
   ],
   "dependencies": {
     "@pinesandbox/computer": "^0.3.5",

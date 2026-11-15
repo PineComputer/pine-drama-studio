@@ -7,11 +7,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { ChatService, type Update } from '../core/chats';
-import { readChoices } from '../core/choices';
-import { REVIEW_APPROVAL_STATEMENT } from '../core/reviewCardProtocol';
 import { Store } from '../core/store';
 import { FakePine, MemoryVault } from './fakePine';
-import { reviewPlan, testProtocol } from './protocolFixture';
+import { testProtocol } from './protocolFixture';
 
 async function drain(updates: AsyncGenerator<Update>): Promise<Update[]> {
 	const all: Update[] = []; for await (const update of updates) { all.push(update); } return all;
@@ -35,7 +33,7 @@ function fixture(more: Partial<ConstructorParameters<typeof ChatService>[0]> = {
 		return typeof value === 'function' ? (value as (...a: unknown[]) => unknown).bind(target) : value;
 	} });
 	const service = new ChatService({ holdsProject: () => true, turnEndGraceMs: 0, store, port, vault: new MemoryVault(), pine: { endpoint: 'https://offline.invalid', apiKey: 'offline' },
-		files: { libraryRoot: join(dir, 'library'), projectsRoot: join(dir, 'projects') }, protocol: testProtocol(dir), ...more });
+		files: { projectsRoot: join(dir, 'projects') }, protocol: testProtocol(dir), ...more });
 	const send = (text: string, key = 'main') => drain(service.submit(key, text, key === 'main' ? 'Project Chat' : 'Session', root));
 	const request = (n: number) => {
 		// Every Computer's requests, in the order they were written there, the first Computer's first.
@@ -96,20 +94,6 @@ test('while a return is collected and installed, the Chat says so, before the tu
 		const installing = updates.findIndex(u => u.kind === 'progress' && /^Collecting the turn's result into your project/.test(u.text));
 		assert.ok(installing >= 0, JSON.stringify(updates.map(u => [u.kind, u.text])));
 		assert.ok(installing < updates.findIndex(u => u.kind === 'markdown' && /drawn/.test(u.text)), 'it comes before the last words');
-	} finally { f.store.close(); }
-});
-
-test('Review Submit writes the chosen versions with the person\'s words into choices.json', async () => {
-	const f = fixture();
-	try {
-		f.pine.plans = [reviewPlan([{ object: 'assets/props/umbrella', version: 'v1', files: { 'image-1.png': 'umbrella' } }])];
-		await f.send('draw the umbrella');
-		const review = f.service.openReview('main')!.review;
-		// B13: the card names the version for the person, not by its folder's path.
-		assert.deepEqual(review.items.map(item => item.label), ['umbrella · v1']);
-		f.service.approveAll('main', review.id);
-		await f.service.recordReviewDecisionsLocally('main', review.id);
-		assert.deepEqual((await readChoices(f.root))!.objects['assets/props/umbrella'], { chosen: { version: 'v1', words: REVIEW_APPROVAL_STATEMENT } });
 	} finally { f.store.close(); }
 });
 

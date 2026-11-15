@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert';
-import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -9,7 +9,7 @@ import { Store } from '../core/store';
 import { FakePine, MemoryVault } from './fakePine';
 import { idleStopAndDiscover } from './idleStop';
 import { testProtocol } from './protocolFixture';
-import { reviewPlan, withoutTask } from './protocolFixture';
+import { withoutTask } from './protocolFixture';
 
 // The person, 2026-11-05 (a tester's report on v0.1.4-b1: "Your message was not sent, and is kept as a draft: the session
 // it was for has ended … Start the agent again"): a message sent to a session Pine reports ended starts the agent again
@@ -25,7 +25,7 @@ function fixture() {
 	const store = new Store(join(dir, 'studio.sqlite'));
 	const pine = new FakePine();
 	const options = { holdsProject: () => true, store, port: pine, vault: new MemoryVault(), pine: { endpoint: 'https://offline.invalid', apiKey: 'offline' },
-		files: { libraryRoot: join(dir, 'library'), projectsRoot: join(dir, 'projects') }, protocol: testProtocol(dir) };
+		files: { projectsRoot: join(dir, 'projects') }, protocol: testProtocol(dir) };
 	const service = new ChatService(options);
 	const sent = (text: string) => (store.db.prepare("select count(*) as n from saved_sends where text like ? and state = 'sent'").get(`pine-drama-turn %\n${text}%`) as { n: number }).n;
 	return { root, store, pine, service, options, sent };
@@ -141,42 +141,6 @@ test('two quick sends to a session that ended waiting for an answer: one restart
 		assert.equal(f.sent('Keep the cast small.'), 1);
 		assert.equal(f.sent('And make it rain.'), 1);
 	} finally { f.store.close(); }
-});
-
-// A live run: the message that found the session ended at Pine (its run refused, the
-// stop not yet seen) was shown twice in the Chat, with its Review decision twice: once for the attempt that never reached
-// Pine, once for the resend. The person sent it once; the resend carries that attempt's prompt and decision.
-test('a message whose run finds the session ended is shown once, with its Review decision once, after the restart', async () => {
-	const dir = realpathSync(mkdtempSync(join(tmpdir(), 'pine-send-restarts-review-')));
-	const root = join(dir, 'project'); mkdirSync(root);
-	// A project of major 2 (pine-drama-project.json), so the choices.json its first turn installs makes it no major-1 one.
-	writeFileSync(join(root, 'pine-drama-project.json'), '{"schema":2}\n');
-	const store = new Store(join(dir, 'studio.sqlite'));
-	const pine = new FakePine();
-	const service = new ChatService({ holdsProject: () => true, store, port: pine, vault: new MemoryVault(), pine: { endpoint: 'https://offline.invalid', apiKey: 'offline' },
-		files: { libraryRoot: join(dir, 'library'), projectsRoot: join(dir, 'projects') }, protocol: testProtocol(dir) });
-	try {
-		pine.plans = [reviewPlan([{ object: 'screenplay', version: 'v1' }])];
-		await drain(service.submit('main', 'make the screenplay', 'Project Chat', root));
-		const review = service.openReview('main')!.review;
-		service.approveAll('main', review.id);
-		await service.recordReviewDecisionsLocally('main', review.id);
-		// Pine's idle stop, not yet seen by this window: the run is what finds it.
-		const computer = pine.computers.get(store.chat('main')!.computer_id!)!;
-		computer.state = 'stopped'; computer.sessions.clear();
-		pine.plans = [{ state: 'completed', text: 'Carried on, with a small cast.' }];
-		await drain(service.submit('main', 'Keep the cast small, please.', 'Project Chat', root));
-		const history = store.messages('main');
-		assert.equal(history.filter(m => m.kind === 'prompt' && m.text === 'Keep the cast small, please.').length, 1, 'one message');
-		const decisions = history.filter(m => m.kind === 'decision');
-		assert.equal(decisions.length, 1, 'its decision once');
-		const prompt = history.find(m => m.kind === 'prompt' && m.text === 'Keep the cast small, please.')!;
-		const sent = store.savedSend(prompt.saved_send_id!)!;
-		assert.equal(sent.state, 'sent', 'shown with the operation that reached Pine');
-		assert.equal(decisions[0].saved_send_id, sent.id);
-		const starts = history.findIndex(m => /^The agent starts again/.test(m.text));
-		assert.ok(history.indexOf(prompt) < starts, 'the message as the person sent it, then the restart');
-	} finally { store.close(); }
 });
 
 // Audit item 12: a message whose question changed while it waited is sent with the note; when the

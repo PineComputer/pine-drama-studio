@@ -2,7 +2,7 @@
 
 import { sha256 } from './sha256';
 import { existsSync, realpathSync, statSync } from 'node:fs';
-import { basename, dirname, isAbsolute, join, posix, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import type { ProjectPlace } from './placement';
 
 /** One shared identity even when two windows reach the same folder through different aliases. */
@@ -48,14 +48,3 @@ export function owningChat<T extends { readonly key: string; readonly folder: st
 	return matches.length === 1 ? matches[0] : matches.find(c => c.project_role === 'main');
 }
 
-/** Why a returned path cannot be installed, or undefined: it must stay inside the drama's folder (containment, drama-folder section 3). */
-export function refusedPath(rel: string): string | undefined {
-	if (isAbsolute(rel) || rel.includes('\\')) {
-		return `${rel} is not a path inside the drama's folder`;
-	}
-	const clean = posix.normalize(rel);
-	if (clean !== rel || clean.startsWith('../') || clean === '..' || clean.startsWith('/')) {
-		return `${rel} leaves the drama's folder`;
-	}
-	return undefined;
-}

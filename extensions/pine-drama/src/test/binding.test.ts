@@ -23,7 +23,7 @@ function setup() {
 	const store = new Store(join(dir, 'studio.sqlite'));
 	const service = new ChatService({ holdsProject: () => true,
 		turnEndGraceMs: 0, store, port: pine, vault: new MemoryVault(), pine: ENV, log: () => undefined,
-		files: { libraryRoot: join(dir, 'library'), projectsRoot: join(dir, 'projects') },
+		files: { projectsRoot: join(dir, 'projects') },
 	});
 	const folder = (name: string) => { const f = join(dir, name); mkdirSync(f, { recursive: true }); return f; };
 	return { dir, pine, store, service, folder };

@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert';
-import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -43,13 +43,3 @@ test('Production already showing is left as it is', async () => {
 	assert.deepEqual(runs, []);
 });
 
-// Opening a page keeps Chat where the person left it. The Script row once focused Review, a leftover from when Review
-// held the script's details.
-// A command link the person clicks in a Chat message is their own navigation and is not matched.
-test('no code opens the Review tab on its own; only the person switches the right region to it', () => {
-	const src = join(__dirname, '..', '..', 'src');
-	const sources = readdirSync(src, { recursive: true, encoding: 'utf8' }).filter(f => f.endsWith('.ts') && !f.startsWith('test'));
-	const opens = /executeCommand\(\s*[`'"](\$\{VIEW_ID\}\.focus|pine\.sessionReview\.focus|workbench\.view\.extension\.pine-review)/;
-	const opening = sources.filter(f => opens.test(readFileSync(join(src, f), 'utf8')));
-	assert.deepEqual(opening, []);
-});

@@ -2,7 +2,7 @@
 
 A desktop studio for AI short dramas, built on Code-OSS. You write or bring a screenplay; an agent on a
 [Pine Computer](https://pinecomputer.io) makes the drama with you: characters, locations and props, keyframes,
-storyboards, takes and the cut. You review and choose in the Studio; the drama's folder on your machine is its only copy.
+storyboards, takes and the cut. You answer its questions in the Chat; the drama's folder on your machine is its only copy.
 
 [![Pine Drama Studio launch film: click to watch (4K, 51 s)](https://cdn.19pine.ai/pine-drama-studio/pine-drama-studio-launch-cover.jpg)](https://cdn.19pine.ai/pine-drama-studio/pine-drama-studio-launch-4k.mp4)
 
@@ -15,7 +15,7 @@ storyboards, takes and the cut. You review and choose in the Studio; the drama's
 **Community:** questions, ideas and help on [Discord](https://discord.gg/jBRrXmQHT).
 
 - **Left:** the project, its assets and episodes. **Center:** the canvas, the galleries and the editors. **Right:** the
-  Chat with the agent and its reviews. **Bottom:** diagnostics.
+  Chat with the agent. **Bottom:** diagnostics.
 - The Studio and a Pine Computer speak one open, add-only [protocol](doc/protocol.md). The terms are defined, with their
   film-industry sources, in the [vocabulary](doc/vocabulary.md).
 
@@ -50,7 +50,7 @@ To build it yourself instead, see [Build from source](#build-from-source).
 2. Open Pine Drama Studio and connect with the key (Accounts menu › Pine Computer). The key is kept in your operating
    system's secret storage.
 3. Create a project (File › New Project…), choose an empty folder, and drop in your screenplay.
-4. Talk to the agent in the Chat. Each paid step starts only after you say go, and you approve the results on the
+4. Talk to the agent in the Chat. Each paid step starts only after you say go there, and its results appear on the
    canvas.
 
 ## Build from source

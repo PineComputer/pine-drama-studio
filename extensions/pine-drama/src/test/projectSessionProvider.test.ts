@@ -58,7 +58,6 @@ const native = {
 		showWarningMessage: async (...args: unknown[]) => { calls.push(['warning', ...args]); },
 	},
 	chat: {
-		registerChatOutputRenderer: disposable,
 		createChatParticipant: (_id: string, requestHandler: vscode.ChatRequestHandler) => { handler = requestHandler; return disposable(); },
 		registerChatSessionContentProvider: (_id: string, provider: vscode.ChatSessionContentProvider) => { content = provider; return disposable(); },
 		createChatSessionItemController: (_id: string, refresh: () => void) => {
@@ -98,13 +97,13 @@ function fixture(windowRoot?: string) {
 		chats: () => store.chats(), chat: (key: string) => store.chat(key),
 		projectRoot: (key: string) => store.chat(key)?.folder ?? undefined,
 		latestTurnFiles: (key: string) => turnFiles.get(key) ?? [],
-		reviews: () => [], resumeUnfinishedTurnFollowUps: async () => {}, hasUnfinishedTurnFollowUp: () => false, openReview: () => undefined,
+		resumeUnfinishedTurnFollowUps: async () => {}, hasUnfinishedTurnFollowUp: () => false,
 		history: (key: string) => { calls.push(['history', key]); return []; },
 		entry: (key: string, folder: string) => { calls.push(['entry', key, folder]); return { kind: 'go' }; },
 		submitWithFiles: async function* (key: string, ...args: unknown[]): AsyncGenerator<Update> { calls.push(['send', key, ...args]); },
 	} as unknown as ChatService;
 	const config: PineConfig = { kind: 'set', file: 'offline', pine: { endpoint: 'https://pine.test', apiKey: 'offline-not-a-key' } };
-	const api = registerPineSessions({ subscriptions: [] } as unknown as vscode.ExtensionContext, { appendLine() {} } as unknown as vscode.OutputChannel, config, service, { submitReviewDecisions: async () => { calls.push(['submit']); }, continuing: () => false, onDidChangeContinuing: () => ({ dispose() {} }) });
+	const api = registerPineSessions({ subscriptions: [] } as unknown as vscode.ExtensionContext, { appendLine() {} } as unknown as vscode.OutputChannel, config, service);
 	const add = (key: string, folder: string, role: 'main' | 'episode') => {
 		store.insertChat({ key, label: 'OFFLINE fixture', env: 'offline', endpoint: 'https://pine.test', secret_ref: 'offline' });
 		associateProject(store, key, folder, role === 'main' ? { kind: 'main' } : null);
@@ -241,41 +240,6 @@ test('an alias retargeted before the first send gives the message back and never
 });
 
 
-test('a question-only stop restores its review card and exact-message anchor', async () => {
-	const f = fixture(); f.add('main', f.root, 'main');
-	f.service.history = () => [
-		{ kind: 'prompt', text: 'Make a screenplay', turn_id: null },
-		{ kind: 'question', text: 'Review this version?', turn_id: 'turn-question' },
-	] as ReturnType<ChatService['history']>;
-	f.service.reviews = () => [{ id: 'review-question', turnId: 'turn-question', createdAt: '2026-11-06T00:00:00.000Z', kind: 'screenplay', subject: 'screenplay', question: 'Review?', state: 'open',
-		items: [{ key: 'screenplay/v1', label: 'Screenplay v1', files: [] }], verdicts: {} }];
-	const session = await content.provideChatSessionContent(Uri.parse('main') as unknown as vscode.Uri, {} as vscode.CancellationToken, {} as Parameters<vscode.ChatSessionContentProvider['provideChatSessionContent']>[2]);
-	const responses = session.history as vscode.ChatResponseTurn2[];
-	const response = responses.find(r => r.result?.metadata?.pineReviewId === 'review-question');
-	assert.ok(response, 'the exact review has a durable response anchor');
-	assert.match(JSON.stringify(response.response), /pine-review/);
-});
-
-for (const hasNotice of [false, true]) {
-	test(`recovered review restores an actionable exact-message anchor ${hasNotice ? 'from its local notice' : 'when its old message is missing'}`, async () => {
-		const f = fixture(); f.add('main', f.root, 'main');
-		try {
-			f.service.history = () => [
-				{ kind: 'prompt', text: 'Make a screenplay', turn_id: null },
-				{ kind: 'notice', text: 'The earlier session ended.', turn_id: null },
-				...(hasNotice ? [{ kind: 'notice', text: 'Studio recovered a saved result. Review its files below.', turn_id: 'studio-task:saved-task' }] : []),
-			] as ReturnType<ChatService['history']>;
-			f.service.reviews = () => [{ id: 'recovered-review', turnId: 'studio-task:saved-task', createdAt: '2026-11-06T00:00:00.000Z', kind: 'screenplay', subject: 'screenplay', question: 'Recovered review', state: 'open',
-				items: [{ key: 'screenplay/v1', label: 'Screenplay v1', files: [] }], verdicts: {} }];
-			const session = await content.provideChatSessionContent(Uri.parse('main') as unknown as vscode.Uri, {} as vscode.CancellationToken, {} as Parameters<vscode.ChatSessionContentProvider['provideChatSessionContent']>[2]);
-			const responses = (session.history as vscode.ChatResponseTurn2[]).filter(r => r.result?.metadata?.pineReviewId === 'recovered-review');
-			assert.equal(responses.length, 1, 'Review index has one exact native Chat destination');
-			assert.match(JSON.stringify(responses[0].response), /pine-review/);
-			assert.match(JSON.stringify(responses[0].response), /recover|Recover|Saved review/);
-		} finally { f.store.close(); }
-	});
-}
-
 test('a result that is not used is a native warning part of its own in the history, between the notices around it', async () => {
 	const f = fixture(); f.add('main', f.root, 'main');
 	try {
@@ -326,25 +290,14 @@ test('native Archive and Unarchive never stop idle or running remote work or mut
 	}
 });
 
-test('a session whose Review waits shows NeedsInput in the Sessions list, as a question does; a submitted one and a running one do not', async () => {
+test('a session whose agent asks a question shows NeedsInput in the Sessions list; a running one shows InProgress', async () => {
 	const f = fixture(); f.add('main', f.root, 'main'); f.add('episode', f.root, 'episode');
 	const { NeedsInput, Completed, InProgress } = native.ChatSessionStatus;
-	// The waiting Reviews the service would return (ChatService.openReview), by Chat.
-	const reviews = new Map<string, { id: string; items: unknown[]; submitted?: boolean }>();
-	(f.service as unknown as { openReview: (key: string) => unknown }).openReview = key => {
-		const review = reviews.get(key);
-		return review && { review, folder: f.root };
-	};
 	const status = async (key: string) => { await refreshList(); return listed.get(key)!.status; };
 	assert.equal(await status('episode'), Completed);
-	reviews.set('episode', { id: 'r1', items: [{ key: 'bible' }] });
-	assert.equal(await status('episode'), NeedsInput, 'a Review waits for the person');
-	assert.equal(await status('main'), Completed, 'only its own Chat');
-	reviews.set('episode', { id: 'r1', items: [{ key: 'bible' }], submitted: true });
-	assert.equal(await status('episode'), Completed, 'submitted: its continuation runs, nothing waits for the person');
 	f.store.updateChat('main', { state: 'needs_input' });
-	assert.equal(await status('main'), NeedsInput, 'a question, as before');
-	reviews.set('main', { id: 'r2', items: [{ key: 'cast' }] });
+	assert.equal(await status('main'), NeedsInput, 'a question');
+	assert.equal(await status('episode'), Completed, 'only its own Chat');
 	f.store.updateChat('main', { state: 'running' });
 	assert.equal(await status('main'), InProgress, 'running work shows as running');
 	f.store.close();
