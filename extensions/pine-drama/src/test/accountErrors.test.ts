@@ -75,7 +75,10 @@ test('a new session starts only where the Computer offers the drama skill, which
 	const created: string[] = [];
 	port['computer'] = async () => ({
 		skills: { list: async () => skills },
-		createSession: async ({ label }: { label: string }) => { created.push(label); return { name: 's-1', token: 'ps_1' }; },
+		createSession: async ({ label }: { label: string }) => {
+			created.push(label);
+			return { name: 's-1', token: 'ps_1', exec: async (command: string) => ({ stdout: command === 'pwd' ? '/sessions/s-1/files\n' : '', stderr: '', exitCode: 0, error: '' }) };
+		},
 	}) as never;
 	const env = { endpoint: 'https://offline.invalid', apiKey: 'offline' };
 	await assert.rejects(port.createSession(env, 'credentials', 'binding', 'Pine Drama'), (e: Error) => e instanceof AccountError && e.problem === 'noMedia');
@@ -83,5 +86,19 @@ test('a new session starts only where the Computer offers the drama skill, which
 	await assert.rejects(port.createSession(env, 'credentials', 'binding', 'Pine Drama'), (e: Error) => e instanceof AccountError && e.problem === 'noMedia');
 	assert.deepEqual(created, [], 'no session was started');
 	skills = [{ name: 'drama-workflow', enabled: true }];
-	assert.deepEqual(await port.createSession(env, 'credentials', 'binding', 'Pine Drama'), { name: 's-1', token: 'ps_1' });
+	assert.deepEqual(await port.createSession(env, 'credentials', 'binding', 'Pine Drama'), { name: 's-1', token: 'ps_1', workdir: '/sessions/s-1/files' }, 'its working directory, as pwd printed it');
+});
+
+test('every exec runs in the session\'s working directory, which the agent\'s own cd never moves', async () => {
+	const port = new SdkPort();
+	const calls: { command: string; cwd?: string }[] = [];
+	port['session'] = async () => ({
+		exec: async (command: string, options: { cwd?: string }) => { calls.push({ command, cwd: options.cwd }); return { stdout: 'ok\n', stderr: '', exitCode: 0, error: '' }; },
+	}) as never;
+	const env = { endpoint: 'https://offline.invalid', apiKey: 'offline' };
+	const session = { credentials: 'c', binding: 'b', name: 's-1', token: 'ps_1' };
+	assert.equal(await port.exec(env, { ...session, workdir: '/sessions/s-1/files' }, '( ls )'), 'ok\n');
+	assert.deepEqual(calls, [{ command: '( ls )', cwd: '/sessions/s-1/files' }]);
+	await assert.rejects(port.exec(env, session, '( ls )'), /started by an earlier Pine Drama Studio/, 'a session with no working directory runs nothing');
+	assert.equal(calls.length, 1);
 });

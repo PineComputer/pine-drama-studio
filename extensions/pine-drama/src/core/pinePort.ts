@@ -2,8 +2,6 @@
 // implementation is extensions/pine-drama/src/sdkPort.ts; tests use a fake. No vscode import.
 
 /** The one Pine environment the Studio connects to: no name, only its endpoint and key. */
-import type { ArtifactStore } from './taskArtifacts';
-
 export interface PineConnection {
 	readonly endpoint: string;
 	readonly apiKey: string;
@@ -15,6 +13,8 @@ export interface ComputerSecrets {
 	readonly credentials: string;
 	binding?: string;
 	sessionToken?: string;
+	/** The session's working directory, as its shell printed it before any turn (PineSession.workdir). */
+	workdir?: string;
 }
 
 /**
@@ -45,6 +45,12 @@ export interface PineSession {
 	readonly binding: string;
 	readonly name: string;
 	readonly token: string;
+	/**
+	 * The session's working directory, absolute, as `pwd` printed it right after the session was made: the shell keeps
+	 * the directory the agent last went to (PineSandbox components/execd/pkg/runtime/bash_session.go:384-390), so every
+	 * exec names it. Absent for a session an earlier Studio made, which runs no exec.
+	 */
+	readonly workdir?: string;
 }
 
 export interface TurnView {
@@ -74,26 +80,6 @@ export interface PineEvent {
 /** The request may or may not have reached Pine: its outcome is unknown. */
 export class UnconfirmedError extends Error {
 	readonly name = 'UnconfirmedError';
-}
-
-/** A file a turn returned (SDK `Artifact`; open-pinedrama fleet.ts `TurnFile`). */
-export interface TurnFile {
-	/** Relative to where Pine keeps it: the session's working directory for root `workdir`. */
-	readonly path: string;
-	/** Where Pine keeps it: workdir | artifact | download_quarantine | artifact_store (SDK 0.3.5 `FileRef.root`). */
-	readonly root: string;
-	/** The Computer whose artifact store holds it, for root `artifact_store` (SDK `FileRef.computerId`). */
-	readonly computerId?: string;
-	readonly sha256: string;
-	readonly size: number;
-	readonly type: string;
-}
-
-/** An entry of a working-directory folder (SDK `FileEntry`). */
-export interface FolderEntry {
-	readonly path: string;
-	readonly folder: boolean;
-	readonly size: number;
 }
 
 /**
@@ -182,7 +168,7 @@ export interface PinePort {
 	ensureComputer(env: PineConnection, credentials: string, label: string, idleTimeoutSeconds: number): Promise<{ binding: string }>;
 	/** `running`, `stopped`, … ; MissingError when Pine no longer knows the binding. */
 	computerState(env: PineConnection, credentials: string, binding: string): Promise<string>;
-	createSession(env: PineConnection, credentials: string, binding: string, label: string): Promise<{ name: string; token: string }>;
+	createSession(env: PineConnection, credentials: string, binding: string, label: string): Promise<{ name: string; token: string; workdir: string }>;
 	/** The session's Task id (undefined before its first run); MissingError when the session is gone. */
 	sessionTask(env: PineConnection, session: PineSession): Promise<string | undefined>;
 	/** Idempotent by `key`: a repeat returns the turn it admitted (SDK session.ts, AgentMode.run). */
@@ -196,19 +182,15 @@ export interface PinePort {
 	/** The turn once it ends, or after `timeoutMs` while it runs; 0 reads it once. */
 	turn(env: PineConnection, session: PineSession, turnId: string, timeoutMs: number, signal?: AbortSignal): Promise<TurnView>;
 	events(env: PineConnection, session: PineSession, after: number | undefined, taskId: string | undefined, signal: AbortSignal): AsyncIterable<PineEvent>;
-	/** The files the turn returned (SDK `session.listArtifacts({ turnId })`), with their SHA-256. Pine lists only what the agent returns. */
-	turnFiles(env: PineConnection, session: PineSession, turnId: string): Promise<TurnFile[]>;
+	/**
+	 * Runs `command` in the session's shell, between turns or during one, without starting a turn (SDK `session.exec`),
+	 * and returns its output, which is text lines; a command that exits other than 0 is thrown with what it printed.
+	 */
+	exec(env: PineConnection, session: PineSession, command: string, signal?: AbortSignal): Promise<string>;
 	/** A working-directory file as a stream (SDK `session.openFile`); NoSuchFileError when it is not there. */
 	openFile(env: PineConnection, session: PineSession, path: string): Promise<ReadableStream<Uint8Array>>;
-	/**
-	 * A file a turn returned, read from where its root says: the working directory, or the Computer's artifact store
-	 * (`client.artifacts(computerId)`). Any other root is refused by name rather than read as a working-directory path.
-	 */
-	openReturned(env: PineConnection, session: PineSession, file: TurnFile): Promise<ReadableStream<Uint8Array>>;
 	/** Puts a file under the session's `attachments/` (SDK `session.writeFile`; `name` is one file name). Safe to repeat. */
 	writeFile(env: PineConnection, session: PineSession, name: string, content: Uint8Array): Promise<void>;
-	/** A working-directory folder's entries (SDK `session.listFiles({ path })`); NoSuchFileError when it is not there. */
-	listFolder(env: PineConnection, session: PineSession, folder: string): Promise<FolderEntry[]>;
 	/** The project's idle-timeout policy (`client.projectPolicy()`); allocates nothing. */
 	idlePolicy(env: PineConnection): Promise<IdlePolicy>;
 	/**
@@ -217,12 +199,6 @@ export interface PinePort {
 	 */
 	setIdleTimeout(env: PineConnection, session: Pick<PineSession, 'credentials' | 'binding'>, seconds: number): Promise<number>;
 	stopComputer(env: PineConnection, credentials: string, binding: string): Promise<void>;
-	/**
-	 * The Computer's artifacts (SDK `client.artifacts(computerId)`): a task's input set goes up and its result comes back
-	 * through them (core/taskArtifacts.ts). They outlive a stop, so a stopped Computer's results are read with no restart,
-	 * but not a deletion (UnknownComputerError, seen on pine-dev 2026-11-03): this port has no way to delete a Computer.
-	 */
-	artifacts(env: PineConnection, computerId: string): Promise<ArtifactStore>;
 }
 
 /** Where secrets live: VS Code SecretStorage in the extension, a map in tests. */

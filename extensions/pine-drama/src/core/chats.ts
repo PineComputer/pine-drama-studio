@@ -18,26 +18,25 @@ import { sha256 } from './sha256';
 // 6. "Reconnected" means the remote session and its Task matched; a session found gone at any
 //    point ends, keeps its history and waits for the person before a new session starts.
 // 7. The person's Stop (Code-OSS's own, the request's cancellation) is the one cancel: a send not yet admitted stops
-//    before it uploads or starts anything (its AbortSignal), and a turn Pine runs is cancelled (cancelTurn); what it
-//    stored then lands as any turn's does (doc/protocol.md 4.7). Nothing steers a turn: a message that arrives while one
-//    runs waits for it and then goes as the answer or a new run.
-// 8. A turn's changes land in the project folder as they are stored, and its Pine turn's end settles it, under the same
-//    generation; how it ended is Pine's turn result. A settle that fails is logged and shown, and is taken up again at
-//    the next send or follow.
+//    before it puts or starts anything (its AbortSignal), and a turn Pine runs is cancelled (cancelTurn); what it
+//    changed then lands as any turn's does. Nothing steers a turn: a message that arrives while one runs waits for it
+//    and then goes as the answer or a new run.
+// 8. At a Pine turn's end, however it ended, what its agent changed in the drama's folder on the Computer lands in the
+//    project folder as one commit, and the turn is settled, under the same generation; how it ended is Pine's turn
+//    result. A collection that fails is logged and shown, and is taken up again at the next send or follow.
 // 9. Files the person attaches go into the project folder and up with the Chat's next run; the Studio's note about them
 //    is recorded as the Studio's text.
 // No vscode import.
 
 import { CHANGED_TARGET_NOTE, STANDING_PARAGRAPH, withStandingInstructions } from './instructions';
 import { randomUUID } from 'node:crypto';
-import { AccountError, ConnectionLostError, IDLE_WAITING_SECONDS, IDLE_WORKING_SECONDS, MissingError, NoPineError, OtherPineError, START_WAIT_SECONDS, StartNotConfirmedError, StartTimeoutError, UnconfirmedError, endpointHost, type ComputerSecrets, type IdlePolicy, type PineConnection, type PineEvent, type PinePort, type SecretVault, type PineSession, type TurnView } from './pinePort';
+import { AccountError, ConnectionLostError, PINE_ACCOUNT_URL, IDLE_WAITING_SECONDS, IDLE_WORKING_SECONDS, MissingError, NoPineError, OtherPineError, START_WAIT_SECONDS, StartNotConfirmedError, StartTimeoutError, UnconfirmedError, endpointHost, type ComputerSecrets, type IdlePolicy, type PineConnection, type PineEvent, type PinePort, type SecretVault, type PineSession, type TurnView } from './pinePort';
 import { projectIdentity, projectPlaceOf, projectRootOf } from './projectPlace';
 import { entryFor, type Entry } from './binding';
 import { givenBack, refusalLine } from './refusal';
-import { Holders } from './taskArtifacts';
-import { applyStoredChanges, sendTurnRequest, settleTurn, turnEndedAs, turnMessage, turnRecordOf, type ChangesRead, type TurnPlace, type TurnRecord } from './turn';
+import { collectTurn, putTurnFiles, turnEndedAs, turnRecordOf, type ComputerSession, type TurnRecord } from './turn';
 import { applyPersonChange } from './applyChange';
-import { PERSON_ATTACHMENTS_FOLDER, REQUEST_ATTACHMENT, type ProtocolError } from './protocol';
+import { DRAMA_FOLDER, PERSON_ATTACHMENTS_FOLDER } from './protocol';
 import { type ProjectPlace, unusedName, within } from './placement';
 import { existsSync, mkdirSync, readFileSync, statSync } from 'node:fs';
 import { basename, extname, join } from 'node:path';
@@ -79,9 +78,6 @@ export class BusyElsewhereError extends Error {
 /** A message that arrives while a turn runs waits for it. */
 const WAITING = '_Pine Computer is still running this turn; your message will be sent when it finishes._';
 
-/** The pause between two reads of a running turn's stored changes (doc/protocol.md 4.4). */
-const CHANGE_POLL_MS = 2_000;
-
 /** A picture the person adds goes to person-attachments/ (placeFiles): the image types the Studio shows. */
 const PICTURE = /\.(png|jpe?g|webp)$/i;
 
@@ -111,11 +107,9 @@ export interface ChatServiceOptions {
 	};
 	/**
 	 * The protocol client (doc/protocol.md): each run or answer is a turn. `storage` holds each project's record of its
-	 * turns (`projects/`, turn.ts) and who holds which file (`holders/`), outside the project's folder.
+	 * turns (`projects/`, turn.ts), outside the project's folder.
 	 */
 	protocol?: { readonly storage: string };
-	/** The pause between two reads of a running turn's stored changes (doc/protocol.md 4.4); CHANGE_POLL_MS unless a test makes it short. */
-	changePollMs?: number;
 	/**
 	 * How long the event stream stays open once a turn has ended, for the events Pine sends after the turn reads ended;
 	 * TURN_END_GRACE_MS unless a test, whose fake Pine has sent them all by then, makes it 0.
@@ -246,7 +240,7 @@ export class ChatService {
 		const root = this.projectRoot(key);
 		const record = this.options.protocol && root ? this.turnRecord(root) : undefined;
 		const latest = record?.latestSettled(key);
-		return latest ? record!.settled(latest.request.turn_id)!.files.map(path => `drama/${path}`) : [];
+		return latest ? record!.settled(latest.turn)!.files.map(path => `${DRAMA_FOLDER}/${path}`) : [];
 	}
 
 	history(key: string): Message[] {
@@ -448,19 +442,24 @@ export class ChatService {
 		if (changed) {
 			yield { kind: 'markdown', text: '\n\n_What your message was written for changed while it waited (shown above), so it goes as a new message, with a note telling the agent so._\n\n' };
 		}
-		// A run or an answer is a turn (doc/protocol.md 4.1): its request and every file it names are on the Computer
-		// before the message that starts it is sent, and the turn id is the message's Idempotency-Key.
+		// A run or an answer is a turn: the drama's folder on the Computer holds the project before the message that starts
+		// it is sent, and the turn id is the message's Idempotency-Key.
 		const opId = randomUUID();
-		let task: boolean;
 		try {
-			task = await this.sendTask(key, env, epoch, opId, signal);
+			await this.sendTask(key, env, epoch, session, opId, signal);
 		} catch (error) {
+			// The session is gone, as a run finds it (send): its end is said, and the message goes to the agent started again.
+			if (error instanceof MissingError) {
+				await this.sessionLost(key, epoch, env, session);
+				ending.said = true;
+				return;
+			}
 			this.log(`${key}: task ${opId} could not be prepared: ${(error as Error).stack ?? error}`);
 			yield unsentLine(text, files, `the project could not be sent to the Computer (${(error as Error).message.replace(/[.\s]+$/, '')})`);
 			return;
 		}
 		const said = standing ? withStandingInstructions(noted) : noted;
-		const op: SavedSend = { id: opId, chat_key: key, kind, text: task ? turnMessage(opId, said) : said, target_turn_id: target, state: 'pending', turn_id: null, error: null, after_event: conv.last_applied_event_id, created_at: '' };
+		const op: SavedSend = { id: opId, chat_key: key, kind, text: said, target_turn_id: target, state: 'pending', turn_id: null, error: null, after_event: conv.last_applied_event_id, created_at: '' };
 		this.write(key, epoch, () => {
 			this.store.insertSavedSend(op);
 			// The person's message is recorded as typed; the instructions are the Studio's, in a message of their own.
@@ -504,7 +503,7 @@ export class ChatService {
 		}
 		const env = this.pineOf(conv);
 		const epoch = this.pineSessionGeneration(key);
-		// Owed results first, from the artifacts, with no session: a stopped Computer or an ended session still has them.
+		// Owed results first, before anything starts: from the session they ran in, while Pine still has it.
 		yield* this.collectResultsFromPine(key, env, epoch);
 		if (conv.pine_session_state !== 'open' || conv.state !== 'running') {
 			return;
@@ -531,7 +530,7 @@ export class ChatService {
 	async resumeUnfinishedTurnFollowUps(): Promise<void> {
 		// Not a Chat of another project: that one is its own window's (holdsElsewhere).
 		for (const conv of this.store.chats().filter(c => !this.holdsElsewhere(c.key))) {
-			// An ended session's owed results are published too: they need the Computer's artifacts, not its session.
+			// An ended session's owed turns are taken up too: each is collected or found lost, so none holds up the next.
 			if (!this.hasUnfinishedTurnFollowUp(conv.key)) {
 				continue;
 			}
@@ -591,8 +590,8 @@ export class ChatService {
 	private async *replaceEndedPineSession(key: string): AsyncGenerator<Update> {
 		if (this.options.connectionCurrent?.() === false) { throw new Error('The Pine connection changed. Reload the window before sending more work.'); }
 		// The fence below retires what follows the ended runtime. A publication pass this window runs (the resume at start,
-		// the chat opening) is not that: it reads the Computer's artifacts, which outlive the session, and fencing it fails
-		// it as a takeover, leaving its result owed and this restart refused for it. It ends first.
+		// the chat opening) is not that: it collects or settles the ended session's turns, and fencing it fails it as a
+		// takeover, leaving its result owed and this restart refused for it. It ends first.
 		await this.waitUntilNoCollectionRuns(key);
 		const conv = this.store.chat(key);
 		if (!conv) {
@@ -664,7 +663,7 @@ export class ChatService {
 		// A publication that failed inside collect is saved on its stop (save_error), not thrown: the same case.
 		const unsettled = this.store.unfinishedTurnFollowUps(key);
 		const root = this.projectRoot(key);
-		const open = this.options.protocol && root ? this.turnRecord(root).unsettled(key).filter(t => this.store.savedSend(t.request.turn_id)?.turn_id).map(t => t.request.turn_id) : [];
+		const open = this.options.protocol && root ? this.turnRecord(root).unsettled(key).filter(t => this.store.savedSend(t.turn)?.turn_id).map(t => t.turn) : [];
 		if (unsettled.length || open.length) {
 			notStarted();
 			this.log(`${key}: earlier results are not collected yet (stops ${unsettled.map(row => row.turn_id).join(', ') || 'none'}; tasks ${open.join(', ') || 'none'}), so no new session was started`);
@@ -682,7 +681,8 @@ export class ChatService {
 		}
 		const created = await this.held(key, epoch, () => this.port.createSession(env, secrets.credentials, secrets.binding!, LABEL));
 		secrets.sessionToken = created.token;
-		// The next message's task brings the drama's files in (doc/protocol.md, 4.2).
+		secrets.workdir = created.workdir;
+		// The next message brings the drama's files in (putTurnFiles).
 		const notice = `The agent starts again on Computer ${conv.computer_id}. It does not remember earlier turns of this session, and its working folder is empty: your next message brings the project in from your folder.`;
 		await this.publish(key, epoch, secrets, { computer_state: 'running', pine_session_name: created.name, pine_session_state: 'open', task_id: null, last_applied_event_id: null, state: 'idle', current_turn_id: null, question_turn_id: null, standing_saved_send_id: null }, () => {
 			for (const op of this.store.unconfirmedSavedSends(key)) {
@@ -843,6 +843,7 @@ export class ChatService {
 		if (conv.pine_session_state === 'none') {
 			const created = await this.held(key, epoch, () => this.port.createSession(env, secrets.credentials, secrets.binding!, LABEL));
 			secrets.sessionToken = created.token;
+			secrets.workdir = created.workdir;
 			await this.publish(key, epoch, secrets, { pine_session_name: created.name, pine_session_state: 'open' });
 			this.verified.add(key);
 			conv = this.store.chat(key)!;
@@ -851,7 +852,7 @@ export class ChatService {
 			yield* this.missingCredentials(key, epoch, conv);
 			return undefined;
 		}
-		const session: PineSession = { credentials: secrets.credentials, binding: secrets.binding, name: conv.pine_session_name, token: secrets.sessionToken };
+		const session: PineSession = { credentials: secrets.credentials, binding: secrets.binding, name: conv.pine_session_name, token: secrets.sessionToken, ...secrets.workdir ? { workdir: secrets.workdir } : {} };
 		if (!this.verified.has(key)) {
 			let taskId: string | undefined;
 			try {
@@ -959,7 +960,7 @@ export class ChatService {
 
 	private async *send(key: string, env: PineConnection, epoch: number, session: PineSession, op: SavedSend): AsyncGenerator<Update, SendResult> {
 		try {
-			const turn = await this.held(key, epoch, () => this.dispatch(key, env, session, op));
+			const turn = await this.held(key, epoch, () => this.dispatch(env, session, op));
 			this.sent(key, epoch, op, turn);
 			yield* this.tendIdle(key, env, epoch, session);
 			return { kind: 'sent', turn };
@@ -1026,8 +1027,8 @@ export class ChatService {
 
 	/**
 	 * The person's Stop of a followed turn (streamPineTurnEvents): Pine cancels the Chat's turn, the one it runs or that
-	 * waits on a question (PinePort.cancel). The follow then reads it `canceled`, and what it stored lands as any turn's
-	 * does (doc/protocol.md 4.7). A Chat with no turn of its own running has nothing to cancel.
+	 * waits on a question (PinePort.cancel). The follow then reads it `canceled`, and what it changed lands as any turn's
+	 * does. A Chat with no turn of its own running has nothing to cancel.
 	 */
 	private async cancelTurn(key: string): Promise<void> {
 		const conv = this.store.chat(key);
@@ -1130,14 +1131,8 @@ export class ChatService {
 
 
 
-	/**
-	 * Sends `op` to Pine. A turn's request goes into the session first, as the attachment pine-drama-request.json
-	 * (doc/protocol.md 4.1), so a resend puts it there again, and a session found ended here is handled as the run's is.
-	 */
-	private async dispatch(key: string, env: PineConnection, session: PineSession, op: Pick<SavedSend, 'kind' | 'id' | 'text' | 'target_turn_id'>): Promise<TurnView> {
-		const root = this.projectRoot(key);
-		const sent = this.options.protocol && root ? this.turnRecord(root).sentTurn(op.id) : undefined;
-		if (sent) { await this.port.writeFile(env, session, REQUEST_ATTACHMENT, Buffer.from(JSON.stringify(sent.request))); }
+	/** Sends `op` to Pine. */
+	private async dispatch(env: PineConnection, session: PineSession, op: Pick<SavedSend, 'kind' | 'id' | 'text' | 'target_turn_id'>): Promise<TurnView> {
 		switch (op.kind) {
 			case 'run': return this.port.run(env, session, op.text, op.id);
 		}
@@ -1275,9 +1270,6 @@ export class ChatService {
 			}
 		})();
 
-		// The changes the turn stores while it runs land in the project as they come (doc/protocol.md 4.4).
-		const previews = this.pollChanges(key, epoch, env, () => turnId!);
-
 		/** Turns that ended answered by someone else on the way: their files are settled too. */
 		const answered: TurnView[] = [];
 		const ended = (async () => {
@@ -1299,14 +1291,12 @@ export class ChatService {
 		let turnEnded = false;
 		ended.then(async () => {
 			turnEnded = true;
-			void previews.stop(); // the turn is over: nothing more is read while it runs
 			await new Promise(resolve => setTimeout(resolve, this.options.turnEndGraceMs ?? TURN_END_GRACE_MS));
 			stream.abort();
 			await pump;
 			finished = true;
 			wake?.();
 		}, async (error) => {
-			void previews.stop();
 			failed(error);
 			stream.abort();
 			await pump;
@@ -1329,7 +1319,7 @@ export class ChatService {
 			}
 			if (failure instanceof ConnectionLostError) {
 				// A turn whose own read found it ended is collected, whatever its event stream did: the events carry only
-				// progress, and the result and its files come from the turn and the Computer's artifacts. Retried instead,
+				// progress, and the result and its files come from the turn and the drama's folder on the Computer. Retried instead,
 				// a stream that never recovers would keep a completed turn's results from ever being published.
 				if (!turnEnded) {
 					return failure;
@@ -1341,7 +1331,6 @@ export class ChatService {
 				throw failure;
 			}
 			const last = await ended;
-			await previews.stop(); // before the settle, which reads what it read
 			const ending = this.composeTurnEnding(key, epoch, last);
 			// Collected as every other publication pass: a second follower of the same turn in this window (the resume at
 			// start and Chat's follow) waits in the line, then finds it published (importTurnResultsIntoProjectFolder's first check).
@@ -1354,7 +1343,6 @@ export class ChatService {
 			return undefined;
 		} finally {
 			stream.abort();
-			void previews.stop();
 		}
 	}
 
@@ -1550,70 +1538,45 @@ export class ChatService {
 
 
 	/**
-	 * Puts a turn on the Chat's Computer before its message is sent (doc/protocol.md 4.1, 4.2): the folder's files as its
-	 * history records them, every file the store lacks, then the request (turn.ts sendTurnRequest).
-	 * False when the Chat has no folder or Computer: its message then goes as it is.
+	 * Puts a turn's files on the Chat's Computer before its message is sent (turn.ts putTurnFiles), and records the turn
+	 * with the drama's folder there as its agent will find it. Nothing when the Chat has no folder: its message then goes
+	 * as it is.
 	 */
-	private async sendTask(key: string, env: PineConnection, epoch: number, task: string, signal?: AbortSignal): Promise<boolean> {
+	private async sendTask(key: string, env: PineConnection, epoch: number, session: PineSession, task: string, signal?: AbortSignal): Promise<void> {
 		signal?.throwIfAborted();
 		const root = this.projectRoot(key);
-		const conv = this.store.chat(key);
-		if (!this.options.protocol || !root || !conv?.computer_id) {
-			return false;
+		if (!this.options.protocol || !root) {
+			return;
 		}
 		mkdirSync(root, { recursive: true });
 		const record = this.turnRecord(root);
-		// One turn at a time per session (4.1): the next is sent only once the last one is settled, so it starts from that
-		// turn's files. Only a turn whose send went through (it has a Pine turn and did not fail) can have stored changes;
+		// One turn at a time per session: the next is sent only once the last one is settled, so it starts from that
+		// turn's files. Only a turn whose send went through (it has a Pine turn and did not fail) can have changed any;
 		// one Pine refused or never admitted ran nothing and is not waited for.
-		const waiting = record.unsettled(key).filter(t => { const op = this.store.savedSend(t.request.turn_id); return !!op?.turn_id && op.state !== 'failed'; });
-		if (waiting.length) { throw new Error(`the result of the previous turn (${waiting.map(t => t.request.turn_id).join(', ')}) is not in the project yet`); }
-		const at = await this.turnPlace(key, epoch, env, root, conv.computer_id);
-		const sent = await this.held(key, epoch, () => sendTurnRequest(at, task, key, [], signal));
-		this.generations.assert(key, epoch);
-		this.log(`${key}: turn ${task}: ${Object.keys(sent.request.seed_files).length} file(s), ${sent.copied} copied, ${sent.uploaded} uploaded`);
-		return true;
+		const waiting = record.unsettled(key).filter(t => { const op = this.store.savedSend(t.turn); return !!op?.turn_id && op.state !== 'failed'; });
+		if (waiting.length) { throw new Error(`the result of the previous turn (${waiting.map(t => t.turn).join(', ')}) is not in the project yet`); }
+		this.inBoundFolder(key, root);
+		const put = await this.held(key, epoch, () => putTurnFiles({ port: this.port, env, session, signal }, root, task));
+		// The last point the person's Stop keeps the turn from starting; after it the run goes, and a Stop cancels its turn.
+		signal?.throwIfAborted();
+		await this.held(key, epoch, () => record.send(task, key, session.name, put.before));
+		this.log(`${key}: turn ${task}: ${Object.keys(put.before).length} file(s), ${put.put} put, ${put.removed} removed`);
+	}
+
+	/** The folder is still the bound one: a root moved away or replaced by a link receives nothing. */
+	private inBoundFolder(key: string, root: string): void {
+		if (!within(this.projectPlace(key)!.boundary, root)) { throw new Error('the project leads outside its bound folder'); }
 	}
 
 	/**
-	 * Applies a running Pine turn's changes as they are stored (doc/protocol.md 4.4), until stopped: what its paid calls are
-	 * making arrives with them, in Pine Computer's records (2.4, 4.5).
+	 * The session a turn ran in, while it is still the Chat's: Pine keeps a session's files only until its Computer
+	 * stops (Pine's limits), so a turn whose session was replaced has nothing left to collect.
 	 */
-	private pollChanges(key: string, epoch: number, env: PineConnection, turnId: () => string): { stop(): Promise<void> } {
-		const root = this.projectRoot(key);
-		let stopped = false;
-		let wake: (() => void) | undefined;
-		const read = new Map<string, ChangesRead>();
-		const running = (async () => {
-			// A pause first: a turn that has just started has stored nothing, and one that ends at once is never polled.
-			const pause = () => new Promise<void>(resolve => { const timer = setTimeout(resolve, this.options.changePollMs ?? CHANGE_POLL_MS); wake = () => { clearTimeout(timer); resolve(); }; });
-			for (await pause(); !stopped && this.options.protocol && root; await pause()) {
-				const record = this.turnRecord(root);
-				try {
-					for (const turn of this.store.savedSendsOfTurn(key, turnId()).map(op => op.id).filter(id => record.sentTurn(id) && !record.settled(id))) {
-						const at = await this.turnPlace(key, epoch, env, root, record.sentTurn(turn)!.computer);
-						read.set(turn, await this.held(key, epoch, () => applyStoredChanges(at, turn, read.get(turn))));
-					}
-				} catch (error) {
-					if (error instanceof PineSessionReplacedError) { return; }
-					this.log(`${key}: the changes of turn ${turnId()} could not be applied yet: ${(error as Error).message}`);
-				}
-			}
-		})();
-		return { stop: async () => { stopped = true; wake?.(); await running; } };
-	}
-
-	/** Where a turn of the Chat's project is: its folder, the Computer's store, the Studio's copies (turn.ts TurnPlace). */
-	private async turnPlace(key: string, epoch: number, env: PineConnection, root: string, computer: string): Promise<TurnPlace> {
-		// The folder is still the bound one: a root moved away or replaced by a link receives nothing.
-		if (!within(this.projectPlace(key)!.boundary, root)) { throw new Error('the project leads outside its bound folder'); }
-		const store = await this.held(key, epoch, () => this.port.artifacts(env, computer));
-		return { root, record: this.turnRecord(root), computer, store, holders: this.holders() };
-	}
-
-	/** One Computer remembered per hash, under the protocol storage (taskArtifacts.ts, Holders). */
-	private holders(): Holders {
-		return new Holders(join(this.options.protocol!.storage, 'holders'));
+	private async turnSession(key: string, env: PineConnection, sessionName: string): Promise<ComputerSession | undefined> {
+		const conv = this.store.chat(key);
+		const secrets = conv && await this.secrets(conv);
+		if (!conv || conv.pine_session_name !== sessionName || !secrets?.binding || !secrets.sessionToken) { return undefined; }
+		return { port: this.port, env, session: { credentials: secrets.credentials, binding: secrets.binding, name: sessionName, token: secrets.sessionToken, ...secrets.workdir ? { workdir: secrets.workdir } : {} } };
 	}
 
 	/** The Studio's record of the project's turns at `root`, under the extension's storage (turn.ts, TurnRecord). */
@@ -1627,8 +1590,8 @@ export class ChatService {
 
 
 	/**
-	 * At a Pine turn's end: each turn it carried is settled, every change it stored on the Computer that ran it applied
-	 * (doc/protocol.md 4.4).
+	 * At a Pine turn's end: each turn it carried is settled, what its agent changed in the drama's folder on the Computer
+	 * landed (turn.ts collectTurn).
 	 */
 	private async *importTurnResultsIntoProjectFolder(key: string, env: PineConnection, epoch: number, turn: { turnId: string; state: string; asked: string }, ending: readonly Update[] = [], settledBefore?: boolean): AsyncGenerator<Update> {
 		const finalWords = (): Update[] => ending.map(update => update.kind === 'markdown' && update.question
@@ -1661,20 +1624,22 @@ export class ChatService {
 			shown.push({ kind: 'markdown', text: `\n\n_${line}_` });
 			this.changed(key);
 		};
-		const why = (error: ProtocolError) => `${error.message}${error.action ? ` ${error.action}` : ''}`;
 		try {
 			for (const task of tasks) {
 				this.generations.assert(key, epoch);
-				const at = await this.turnPlace(key, epoch, env, root, record.sentTurn(task)!.computer);
-				const settled = await this.held(key, epoch, () => settleTurn(at, task));
-				if (settled.kind === 'refused with upgrade instructions') {
-					const { refusal } = settled;
-					tell(refusal.downloadLabel ? `${refusal.message} [${refusal.downloadLabel}](${refusal.downloadUrl})` : refusal.message);
-					continue;
-				}
-				// What Pine Computer could not do is its record of the turn, in the folder (doc/protocol.md 2.4, 4.6). A turn that
-				// ran no drama-cli command leaves none, and nothing is said.
-				for (const item of settled.record?.couldNotDo ?? []) { tell(`${item.objectOrFile}: ${why(item.error)}`); }
+				const sent = record.sentTurn(task)!;
+				this.inBoundFolder(key, root);
+				// A session Pine no longer has took its files with it (Pine keeps them only while the Computer runs): said once,
+				// and the turn is settled, so it never holds up the next.
+				const at = await this.turnSession(key, env, sent.session);
+				const collected = at && await this.held(key, epoch, () => collectTurn(at, root, task, sent.before)).catch(error => {
+					if (error instanceof MissingError) { return undefined; }
+					throw error;
+				});
+				await record.settle(task, { files: collected?.files ?? [] });
+				if (!collected) { tell(`The results of turn ${task} were on a Computer session that has ended, so they could not be brought into your project. Nothing is run again by itself. What Pine charged for the turn is in your Pine account at ${PINE_ACCOUNT_URL}`); }
+				if (collected?.unasked.length) { this.log(`${key}: turn ${task}: the Computer's tar held entries not asked for, not read: ${collected.unasked.join(', ')}`); }
+				if (collected?.notPaths.length) { tell(`Not paths of the project, so each is not brought into your project and is removed at the next turn: ${collected.notPaths.join(', ')}`); }
 			}
 		} catch (error) {
 			if (error instanceof PineSessionReplacedError) { throw error; }
@@ -1700,12 +1665,6 @@ export class ChatService {
 
 	// ---- resuming tasks whose results were not published ----
 
-	/**
-	 * Publishes every result the Chat is owed that the Computer's artifacts already hold: a turn whose publication
-	 * did not finish, and a task whose turn ended with its manifest saved. It needs no session: artifacts outlive a stop,
-	 * so a stopped Computer or an ended session does not keep a result from the project, and
-	 * nothing is started or sent again. A turn not settled at its Pine turn's end stays owed.
-	 */
 	/**
 	 * Every collection pass of a Chat goes through here (serial core; section 2), one at
 	 * a time in its line (runOneCollectionPerChat). Without `turnEnd` it is the owed pass (collectResultsStillOwed): the chat opening (attachChatToRunningPineTurn),
@@ -1760,7 +1719,7 @@ export class ChatService {
 		}
 		const root = this.projectRoot(key);
 		for (const sent of this.options.protocol && root ? this.turnRecord(root).unsettled(key) : []) {
-			const turnId = this.store.savedSend(sent.request.turn_id)?.turn_id;
+			const turnId = this.store.savedSend(sent.turn)?.turn_id;
 			if (!turnId || pending.has(turnId) || (conv && conv.pine_session_state !== 'ended' && conv.state === 'running' && conv.current_turn_id === turnId)) {
 				continue;
 			}

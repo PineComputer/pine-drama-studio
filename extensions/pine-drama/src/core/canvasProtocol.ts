@@ -15,10 +15,10 @@ export const shortDate = (iso: string): string => iso.slice(0, 16).replace('T', 
 
 /**
  * What an object with nothing shown yet says, the one wording for the canvas card, the seg editor's badge and the tree:
- * being made while a paid call for it is under way, else not shot yet for a take or a cut, not drawn yet for the rest.
+ * not shot yet for a take or a cut, not drawn yet for the rest.
  */
-export function notMadeText(type: string, makingNow: boolean): string {
-	return makingNow ? 'Being made' : type === 'take' || type === 'cut' ? 'Not shot yet' : 'Not drawn yet';
+export function notMadeText(type: string): string {
+	return type === 'take' || type === 'cut' ? 'Not shot yet' : 'Not drawn yet';
 }
 
 /** The global assets canvas's key, in place of an episode (the assets canvas). */
@@ -40,8 +40,6 @@ export interface CanvasCard {
 	readonly column: number;
 	/** Its shown file, project-relative (object.json `shown_file`), or null for a planned, empty card. */
 	readonly file: string | null;
-	/** A paid call for it is under way (project.ts makingNow). */
-	readonly makingNow: boolean;
 	/** What the file is: an image or video the webview loads, a text, or no file. */
 	readonly media: 'image' | 'video' | 'text' | 'none';
 	/** A webview URI of the file, for an image or video. */

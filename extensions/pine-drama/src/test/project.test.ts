@@ -7,7 +7,6 @@ import { lineageMessage } from '../core/canvasMessage';
 import { onBoard } from '../core/canvasLayout';
 import { RefusedWithUpgradeInstructions, STUDIO_RELEASES_URL } from '../core/protocol';
 import { DramaProject, episodeOfNode, fileAddressByVersion, objectTitle, readProjectFromFolder } from '../core/project';
-import { PAID_CALLS_FOLDER } from '../core/protocol';
 import { decomposition } from '../core/threeSteps';
 
 // The project as every view reads it (core/project.ts, readProjectFromFolder), on the major-2 fixture
@@ -55,24 +54,14 @@ test("the edges are each variant's derivation and the relations object.json stat
 	]);
 });
 
-test('a folder without object.json, or under a name starting with ".", is no object; an object is being made while Pine Computer\'s records hold a paid call for it not settled', async () => {
+test('a folder without object.json, or under a name starting with ".", is no object', async () => {
 	const root = copy('after-bible');
 	mkdirSync(join(root, 'assets/characters/lin/looks/face'), { recursive: true });
 	writeFileSync(join(root, 'assets/characters/lin/looks/face/face.png'), 'x');
 	mkdirSync(join(root, '.git/thing'), { recursive: true });
 	writeFileSync(join(root, '.git/thing/object.json'), JSON.stringify({ schema: 2, type: 'prop', name: 'Hidden', shown_file: null }));
-	// Pine Computer's records (doc/protocol.md 2.4, 4.5): a call sent for Lin, not settled; one for the umbrella, settled.
-	const call = (id: string, object: string, state: string) => {
-		mkdirSync(join(root, PAID_CALLS_FOLDER, id), { recursive: true });
-		writeFileSync(join(root, PAID_CALLS_FOLDER, id, `${state}.json`), JSON.stringify({ schema: 2, paid_call_id: id, object_id: object, state, state_written_at: '2026-11-14T10:00:00Z' }));
-	};
-	call('call-1', 'assets/characters/lin', 'pine_computer_sent_request_to_provider');
-	call('call-2', 'assets/props/umbrella', 'pine_computer_sent_request_to_provider');
-	call('call-2', 'assets/props/umbrella', 'provider_returned_output_to_pine_computer');
 	const drama = await readProjectFromFolder(root);
 	assert.deepEqual([...drama.objects.keys()].sort(), ['assets/characters/lin', 'assets/props/umbrella', 'assets/scenes/office', 'bible', 'episodes/EP001', 'screenplay']);
-	assert.equal(drama.objects.get('assets/characters/lin')!.makingNow, true);
-	assert.equal(drama.objects.get('assets/props/umbrella')!.makingNow, false);
 	assert.ok([...drama.objects.values()].filter(o => o.type === 'character' || o.type === 'scene' || o.type === 'prop').every(o => o.shownFile === null),
 		'right after the bible every asset is planned');
 });

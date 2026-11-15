@@ -110,7 +110,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	const connectionRoot = config.kind === 'set' && config.saved
 		? join(context.globalStorageUri.fsPath, 'connections', connectionScope(config.pine)) : config.kind === 'disconnected' ? join(context.globalStorageUri.fsPath, 'connections', 'disconnected') : context.globalStorageUri.fsPath;
 	await mkdir(connectionRoot, { recursive: true });
-	// The protocol client's storage (doc/protocol.md): kept archives and each drama's record, outside the drama's folder.
+	// The protocol client's storage: each drama's record of its turns (turn.ts TurnRecord), outside the drama's folder.
 	protocolStorage = join(connectionRoot, 'protocol');
 	opened?.views.refresh();
 	const dbPath = join(connectionRoot, 'studio.sqlite');

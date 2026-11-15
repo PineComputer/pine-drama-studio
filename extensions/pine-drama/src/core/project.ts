@@ -9,7 +9,7 @@ import { join } from 'node:path';
 import { CHOICES_FILE } from './major1';
 import { noFileThere, writeWhole } from './placement';
 import { projectIdentity } from './projectPlace';
-import { DESCRIPTION_FILE, OBJECT_FILE, PAID_CALLS_FOLDER, PROJECT_MARKER_FILE, PROMPT_FILE, RECEIPT_SUFFIX, TURN_RECORDS_FOLDER, majorTwo, type Edge, type ObjectType, type ProtocolError } from './protocol';
+import { DESCRIPTION_FILE, OBJECT_FILE, PROJECT_MARKER_FILE, PROMPT_FILE, RECEIPT_SUFFIX, majorTwo, type Edge, type ObjectType } from './protocol';
 
 
 
@@ -18,7 +18,7 @@ import { DESCRIPTION_FILE, OBJECT_FILE, PAID_CALLS_FOLDER, PROJECT_MARKER_FILE, 
 export interface ObjectEdge {
 	readonly from: string;
 	readonly to: string;
-	readonly kind: 'variant_of' | 'inside_of' | 'appears_in' | 'needs';
+	readonly kind: 'variant_of' | 'inside_of' | 'appears_in';
 }
 
 /** The receipt beside a paid output (doc/protocol.md 2.3): what it was made from, with what prompt, for what cost. */
@@ -55,8 +55,6 @@ export interface ProjectObject {
 	/** The text of its description.md and prompt.md, or null without one. */
 	readonly description: string | null;
 	readonly prompt: string | null;
-	/** A paid call for it is under way: sent to the provider, with no terminal state yet (doc/protocol.md 4.5). */
-	readonly makingNow: boolean;
 }
 
 /** The project as every view reads it, from its folder alone (readProjectFromFolder). */
@@ -119,52 +117,12 @@ export async function readObjectFile(projectRoot: string, id: string): Promise<R
 	return majorTwo(`${id}/${OBJECT_FILE}`, JSON.parse(await readFile(join(projectRoot, ...id.split('/'), OBJECT_FILE), 'utf8')));
 }
 
-/** A turn's own record by Pine Computer (doc/protocol.md 2.4, `$defs/pineComputerTurnRecord`). */
-export interface PineComputerTurnRecord {
-	readonly couldNotDo: readonly { readonly objectOrFile: string; readonly error: ProtocolError }[];
-}
-
-/**
- * Turn `turnId`'s record by Pine Computer in the folder (2.4), or undefined where it left none: a turn that ran no
- * drama-cli command, such as a plain question, writes none, so a missing record says nothing more.
- */
-export async function readPineComputerTurnRecord(projectRoot: string, turnId: string): Promise<PineComputerTurnRecord | undefined> {
-	const name = `${TURN_RECORDS_FOLDER}/${turnId}.json`;
-	const text = await readTextOrNull(join(projectRoot, ...name.split('/')));
-	if (text === null) { return undefined; }
-	const raw = majorTwo(name, JSON.parse(text));
-	return {
-		couldNotDo: (Array.isArray(raw.pine_computer_could_not_do) ? raw.pine_computer_could_not_do : []).map((item: unknown) => ({ objectOrFile: String(Object(item).object_or_file), error: Object(Object(item).error) })),
-	};
-}
-
-/** The paid-call states that settle a call (doc/protocol.md 4.5); a call whose outcome cannot be learned is not settled. */
-const SETTLED: ReadonlySet<string> = new Set(['provider_returned_output_to_pine_computer', 'provider_reported_failure_to_pine_computer', 'pine_computer_cancelled_call_after_person_pressed_stop']);
-
-/**
- * The objects being made now (doc/protocol.md 4.5, "Making"), from Pine Computer's records in the folder (2.4): each with a
- * paid call sent to its provider and not settled. A call's states are its record files, `<state>.json`; the one it was
- * sent with names its object.
- */
-async function objectsBeingMade(projectRoot: string): Promise<Set<string>> {
-	const calls = join(projectRoot, ...PAID_CALLS_FOLDER.split('/'));
-	const making = new Set<string>();
-	for (const call of (await readdir(calls, { withFileTypes: true }).catch(error => { if (noFileThere(error)) { return []; } throw error; })).filter(e => e.isDirectory())) {
-		const states = (await readdir(join(calls, call.name))).filter(name => name.endsWith('.json')).map(name => name.slice(0, -'.json'.length));
-		if (!states.includes('pine_computer_sent_request_to_provider') || states.some(state => SETTLED.has(state))) { continue; }
-		const sent = join(PAID_CALLS_FOLDER, call.name, 'pine_computer_sent_request_to_provider.json');
-		making.add(String(majorTwo(sent, JSON.parse(await readFile(join(projectRoot, sent), 'utf8'))).object_id));
-	}
-	return making;
-}
-
 /**
  * Reads the project at `projectRoot` from its folder (doc/protocol.md 2.2, section 5), the one reader every view uses:
- * every folder holding object.json, outside names starting with "." (section 1), is an object, and it is being made while
- * Pine Computer's records hold a paid call for it not settled (4.5).
+ * every folder holding object.json, outside names starting with "." (section 1), is an object.
  */
 export async function readProjectFromFolder(projectRoot: string): Promise<ProjectReadModel> {
-	const [listed, makingNow] = await Promise.all([objectFiles(projectRoot, ''), objectsBeingMade(projectRoot)]);
+	const listed = await objectFiles(projectRoot, '');
 	const read = await Promise.all(listed.map(async name => {
 		const id = name === OBJECT_FILE ? '' : name.slice(0, -OBJECT_FILE.length - 1);
 		const at = (file: string) => join(projectRoot, ...id.split('/'), file);
@@ -183,7 +141,7 @@ export async function readProjectFromFolder(projectRoot: string): Promise<Projec
 		setting: raw.setting === 'interior' || raw.setting === 'exterior' ? raw.setting : null,
 		variantOf: typeof raw.variant_of === 'string' ? raw.variant_of : null,
 		objectsSentByDrawRequest: Array.isArray(raw.objects_sent_by_draw_request) ? raw.objects_sent_by_draw_request.map(String) : [],
-		makingNow: makingNow.has(id), ...files,
+		...files,
 	}]));
 	const relations = read.flatMap(({ id, raw }) => (Array.isArray(raw.relations) ? raw.relations : []).map((r: unknown) => ({ from: id, to: String(Object(r).to), kind: Object(r).kind })));
 	const edges: ObjectEdge[] = [...[...objects.values()].filter(o => o.variantOf).map(o => ({ from: o.id, to: o.variantOf!, kind: 'variant_of' as const })), ...relations]

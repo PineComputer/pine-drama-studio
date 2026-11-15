@@ -72,7 +72,7 @@ test("the episode canvas draws every line from what each draw request sends, dra
 	]);
 	const card = (id: string) => message.cards.find(c => c.id === id)!;
 	assert.deepEqual([card('episodes/EP001/segments/seg01').file, card('episodes/EP001/segments/seg01').media], ['episodes/EP001/segments/seg01/take.mp4', 'video']);
-	assert.deepEqual([card('episodes/EP001/segments/seg02').file, card('episodes/EP001/segments/seg02').makingNow], [null, false]);
+	assert.equal(card('episodes/EP001/segments/seg02').file, null);
 });
 
 test("the composer's references are what the next draw request sends, numbered Image 1..N in its order", async () => {

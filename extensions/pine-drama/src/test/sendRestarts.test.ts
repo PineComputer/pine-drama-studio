@@ -9,7 +9,6 @@ import { Store } from '../core/store';
 import { FakePine, MemoryVault } from './fakePine';
 import { idleStopAndDiscover } from './idleStop';
 import { testProtocol } from './protocolFixture';
-import { withoutTask } from './protocolFixture';
 
 // The person, 2026-11-05 (a tester's report on v0.1.4-b1: "Your message was not sent, and is kept as a draft: the session
 // it was for has ended … Start the agent again"): a message sent to a session Pine reports ended starts the agent again
@@ -27,7 +26,7 @@ function fixture() {
 	const options = { holdsProject: () => true, store, port: pine, vault: new MemoryVault(), pine: { endpoint: 'https://offline.invalid', apiKey: 'offline' },
 		files: { projectsRoot: join(dir, 'projects') }, protocol: testProtocol(dir) };
 	const service = new ChatService(options);
-	const sent = (text: string) => (store.db.prepare("select count(*) as n from saved_sends where text like ? and state = 'sent'").get(`pine-drama-turn %\n${text}%`) as { n: number }).n;
+	const sent = (text: string) => (store.db.prepare("select count(*) as n from saved_sends where text like ? and state = 'sent'").get(`${text}%`) as { n: number }).n;
 	return { root, store, pine, service, options, sent };
 }
 
@@ -168,8 +167,8 @@ test('a message whose question changed, sent to a session that then ended, goes 
 		assert.doesNotMatch(said, /not sent/);
 		assert.equal(f.pine.calls.createSession, 2, 'one new session');
 		assert.equal(f.sent('EP002 instead'), 1, 'sent once, in the new session');
-		const op = f.store.db.prepare("select id, text from saved_sends where text like 'pine-drama-turn %' || char(10) || 'EP002 instead%' and state = 'sent'").get() as { id: string; text: string };
-		assert.ok(withoutTask(op.text).startsWith(`EP002 instead\n\n${CHANGED_TARGET_NOTE}`), op.text);
+		const op = f.store.db.prepare("select id, text from saved_sends where text like 'EP002 instead%' and state = 'sent'").get() as { id: string; text: string };
+		assert.ok(op.text.startsWith(`EP002 instead\n\n${CHANGED_TARGET_NOTE}`), op.text);
 		assert.ok(f.store.messages('main').some(m => m.kind === 'instructions' && m.text === CHANGED_TARGET_NOTE && m.saved_send_id === op.id), 'the note is recorded with the send that went');
 	} finally { f.store.close(); }
 });

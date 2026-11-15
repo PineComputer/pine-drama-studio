@@ -45,22 +45,11 @@ export const PROMPT_FILE = 'prompt.md';
 /** The suffix of a paid output's receipt beside it, `<file>.receipt.json` (doc/protocol.md 2.3). */
 export const RECEIPT_SUFFIX = '.receipt.json';
 
-/** Pine Computer's records, ordinary files of the drama that come back as changes (doc/protocol.md 2.4). */
-export const PINE_COMPUTER_RECORDS = 'pine-computer-records';
-
-/** Each paid call's states, `<paid call id>/<state>.json`, under Pine Computer's records (doc/protocol.md 4.5). */
-export const PAID_CALLS_FOLDER = `${PINE_COMPUTER_RECORDS}/paid-calls`;
-
-/** Each turn's own record, `<turn id>.json`, under Pine Computer's records (doc/protocol.md 2.4, `$defs/pineComputerTurnRecord`). */
-export const TURN_RECORDS_FOLDER = `${PINE_COMPUTER_RECORDS}/turns`;
-
-/** The request a client puts into the session right before a turn's message (doc/protocol.md 4.1, 4.2). */
-export const REQUEST_ATTACHMENT = 'pine-drama-request.json';
+/** The drama's folder on Pine Computer, in the session's working directory (where Pine's exec starts). */
+export const DRAMA_FOLDER = 'drama';
 
 /** The folder of the files the person attaches to a note or a chat message, `<id>.<ext>` (doc/protocol.md section 3). */
 export const PERSON_ATTACHMENTS_FOLDER = 'person-attachments';
-
-export type Hash = string;
 
 export type ObjectType = 'episode' | 'screenplay' | 'bible' | 'character' | 'scene' | 'prop' | 'variant' | 'breakdown'
 	| 'storyboard' | 'keyframe' | 'video_prompts' | 'take' | 'cut' | 'subtitles';
@@ -68,41 +57,7 @@ export type ObjectType = 'episode' | 'screenplay' | 'bible' | 'character' | 'sce
 export interface Edge {
 	readonly from: string;
 	readonly to: string;
-	readonly kind: 'variant_of' | 'inside_of' | 'appears_in' | 'needs';
-}
-
-/** The person's feedback for Pine Computer (doc/protocol.md 4.2, `$defs/note`). */
-export interface Note {
-	readonly object_id: string;
-	readonly text: string;
-	readonly attached_file?: string;
-	readonly position_in_shown_file?: { readonly x: number; readonly y: number };
-	readonly seconds_into_video?: number;
-}
-
-/** The session attachment `pine-drama-request.json` (doc/protocol.md 4.1, 4.2, `$defs/request`). */
-export interface Request {
-	readonly schema: 2;
-	readonly turn_id: string;
-	readonly seed_files: Readonly<Record<string, Hash>>;
-	readonly notes_for_pine_computer: readonly Note[];
-}
-
-/** `turns/<turn id>/changes/<change number>.json` (doc/protocol.md 4.3, `$defs/change`): one finished result. */
-export interface Change {
-	readonly schema: 2;
-	readonly turn_id: string;
-	readonly change_number: number;
-	readonly previous_change_sha256: Hash | null;
-	readonly files_after_change: Readonly<Record<string, Hash | null>>;
-}
-
-/** An error a document names (doc/protocol.md section 6, `$defs/error`). */
-export interface ProtocolError {
-	readonly code: string;
-	readonly message: string;
-	readonly action?: string;
-	/** On a refusal of another major: the lowest client version that reads it, and where to download it (section 7). */
+	readonly kind: 'variant_of' | 'inside_of' | 'appears_in';
 }
 
 /**

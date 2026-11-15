@@ -8,7 +8,7 @@ import { existsSync } from 'node:fs';
 import { mkdir, rm } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { throughNoLink, writeWhole } from './placement';
-import { commitPathsToHistory, historyHasTurnChange, runInProjectWriteQueue, turnChangeTrailers } from './projectHistory';
+import { commitPathsToHistory, historyHasTurn, runInProjectWriteQueue, turnTrailers } from './projectHistory';
 import { matches, RECEIPT_SUFFIX } from './protocol';
 import { sha256, sha256OfFile } from './sha256';
 
@@ -17,18 +17,18 @@ export interface ProjectFolderChange {
 	readonly filesAfterChange: Readonly<Record<string, string | null>>;
 	readonly author: 'pine-computer' | 'person';
 	readonly commitMessage: string;
-	/** A turn's change (4.3): its commit carries Pine-Turn-Id and Pine-Change-Number, by which it is found resolved. */
-	readonly turnChange?: { readonly turnId: string; readonly changeNumber: number };
+	/** The turn whose result it is: its commit carries Pine-Turn-Id, by which it is found landed. */
+	readonly turnId?: string;
 }
 
 /** What applying a change did. */
 export type ChangeApplied =
 	| 'written and committed'
-	/** A commit carries its trailers already: nothing was written. */
+	/** A commit carries the turn's trailer already: nothing was written. */
 	| 'already in history'
 	/**
-	 * Every path held what the change gives it already: nothing was written. A turn's change (a crash's files a
-	 * found-on-disk commit took) is recorded by a commit of its trailers alone.
+	 * Every path held what the change gives it already: nothing was written. A turn's result (a crash's files a
+	 * found-on-disk commit took) is recorded by a commit of its trailer alone.
 	 */
 	| 'already on disk';
 
@@ -38,9 +38,9 @@ export class NotAProjectPathError extends Error {
 }
 
 /**
- * Applies `change` to the project folder at `projectRoot` (4.4), in its write queue: resolved already, else every file
+ * Applies `change` to the project folder at `projectRoot`, in its write queue: landed already, else every file
  * written (a temporary sibling, then a rename; receipts before their outputs; null deletes) and one commit of exactly
- * those paths. `readFileBytesBySha256` gives a file's bytes: the store's for a turn's change, the history's for a Use or
+ * those paths. `readFileBytesBySha256` gives a file's bytes: the Computer's for a turn's result, the history's for a Use or
  * an Undo; each is checked against its hash, and all are read before anything is written.
  */
 export function applyChangeToProjectFolder(projectRoot: string, change: ProjectFolderChange,
@@ -50,8 +50,8 @@ export function applyChangeToProjectFolder(projectRoot: string, change: ProjectF
 
 /** applyChangeToProjectFolder's work, inside the project's write queue. */
 async function land(projectRoot: string, change: ProjectFolderChange, readFileBytesBySha256: (sha256: string) => Promise<Buffer>): Promise<ChangeApplied> {
-	// Resolved first (4.4 step 1): a change applied before is skipped whatever the folder holds now.
-	if (change.turnChange && await historyHasTurnChange(projectRoot, change.turnChange.turnId, change.turnChange.changeNumber)) {
+	// A turn's result landed before is skipped whatever the folder holds now, so landing it again is a no-op.
+	if (change.turnId && await historyHasTurn(projectRoot, change.turnId)) {
 		return 'already in history';
 	}
 	const paths = Object.keys(change.filesAfterChange);
@@ -60,11 +60,11 @@ async function land(projectRoot: string, change: ProjectFolderChange, readFileBy
 	// A path through a link is not the project's (placement.ts throughNoLink).
 	const notPaths = paths.filter((path, i) => !validPath(path) || !throughNoLink(projectRoot, path) || keys.indexOf(keys[i]) !== i);
 	if (notPaths.length) { throw new NotAProjectPathError(notPaths); }
-	const trailers = change.turnChange ? turnChangeTrailers(change.turnChange.turnId, change.turnChange.changeNumber) : {};
+	const trailers = change.turnId ? turnTrailers(change.turnId) : {};
 	// A path to delete is as the change wants it when nothing is there, so what goes is never read (git rm -r).
 	const asWanted = async (path: string) => change.filesAfterChange[path] === null ? !existsSync(join(projectRoot, path)) : await sha256OfFile(join(projectRoot, path)) === change.filesAfterChange[path];
 	if ((await Promise.all(paths.map(asWanted))).every(Boolean)) {
-		if (change.turnChange) { await commitPathsToHistory(projectRoot, change.author, paths, change.commitMessage, trailers); }
+		if (change.turnId) { await commitPathsToHistory(projectRoot, change.author, paths, change.commitMessage, trailers); }
 		return 'already on disk';
 	}
 	const bytes = new Map(await Promise.all(paths.map(async path => {

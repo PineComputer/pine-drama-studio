@@ -1,130 +1,183 @@
 import { strict as assert } from 'node:assert';
-import { cpSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { cpSync, existsSync, linkSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { mkdtemp, readdir, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { git } from '../core/git';
 import { writeWhole } from '../core/placement';
 import { sha256 } from '../core/sha256';
-import { changeKey, fileKey, Holders, putAll, type ArtifactStore } from '../core/taskArtifacts';
-import { RefusedWithUpgradeInstructions, STUDIO_RELEASES_URL } from '../core/protocol';
-import { applyStoredChanges, sendTurnRequest, settleTurn, turnMessage, turnRecordOf, type TurnPlace } from '../core/turn';
+import { collectTurn, listComputerFiles, putTurnFiles, turnRecordOf, type ComputerSession } from '../core/turn';
+import { FakePine } from './fakePine';
 
-// A turn on the Studio's side, protocol major 2 (core/turn.ts, doc/protocol.md section 4), over a store in memory, on the
-// major-2 fixture (test-fixtures/project-v2/full): the rules that, broken, would send a seed that is not the folder as
-// recorded, upload a file twice, apply a change out of order or twice, or settle a turn short of what it stored.
+// A turn on the Studio's side (core/turn.ts): the drama's folder on a fake Computer whose working directory is a real
+// folder, where the Studio's commands run in bash. The rules that, broken, would start the agent on a folder that is
+// not the project as recorded, land what the agent did not change, miss what it did, or land one turn twice.
 const FIXTURE = join(__dirname, '..', '..', 'test-fixtures', 'project-v2', 'full');
+const ENV = { endpoint: 'http://pine.invalid', apiKey: 'k' };
 
-/** A Computer's store in memory, counting uploads (taskArtifacts.ts, ArtifactStore). */
-function memoryStore(): ArtifactStore & { readonly files: Map<string, Buffer>; uploads: number } {
-	const files = new Map<string, Buffer>();
-	return {
-		files, uploads: 0,
-		async list(prefix) { return [...files].filter(([k]) => k.startsWith(prefix)).map(([path, bytes]) => ({ path, size: bytes.length })); },
-		async upload(path, bytes) { this.uploads++; files.set(path, Buffer.from(bytes)); },
-		async read(path) { return files.get(path); },
-		async copy() { throw new Error('one Computer only'); },
-	};
-}
-
-function place(): TurnPlace & { store: ReturnType<typeof memoryStore> } {
+/** A project copied from the fixture, and a session on a fake Computer, with the drama's folder in its working directory. */
+async function place(): Promise<{ root: string; at: ComputerSession & { readonly pine: FakePine }; drama: string }> {
 	const root = mkdtempSync(join(tmpdir(), 'turn-project-'));
 	cpSync(FIXTURE, root, { recursive: true });
+	const pine = new FakePine();
+	const { serialized } = await pine.newCredentials();
+	const { binding } = await pine.ensureComputer(ENV, serialized, 'test', 60);
+	const created = await pine.createSession(ENV, serialized, binding);
+	return { root, at: { pine, port: pine, env: ENV, session: { credentials: serialized, binding, ...created } }, drama: join(created.workdir, 'drama') };
+}
+
+/** What the agent does in the drama's folder: writes each file, or deletes it for null. */
+function agent(drama: string, files: Record<string, string | Buffer | null>): void {
+	for (const [path, content] of Object.entries(files)) {
+		if (content === null) { rmSync(join(drama, path)); continue; }
+		mkdirSync(dirname(join(drama, path)), { recursive: true });
+		writeFileSync(join(drama, path), content);
+	}
+}
+
+const head = async (root: string) => (await git(['rev-parse', 'HEAD'], root)).stdout.trim();
+
+test('before the agent runs, the drama\'s folder holds every file of the project as its history records it, hidden ones aside, and only what differs moves', async () => {
+	const { root, at, drama } = await place();
+	writeFileSync(join(root, 'inputs-brief.md'), 'a brief written by hand');
+	writeFileSync(join(root, '.notes'), 'hidden');
+	// An extended attribute, the way each OS sets one (Windows has none to set): the archive is node-tar's portable one,
+	// which carries no AppleDouble `._` member and no attribute, so each file extracts as itself alone.
+	const look = join(root, 'assets/characters/lin/look.png');
+	if (process.platform === 'linux') { execFileSync('python3', ['-c', 'import os, sys; os.setxattr(sys.argv[1], "user.pine.test", b"1")', look]); }
+	if (process.platform === 'darwin') { execFileSync('xattr', ['-w', 'user.pine.test', '1', look]); }
+	const first = await putTurnFiles(at, root, 'turn-1');
+	const extracted = readdirSync(drama, { recursive: true, withFileTypes: true }).filter(e => e.isFile()).map(e => join(e.parentPath, e.name).slice(drama.length + 1));
+	assert.deepEqual(extracted.sort(), Object.keys(first.before).sort(), 'exactly the project\'s files, no ._ member, nothing hidden');
+	assert.equal((await git(['status', '--porcelain', '--', 'inputs-brief.md'], root)).stdout, '', 'a hand edit is recorded first');
+	const files = (await git(['ls-tree', '-r', '--name-only', 'HEAD'], root)).stdout.trim().split('\n').filter(path => !path.startsWith('.'));
+	assert.deepEqual(Object.keys(first.before).sort(), files.sort(), 'every file of HEAD but a hidden one');
+	for (const path of files) { assert.equal(first.before[path], sha256(readFileSync(join(root, path))), path); }
+	assert.equal(readFileSync(join(drama, 'assets/characters/lin/look.png')).equals(readFileSync(join(root, 'assets/characters/lin/look.png'))), true);
+	assert.equal(existsSync(join(drama, '.notes')), false);
+	assert.deepEqual(readdirSync(join(drama, '..', 'attachments')), [], 'the parts are gone once extracted');
+	// The agent's own edit and a file of its own, then the person's edit: the next turn puts back only what differs.
+	agent(drama, { 'assets/props/umbrella/description.md': 'the agent\'s, not landed', 'scratch.txt': 'the agent\'s own' });
+	writeFileSync(join(root, 'inputs-brief.md'), 'the brief, changed');
+	rmSync(join(root, 'assets/scenes/street/prompt.md'));
+	const second = await putTurnFiles(at, root, 'turn-2');
+	assert.deepEqual([second.put, second.removed], [2, 2], 'the brief and the description go up; the deleted prompt and the agent\'s own file go');
+	assert.equal(readFileSync(join(drama, 'assets/props/umbrella/description.md'), 'utf8'), readFileSync(join(root, 'assets/props/umbrella/description.md'), 'utf8'));
+	assert.deepEqual([existsSync(join(drama, 'scratch.txt')), existsSync(join(drama, 'assets/scenes/street/prompt.md'))], [false, false]);
+	assert.ok(at.pine.commands.every(({ command }) => command.startsWith('( ') && command.endsWith(' )')), 'every command runs in a subshell');
+	const third = await putTurnFiles(at, root, 'turn-3');
+	assert.deepEqual([third.put, third.removed], [0, 0], 'nothing moves when nothing differs');
+	// What the agent's tools keep under dot names (locks, temporary files), at any depth, is no file of the drama: never
+	// listed, so never put over or deleted.
+	const dotted = ['.drama-cli.lock', 'assets/.publication.lock', 'assets/props/umbrella/.image-1.part.bin', '.cache/deep/file'];
+	agent(drama, Object.fromEntries(dotted.map(path => [path, 'the agent\'s'])));
+	assert.deepEqual(Object.keys(await listComputerFiles(at)).filter(path => dotted.includes(path)), [], 'not listed');
+	writeFileSync(join(root, 'inputs-brief.md'), 'the brief, changed again');
+	const fourth = await putTurnFiles(at, root, 'turn-4');
+	assert.deepEqual([fourth.put, fourth.removed], [1, 0]);
+	assert.deepEqual(dotted.map(path => readFileSync(join(drama, path), 'utf8')), dotted.map(() => 'the agent\'s'), 'left as they were');
+	// A file of the agent's where the project has a folder of that name goes first, so the folder's files can go in.
+	agent(drama, { references: 'the agent\'s file' });
+	mkdirSync(join(root, 'references'));
+	writeFileSync(join(root, 'references/a.txt'), 'the person\'s');
+	await putTurnFiles(at, root, 'turn-5');
+	assert.equal(readFileSync(join(drama, 'references/a.txt'), 'utf8'), 'the person\'s');
+});
+
+test('a put larger than one attachment goes up in parts, and names that start with @ or - or hold quotes go up and come back', async () => {
+	const { root, at, drama } = await place();
+	// Over write_file's 64 MiB, so the put is two parts.
+	const big = Buffer.alloc(65 * 1024 * 1024, 7);
+	const odd = { 'assets/props/umbrella/big.bin': big, '@at.txt': 'at', '-dash.txt': 'dash', 'it\'s "a" take.txt': 'quoted' };
+	for (const [path, content] of Object.entries(odd)) { writeFileSync(join(root, path), content); }
+	await putTurnFiles(at, root, 'turn-1');
+	assert.equal(at.pine.calls.writeFile, 2, 'two parts');
+	for (const [path, content] of Object.entries(odd)) { assert.ok(readFileSync(join(drama, path)).equals(Buffer.from(content)), path); }
+	const before = await listComputerFiles(at);
+	agent(drama, { '@at.txt': 'at, redone', '-dash.txt': 'dash, redone', 'it\'s "a" take.txt': 'quoted, redone' });
+	await collectTurn(at, root, 'turn-1', before);
+	assert.deepEqual(['@at.txt', '-dash.txt', 'it\'s "a" take.txt'].map(path => readFileSync(join(root, path), 'utf8')), ['at, redone', 'dash, redone', 'quoted, redone']);
+});
+
+test('at the turn\'s end what the agent changed lands as one pine-computer commit with the turn\'s trailer, deletions too, and landing it again is a no-op', async () => {
+	const { root, at, drama } = await place();
+	const { before } = await putTurnFiles(at, root, 'turn-1');
+	agent(drama, {
+		'assets/props/umbrella/description.md': 'A red umbrella.', 'assets/props/cup/object.json': '{"schema":2,"type":"prop","name":"Cup","shown_file":null}',
+		'assets/scenes/street/prompt.md': null, '.cache/scratch': 'hidden, the agent\'s own',
+	});
+	const collected = await collectTurn(at, root, 'turn-1', before);
+	assert.deepEqual([...collected.files].sort(), ['assets/props/cup/object.json', 'assets/props/umbrella/description.md', 'assets/scenes/street/prompt.md']);
+	assert.equal(readFileSync(join(root, 'assets/props/umbrella/description.md'), 'utf8'), 'A red umbrella.');
+	assert.equal(existsSync(join(root, 'assets/scenes/street/prompt.md')), false);
+	assert.equal(existsSync(join(root, '.cache')), false, 'a hidden file is not the drama\'s');
+	assert.equal((await git(['log', '-1', '--format=%an|%(trailers:key=Pine-Turn-Id,valueonly,separator=)'], root)).stdout.trim(), 'pine-computer|turn-1');
+	assert.deepEqual((await git(['show', '--name-only', '--format=', 'HEAD'], root)).stdout.trim().split('\n').sort(), [...collected.files].sort(), 'one commit of exactly its paths');
+	const landed = await head(root);
+	await collectTurn(at, root, 'turn-1', before);
+	assert.equal(await head(root), landed, 'collected again, nothing more is committed');
+	assert.equal(readdirSync(join(drama, '..')).includes('pine-drama-get.tar'), false, 'the tar it read is gone');
+});
+
+test('a file the agent hard-linked lands whole under both names, and a deleted file named like an object property is deleted', async () => {
+	const { root, at, drama } = await place();
+	writeFileSync(join(root, 'constructor'), 'a file of the project');
+	const { before } = await putTurnFiles(at, root, 'turn-1');
+	agent(drama, { 'assets/props/umbrella/picture.png': 'redrawn', constructor: null });
+	linkSync(join(drama, 'assets/props/umbrella/picture.png'), join(drama, 'assets/props/umbrella/copy.png'));
+	const collected = await collectTurn(at, root, 'turn-1', before);
+	assert.deepEqual([...collected.files].sort(), ['assets/props/umbrella/copy.png', 'assets/props/umbrella/picture.png', 'constructor']);
+	assert.deepEqual(['picture.png', 'copy.png'].map(name => readFileSync(join(root, 'assets/props/umbrella', name), 'utf8')), ['redrawn', 'redrawn']);
+	assert.equal(existsSync(join(root, 'constructor')), false);
+});
+
+test('an entry of the Computer\'s tar that was not asked for is not read, and the asked ones land', async () => {
+	const { root, at, drama } = await place();
+	const { before } = await putTurnFiles(at, root, 'turn-1');
+	agent(drama, { 'assets/props/umbrella/description.md': 'A red umbrella.' });
+	// The Computer's tar, as the Computer may make it: an entry the Studio did not ask for, and one named outside drama/.
+	const port = Object.create(at.pine) as FakePine;
+	port.exec = async (env, session, command, signal) => {
+		const out = await at.pine.exec(env, session, command, signal);
+		if (command.includes('-cf ../pine-drama-get.tar')) {
+			await at.pine.exec(env, session, `( printf x > extra.txt && tar -rf pine-drama-get.tar extra.txt && tar -P -rf pine-drama-get.tar --transform 's,^,../,' extra.txt )`, signal);
+		}
+		return out;
+	};
+	const collected = await collectTurn({ ...at, port }, root, 'turn-1', before);
+	assert.deepEqual([collected.files, [...collected.unasked].sort()], [['assets/props/umbrella/description.md'], ['../extra.txt', 'extra.txt']]);
+	assert.deepEqual([existsSync(join(root, 'extra.txt')), existsSync(join(root, '..', 'extra.txt'))], [false, false]);
+	assert.equal(readFileSync(join(root, 'assets/props/umbrella/description.md'), 'utf8'), 'A red umbrella.');
+});
+
+test('a turn whose agent changed nothing lands nothing, and a name that is no path of the project stays on the Computer, said', async () => {
+	const { root, at, drama } = await place();
+	const { before } = await putTurnFiles(at, root, 'turn-1');
+	const recorded = await head(root);
+	assert.deepEqual(await collectTurn(at, root, 'turn-1', before), { files: [], notPaths: [], unasked: [] });
+	assert.equal(await head(root), recorded);
+	agent(drama, { 'assets/props/umbrella/description.md': 'A red umbrella.', 'assets/CON': 'a Windows reserved name' });
+	const collected = await collectTurn(at, root, 'turn-2', before);
+	assert.deepEqual([collected.files, collected.notPaths], [['assets/props/umbrella/description.md'], ['assets/CON']]);
+	assert.equal(existsSync(join(root, 'assets/CON')), false);
+});
+
+test('the turn record keeps each turn as sent, with the folder its agent found, until it is settled', async () => {
 	const storage = mkdtempSync(join(tmpdir(), 'turn-storage-'));
-	return { root, record: turnRecordOf(storage, root), computer: 'computer-1', store: memoryStore(), holders: new Holders(join(storage, 'holders')) };
-}
-
-/** Puts turn `turn` of the Chat `main` on the Computer (doc/protocol.md 4.2). */
-const send = (at: ReturnType<typeof place>, turn: string) => sendTurnRequest(at, turn, 'main');
-
-/**
- * Stores `files` as change `n` of `turn`, its bytes first, after the change stored as `n - 1`, as the Computer side writes
- * one (doc/protocol.md 4.3).
- */
-function storeChange(at: ReturnType<typeof place>, turn: string, n: number, files: Record<string, string | null>, previous = at.store.files.get(changeKey(turn, n - 1))): void {
-	for (const text of Object.values(files)) { if (text !== null) { at.store.files.set(fileKey(sha256(text)), Buffer.from(text)); } }
-	at.store.files.set(changeKey(turn, n), changeBytes(turn, n, files, previous));
-}
-
-/** The bytes of change `n` of `turn` writing `files`, after the change of bytes `previous`. */
-const changeBytes = (turn: string, n: number, files: Record<string, string | null>, previous: Buffer | undefined) => Buffer.from(JSON.stringify({
-	schema: 2, turn_id: turn, change_number: n, previous_change_sha256: previous ? sha256(previous) : null,
-	files_after_change: Object.fromEntries(Object.entries(files).map(([path, text]) => [path, text === null ? null : sha256(text)])),
-}));
-
-test('the seed is every file of the folder as its history records it, hidden ones aside; a file goes up once', async () => {
-	const at = place();
-	writeFileSync(join(at.root, 'inputs-brief.md'), 'a brief written by hand');
-	const { request, uploaded } = await send(at, 'turn-1');
-	assert.equal(request.seed_files['inputs-brief.md'], sha256('a brief written by hand'), 'a hand edit is recorded, then seeded');
-	assert.equal(request.seed_files['assets/characters/lin/look.png'], sha256(readFileSync(join(at.root, 'assets/characters/lin/look.png'))));
-	assert.ok(Object.keys(request.seed_files).every(path => !path.split('/').some(part => part.startsWith('.'))), 'no .git, no hidden file');
-	assert.equal((await git(['status', '--porcelain'], at.root)).stdout, '', 'the seed is recorded in history');
-	assert.equal(uploaded, new Set(Object.values(request.seed_files)).size);
-	assert.deepEqual(at.record.sentTurn('turn-1')?.request, request, 'recorded, for the send to put into the session');
-	assert.deepEqual([...at.store.files.keys()].filter(key => !key.startsWith('files/')), [], 'the store holds the files alone, no request');
-	writeFileSync(join(at.root, 'inputs-brief.md'), 'the brief, changed');
-	await at.record.settle('turn-1', { files: [] });
-	const second = await send(at, 'turn-2');
-	assert.equal(second.uploaded, 1, 'only the changed file goes up');
+	const record = turnRecordOf(storage, mkdtempSync(join(tmpdir(), 'turn-project-')));
+	await record.send('turn-1', 'main', 's-1', { 'a.txt': sha256('a') }, new Date('2026-11-15T10:00:00Z'));
+	await record.send('turn-2', 'main', 's-1', {}, new Date('2026-11-15T10:01:00Z'));
+	assert.deepEqual(record.unsettled('main').map(t => t.turn), ['turn-1', 'turn-2']);
+	assert.deepEqual(record.sentTurn('turn-1')?.before, { 'a.txt': sha256('a') });
+	await record.settle('turn-1', { files: ['a.txt'] });
+	assert.deepEqual([record.unsettled('main').map(t => t.turn), record.latestSettled('main')?.turn, record.settled('turn-1')?.files], [['turn-2'], 'turn-1', ['a.txt']]);
 });
 
-test('changes land in order as they are stored, each a pine-computer commit with its trailers, and a second read applies nothing again', async () => {
-	const at = place();
-	await send(at, 'turn-1');
-	storeChange(at, 'turn-1', 1, { 'assets/props/umbrella/description.md': 'A red umbrella.' });
-	storeChange(at, 'turn-1', 3, { 'assets/props/umbrella/description.md': 'Not yet: change 2 is missing.' }, Buffer.from('change 2, as it will be'));
-	assert.equal((await applyStoredChanges(at, 'turn-1')).next, 2, 'up to the first change not stored');
-	assert.equal(readFileSync(join(at.root, 'assets/props/umbrella/description.md'), 'utf8'), 'A red umbrella.');
-	storeChange(at, 'turn-1', 2, { 'assets/props/umbrella/picture.png': 'a redraw', 'assets/props/umbrella/picture.png.receipt.json': null });
-	await assert.rejects(applyStoredChanges(at, 'turn-1'), /changes\/3\.json does not follow the change before it/, 'a change stored after another than the one before it is not applied');
-	storeChange(at, 'turn-1', 3, { 'assets/props/umbrella/description.md': 'Not yet: change 2 is missing.' });
-	const { next, files } = await applyStoredChanges(at, 'turn-1');
-	assert.equal(next, 4);
-	assert.deepEqual([...files].sort(), ['assets/props/umbrella/description.md', 'assets/props/umbrella/picture.png', 'assets/props/umbrella/picture.png.receipt.json']);
-	const log = (await git(['log', '--format=%an|%(trailers:key=Pine-Change-Number,valueonly)', '-3'], at.root)).stdout.split('\n').map(l => l.trim()).filter(Boolean);
-	assert.deepEqual(log, ['pine-computer|3', 'pine-computer|2', 'pine-computer|1']);
-	const before = (await git(['rev-parse', 'HEAD'], at.root)).stdout;
-	await applyStoredChanges(at, 'turn-1');
-	assert.equal((await git(['rev-parse', 'HEAD'], at.root)).stdout, before, 'each change is applied once');
-});
-
-test('at the Pine turn\'s end every change stored lands, up to the first not stored, and the turn is settled with the files it wrote', async () => {
-	const at = place();
-	await send(at, 'turn-1');
-	storeChange(at, 'turn-1', 1, { 'assets/props/umbrella/description.md': 'Made before the run was cut off.' });
-	storeChange(at, 'turn-1', 3, { 'assets/props/umbrella/prompt.md': 'Not in: change 2 is not stored.' }, Buffer.from('change 2, as it will be'));
-	await settleTurn(at, 'turn-1');
-	assert.equal(readFileSync(join(at.root, 'assets/props/umbrella/description.md'), 'utf8'), 'Made before the run was cut off.');
-	assert.deepEqual(at.record.settled('turn-1')!.files, ['assets/props/umbrella/description.md']);
-	assert.deepEqual(at.record.unsettled('main'), []);
-});
-
-test('a Pine Computer of another major is known by a change it wrote, and refused with what to use, once: an older side or a newer one', async () => {
-	const at = place();
-	const refused = async (turn: string, change: object) => {
-		await send(at, turn);
-		at.store.files.set(changeKey(turn, 1), Buffer.from(JSON.stringify(change)));
-		const settled = await settleTurn(at, turn);
-		assert.ok(settled.kind === 'refused with upgrade instructions', settled.kind);
-		assert.ok(at.record.settled(turn), 'settled: never read again');
-		return settled.refusal;
-	};
-	const older = await refused('turn-1', { schema: 1, turn_id: 'turn-1', change_number: 1 });
-	assert.match(older.message, /older Pine Computer side.*A new session starts on a current one/);
-	assert.deepEqual([older.studioVersion, older.downloadUrl], [undefined, undefined]);
-	const newer = (refusal: RefusedWithUpgradeInstructions) => {
-		assert.match(refusal.message, /newer Pine Computer side/);
-		assert.equal(refusal.downloadUrl, STUDIO_RELEASES_URL);
-	};
-	newer(await refused('turn-2', { schema: 3, turn_id: 'turn-2', change_number: 1 }));
-	assert.equal(at.record.unsettled('main').length, 0);
-});
-
-// B9: two sessions preparing at once record holders in one folder at the same moment. Each write's temporary file must
-// be its own: when two shared a name, one rename found the file gone ("ENOENT … holders/.<pid>.<ms>.tmp") and the
-// other could put one write's bytes under the other's name.
+// B9: two sessions recording at once write in one folder at the same moment. Each write's temporary file must be its
+// own: when two shared a name, one rename found the file gone ("ENOENT … .<pid>.<ms>.tmp") and the other could put one
+// write's bytes under the other's name.
 test('writes started together in one folder each land whole, under their own name', async t => {
 	const dir = await mkdtemp(join(tmpdir(), 'write-whole-'));
 	// One millisecond for every write, so that a name made of the time can only collide.
@@ -135,36 +188,4 @@ test('writes started together in one folder each land whole, under their own nam
 		assert.equal(await readFile(join(dir, name), 'utf8'), `text of ${name}`);
 	}
 	assert.deepEqual((await readdir(dir)).sort(), [...names].sort(), 'no temporary file is left');
-	const holders = new Holders(join(dir, 'holders'));
-	await Promise.all([holders.set(['a', 'b'], 'computer-1'), holders.set(['c', 'd'], 'computer-2')]);
-	assert.deepEqual(['a', 'b', 'c', 'd'].map(hash => holders.get(hash)), ['computer-1', 'computer-1', 'computer-2', 'computer-2']);
-});
-
-test('before a turn, a key the store lacks is copied from the Computer remembered holding it, else uploaded; a failed copy uploads', async () => {
-	const holders = new Holders(mkdtempSync(join(tmpdir(), 'holders-')));
-	const target = memoryStore();
-	target.files.set('files/a', Buffer.from('a'));
-	const copies: string[] = [];
-	target.copy = async (from, path) => { copies.push(`${from}:${path}`); if (from === 'gone') { throw new Error('no such Computer'); } target.files.set(path, Buffer.from('copied')); };
-	await holders.set(['b'], 'computer-2');
-	await holders.set(['d'], 'gone');
-	const uploaded: string[] = [];
-	const put = await putAll(target, 'computer-1', holders, ['files/a', 'files/b', 'files/c', 'files/d', 'files/c'], async key => { uploaded.push(key); return Buffer.from('up'); }, key => key === 'files/a' ? 1 : 6);
-	assert.deepEqual(put, { copied: 1, uploaded: 2 });
-	assert.deepEqual(copies, ['computer-2:files/b', 'gone:files/d']);
-	assert.deepEqual(uploaded, ['files/c', 'files/d'], 'nothing remembered, or the copy failed: uploaded from the Studio\'s copy');
-	assert.deepEqual(['a', 'b', 'c', 'd'].map(h => holders.get(h)), ['computer-1', 'computer-1', 'computer-1', 'computer-1'], 'the listing and each put remember the target');
-});
-
-test('before a turn, a file the store holds cut short is put again', async () => {
-	const holders = new Holders(mkdtempSync(join(tmpdir(), 'holders-')));
-	const target = memoryStore();
-	target.files.set('files/a', Buffer.from('par'));
-	const put = await putAll(target, 'computer-1', holders, ['files/a'], async () => Buffer.from('partial'), () => 7);
-	assert.deepEqual(put, { copied: 0, uploaded: 1 });
-	assert.deepEqual(target.files.get('files/a'), Buffer.from('partial'));
-});
-
-test('a turn\'s message names the turn on its first line, the person\'s words after', () => {
-	assert.equal(turnMessage('turn-0001', 'make the poster'), 'pine-drama-turn turn-0001\nmake the poster');
 });

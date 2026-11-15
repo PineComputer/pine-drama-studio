@@ -1,31 +1,43 @@
 // A fake Pine for the Chat tests: Computers, sessions and turns in memory, with run
 // idempotent by key as the SDK documents, and failure injection. `lose(op)` makes the next call
-// of that operation take effect remotely and then fail as if its response were lost.
+// of that operation take effect remotely and then fail as if its response were lost. Each session's working directory
+// is a real temporary folder, and exec runs its command there in bash, so the Studio's own commands are what is tested.
 
-import { sha256 } from '../core/sha256';
+import { execFile } from 'node:child_process';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
 import { STANDING_PARAGRAPH } from '../core/instructions';
-import { changeKey, fileKey, type ArtifactStore } from '../core/taskArtifacts';
-import { REQUEST_ATTACHMENT } from '../core/protocol';
-import { ConnectionLostError, MissingError, NoSuchFileError, StartNotConfirmedError, UnconfirmedError, type FolderEntry, type IdlePolicy, type PineConnection, type PineEvent, type PinePort, type PineSession, type SecretVault, type TurnFile, type TurnView } from '../core/pinePort';
+import { ConnectionLostError, MissingError, NoSuchFileError, StartNotConfirmedError, UnconfirmedError, type IdlePolicy, type PineConnection, type PineEvent, type PinePort, type PineSession, type SecretVault, type TurnView } from '../core/pinePort';
 
-interface FakeTurn { id: string; state: string; question: string; summary: string; next: string; cost: number; returned: Map<string, Uint8Array> }
-interface FakeSession { name: string; token: string; taskId: string; turns: Map<string, FakeTurn>; runs: Map<string, string>; files: Map<string, Uint8Array>; attachments: Map<string, Uint8Array>; events: PineEvent[]; inputs: { kind: string; text: string; turnId: string; eventId: number }[] }
+interface FakeTurn { id: string; state: string; question: string; summary: string; next: string; cost: number }
+/** `dir`: the session's working directory, with Pine's attachments/ in it. */
+interface FakeSession { name: string; token: string; taskId: string; dir: string; turns: Map<string, FakeTurn>; runs: Map<string, string>; events: PineEvent[]; inputs: { kind: string; text: string; turnId: string; eventId: number }[] }
+
+/** Every session folder the fakes made, removed when the test process ends. */
+const folders: string[] = [];
+process.on('exit', () => { for (const dir of folders) { rmSync(dir, { recursive: true, force: true }); } });
 /** `revision` is Portal's binding revision: each start that attaches advances it (PineSandbox client.ts:168-170). */
 interface FakeComputer { id: string; state: 'running' | 'stopped' | 'stopping' | 'terminated'; binding: string; revision: number; idleTimeout: number; sessions: Map<string, FakeSession> }
 
 export type TurnPlan = {
 	state: 'completed' | 'needs_input' | 'running' | 'failed';
 	text?: string;
-	/** Files the turn writes to the working directory and returns, by relative path. */
-	files?: Record<string, string | Uint8Array>;
-	/** Files the turn writes to the working directory but does not return (Pine lists only what the agent returns). */
-	hidden?: Record<string, string | Uint8Array>;
+	/** Files the agent writes, by their path in the working directory (`drama/…` for the drama's); null deletes one. */
+	files?: Record<string, string | Uint8Array | null>;
 	/** What the agent reports, in order, after its first progress line: activity events (SDK `AgentActivity`: upsert by id) and its own messages. */
 	steps?: ({ id: string; title: string; state: string } | { said: string })[];
 };
 
-const TYPES: Record<string, string> = { png: 'image/png', mp4: 'video/mp4', md: 'text/markdown', json: 'application/json', txt: 'text/plain' };
-const bytesOf = (content: string | Uint8Array) => typeof content === 'string' ? new TextEncoder().encode(content) : content;
+/** The agent's writes in a session's working directory. */
+function write(session: FakeSession, files: TurnPlan['files'] = {}): void {
+	for (const [path, content] of Object.entries(files)) {
+		const file = join(session.dir, path);
+		if (content === null) { rmSync(file, { force: true }); continue; }
+		mkdirSync(dirname(file), { recursive: true });
+		writeFileSync(file, content);
+	}
+}
 
 export class FakePine implements PinePort {
 	readonly computers = new Map<string, FakeComputer>();
@@ -39,9 +51,6 @@ export class FakePine implements PinePort {
 	private dropped = new Set<string>();
 	private failing = new Map<string, { error: Error; skip: number }>();
 	private seq = 0;
-	private unreadable = new Map<string, Error>();
-	/** Where Pine keeps a returned file, by path; workdir unless a test says otherwise. */
-	readonly roots = new Map<string, string>();
 
 	lose(op: string): void { this.lost.add(op); }
 	/** The next call of `op` never reaches Pine, and the caller cannot tell. */
@@ -58,9 +67,6 @@ export class FakePine implements PinePort {
 	offline = false;
 	/** Only the event stream gets no answer (its reconnects run out, StreamLostError); turn reads work. */
 	streamDown = false;
-	/** Every read of this working-directory path fails with `error` until `readable(path)`. */
-	unreadablePath(path: string, error: Error): void { this.unreadable.set(path, error); }
-	readable(path: string): void { this.unreadable.delete(path); }
 
 	private sessionNamed(name: string): FakeSession {
 		for (const computer of this.computers.values()) {
@@ -70,11 +76,6 @@ export class FakePine implements PinePort {
 			}
 		}
 		throw new Error(`no session ${name}`);
-	}
-
-	/** Puts a file in a session's working directory without any turn returning it. */
-	putFile(sessionName: string, path: string, content: string | Uint8Array): void {
-		this.sessionNamed(sessionName).files.set(path, bytesOf(content));
 	}
 
 	/** Makes every call of an operation wait until the returned function is called: a slow call that no timer decides. */
@@ -119,49 +120,6 @@ export class FakePine implements PinePort {
 		}
 		return computer;
 	}
-
-	/**
-	 * The Computer side of a turn, protocol major 2 (doc/protocol.md 4.3): the files the turn wrote under drama/, one change
-	 * per object folder, their bytes stored at files/<hash> first, numbered after the turn's changes stored already with the
-	 * previous change's hash. A message that does not start a turn stores nothing this way.
-	 */
-	private storeTurnChanges(session: FakeSession, text: string, returned: ReadonlyMap<string, Uint8Array>): void {
-		const turn = /^pine-drama-turn ([\w-]+)/.exec(text)?.[1];
-		const computer = [...this.computers.values()].find(c => c.sessions.get(session.name) === session);
-		const store = computer && this.artifactFiles.get(computer.id);
-		const request = session.attachments.get(REQUEST_ATTACHMENT);
-		if (!turn || !store || !request || (JSON.parse(Buffer.from(request).toString('utf8')) as { turn_id: string }).turn_id !== turn) {
-			return;
-		}
-		// A change is one result: the files of one object folder, an output with its receipt (doc/protocol.md 4.3). Changes
-		// go after those the turn stored already, each written once.
-		let number = [...store.keys()].filter(k => k.startsWith(`turns/${turn}/changes/`)).length;
-		let previous: Buffer | null = number ? store.get(changeKey(turn, number))! : null;
-		// What the turn's stored changes wrote last, by path: a file returned again unchanged is no new change.
-		const written = new Map<string, string | null>();
-		for (let n = 1; n <= number; n++) {
-			for (const [path, hash] of Object.entries((JSON.parse(store.get(changeKey(turn, n))!.toString('utf8')) as { files_after_change: Record<string, string | null> }).files_after_change)) { written.set(path, hash); }
-		}
-		const byFolder = new Map<string, Record<string, string>>();
-		for (const [path, content] of returned) {
-			if (!path.startsWith('drama/')) { continue; }
-			const bytes = Buffer.from(content);
-			const rel = path.slice('drama/'.length);
-			if (written.get(rel) === sha256(bytes)) { continue; }
-			store.set(fileKey(sha256(bytes)), bytes);
-			const folder = rel.slice(0, rel.lastIndexOf('/') + 1);
-			byFolder.set(folder, { ...byFolder.get(folder), [rel]: sha256(bytes) });
-		}
-		for (const files of byFolder.values()) {
-			const change: Buffer = Buffer.from(JSON.stringify({ schema: 2, turn_id: turn, change_number: ++number, previous_change_sha256: previous && sha256(previous), files_after_change: files }));
-			store.set(changeKey(turn, number), change);
-			previous = change;
-		}
-	}
-
-
-
-
 
 	private sessionOf(s: PineSession): FakeSession {
 		const session = this.bound(s.binding).sessions.get(s.name);
@@ -219,27 +177,15 @@ export class FakePine implements PinePort {
 		return computer.binding === binding ? computer.state : 'stopped';
 	}
 
-	/** Each Computer's artifacts by its id: they outlive its sessions and a stop (local-first, 11.1). */
-	readonly artifactFiles = new Map<string, Map<string, Buffer>>();
-
-	async artifacts(_env: PineConnection, computerId: string): Promise<ArtifactStore> {
-		await this.count('artifacts');
-		const files = this.artifactFiles.get(computerId) ?? new Map<string, Buffer>();
-		this.artifactFiles.set(computerId, files);
-		return {
-			list: async prefix => [...files].filter(([path]) => path.startsWith(prefix)).map(([path, bytes]) => ({ path, size: bytes.length })),
-			upload: async (path, bytes, signal) => { signal?.throwIfAborted(); files.set(path, Buffer.from(bytes)); },
-			copy: async (from, path) => { await this.count('copy'); const bytes = this.artifactFiles.get(from)?.get(path); if (!bytes) { throw new Error(`${from} has no ${path}`); } files.set(path, bytes); },
-			read: async path => files.get(path),
-		};
-	}
-
 	async createSession(_env: PineConnection, _credentials: string, binding: string) {
 		await this.count('createSession');
 		const computer = this.bound(binding);
 		const name = `s-${++this.seq}`;
-		computer.sessions.set(name, { name, token: `ps_${name}`, taskId: `task-${name}`, turns: new Map(), runs: new Map(), files: new Map(), attachments: new Map(), events: [], inputs: [] });
-		return { name, token: `ps_${name}` };
+		const dir = mkdtempSync(join(tmpdir(), 'fake-pine-session-'));
+		folders.push(dir);
+		mkdirSync(join(dir, 'attachments'));
+		computer.sessions.set(name, { name, token: `ps_${name}`, taskId: `task-${name}`, dir, turns: new Map(), runs: new Map(), events: [], inputs: [] });
+		return { name, token: `ps_${name}`, workdir: dir };
 	}
 
 	async sessionTask(_env: PineConnection, s: PineSession) {
@@ -253,13 +199,9 @@ export class FakePine implements PinePort {
 			question: plan.state === 'needs_input' ? (plan.text ?? 'Which episode?') : '',
 			// Pine's turn result: a waiting turn's summary is its question (its SDK, parse.ts: question = summary).
 			summary: plan.state === 'completed' ? (plan.text ?? `done: ${text.replace(`\n\n${STANDING_PARAGRAPH}`, '')}`) : plan.state === 'needs_input' ? (plan.text ?? 'Which episode?') : '',
-			returned: new Map(Object.entries(plan.files ?? {}).map(([path, content]) => [path, bytesOf(content)])),
 		};
-		for (const [path, content] of Object.entries({ ...plan.hidden, ...plan.files })) {
-			session.files.set(path, bytesOf(content));
-		}
+		write(session, plan.files);
 		session.turns.set(turn.id, turn);
-		this.storeTurnChanges(session, text, turn.returned);
 		const id = () => session.events.length + 1;
 		session.inputs.push({ kind: 'run', text, turnId: turn.id, eventId: session.events.length });
 		const base = { taskId: session.taskId, turnId: turn.id, text: '' };
@@ -327,12 +269,7 @@ export class FakePine implements PinePort {
 					turn.state = plan.state;
 					turn.question = plan.state === 'needs_input' ? (plan.text ?? 'Which episode?') : '';
 					turn.summary = plan.state === 'completed' ? (plan.text ?? 'done') : plan.state === 'needs_input' ? turn.question : '';
-					for (const [path, content] of Object.entries(plan.files ?? {})) {
-						turn.returned.set(path, bytesOf(content));
-						session.files.set(path, bytesOf(content));
-					}
-					const input = session.inputs.find(i => i.turnId === turnId);
-					this.storeTurnChanges(session, input?.text ?? '', turn.returned);
+					write(session, plan.files);
 					return;
 				}
 			}
@@ -372,71 +309,42 @@ export class FakePine implements PinePort {
 		return this.sessionNamed(sessionName).inputs;
 	}
 
-	/** What the Studio wrote under a session's attachments/, by file name. */
-	attachmentsOf(sessionName: string): Map<string, Uint8Array> {
-		return this.sessionNamed(sessionName).attachments;
-	}
+	/** Every command the Studio ran in a session, in order. */
+	readonly commands: { readonly session: string; readonly command: string }[] = [];
 
-	/** Every attachment the Studio wrote, in order: a turn's request replaces the one before it in the session. */
-	readonly written: { readonly session: string; readonly name: string; readonly content: Uint8Array }[] = [];
+	/** The agent's working directory of a session, where its files are. */
+	workdirOf(sessionName: string): string {
+		return this.sessionNamed(sessionName).dir;
+	}
 
 	async writeFile(_env: PineConnection, s: PineSession, name: string, content: Uint8Array): Promise<void> {
 		await this.count('writeFile');
-		this.sessionOf(s).attachments.set(name, content);
-		this.written.push({ session: s.name, name, content });
+		writeFileSync(join(this.sessionOf(s).dir, 'attachments', name), content);
 	}
 
-	async turnFiles(_env: PineConnection, s: PineSession, turnId: string): Promise<TurnFile[]> {
-		await this.count('turnFiles');
+	/** Pine's exec: the command runs in bash, in the directory the session handle names, as SdkPort's does. */
+	async exec(_env: PineConnection, s: PineSession, command: string, signal?: AbortSignal): Promise<string> {
+		await this.count('exec');
 		const session = this.sessionOf(s);
-		const turn = session.turns.get(turnId);
-		if (!turn) {
-			throw new MissingError('no such turn');
-		}
-		return [...turn.returned].map(([path, bytes]) => {
-			return { path, root: this.roots.get(path) ?? 'workdir', sha256: sha256(bytes), size: bytes.length, type: TYPES[path.split('.').pop()!] ?? 'application/octet-stream' };
-		});
+		if (s.workdir !== session.dir) { throw new Error(`exec in ${s.workdir}, not the session's working directory`); }
+		this.commands.push({ session: s.name, command });
+		return new Promise((resolve, reject) => execFile('bash', ['-c', command], { cwd: s.workdir, signal, maxBuffer: 64 * 1024 * 1024 }, (error, stdout, stderr) => {
+			if (error) { reject(new Error(`a command on the Computer failed (exit ${error.code}): ${stderr.trim()}`)); } else { resolve(stdout); }
+		}));
 	}
 
 	async openFile(_env: PineConnection, s: PineSession, path: string) {
 		await this.count('openFile');
 		const session = this.sessionOf(s);
-		const error = this.unreadable.get(path);
-		if (error) {
-			throw error;
-		}
-		const bytes = session.files.get(path);
-		if (!bytes) {
+		let bytes: Buffer;
+		try {
+			bytes = readFileSync(join(session.dir, path));
+		} catch {
 			throw new NoSuchFileError(`404 ${path}`);
 		}
 		// In two chunks, as a network body arrives.
 		const half = Math.floor(bytes.length / 2);
 		return new ReadableStream<Uint8Array>({ start(controller) { controller.enqueue(bytes.subarray(0, half)); controller.enqueue(bytes.subarray(half)); controller.close(); } });
-	}
-
-	async openReturned(env: PineConnection, s: PineSession, file: TurnFile) {
-		if (file.root !== 'workdir') {
-			throw new Error(`the turn returned ${file.path} from Pine's "${file.root}" store, which the Studio does not read yet`);
-		}
-		return this.openFile(env, s, file.path);
-	}
-
-	async listFolder(_env: PineConnection, s: PineSession, folder: string): Promise<FolderEntry[]> {
-		await this.count('listFolder');
-		const session = this.sessionOf(s);
-		const prefix = folder.replace(/\/$/, '') + '/';
-		const entries = new Map<string, FolderEntry>();
-		for (const [path, bytes] of session.files) {
-			if (path.startsWith(prefix)) {
-				const rest = path.slice(prefix.length);
-				const slash = rest.indexOf('/');
-				entries.set(slash < 0 ? path : prefix + rest.slice(0, slash), slash < 0 ? { path, folder: false, size: bytes.length } : { path: prefix + rest.slice(0, slash), folder: true, size: 0 });
-			}
-		}
-		if (entries.size === 0) {
-			throw new NoSuchFileError(`404 ${folder}`);
-		}
-		return [...entries.values()];
 	}
 
 	/** A turn's state, for assertions. */

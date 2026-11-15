@@ -98,31 +98,27 @@ export function commitFilesFoundOnDisk(projectRoot: string, message: string): Pr
 	return runInProjectWriteQueue(projectRoot, () => commitPathsToHistory(projectRoot, 'client-found-changes-on-disk', 'all', message));
 }
 
-/** The two trailers a turn's change is committed with (doc/protocol.md 4.4), by which it is found in history. */
+/** The trailer a turn's result is committed with, by which it is found in history. */
 const TURN_ID = 'Pine-Turn-Id';
-const CHANGE_NUMBER = 'Pine-Change-Number';
 
-export const turnChangeTrailers = (turnId: string, changeNumber: number): Readonly<Record<string, string>> =>
-	({ [TURN_ID]: turnId, [CHANGE_NUMBER]: String(changeNumber) });
+export const turnTrailers = (turnId: string): Readonly<Record<string, string>> => ({ [TURN_ID]: turnId });
 
-/** Whether a commit of HEAD's history carries a turn's change's trailers: the change is resolved (doc/protocol.md 4.4). */
-export async function historyHasTurnChange(projectRoot: string, turnId: string, changeNumber: number): Promise<boolean> {
+/** Whether a commit of HEAD's history carries turn `turnId`'s trailer: its result has landed. */
+export async function historyHasTurn(projectRoot: string, turnId: string): Promise<boolean> {
 	if (!existsSync(join(projectRoot, '.git')) || !await hasHead(projectRoot)) { return false; }
-	// A trailer is a line of its own: each pattern is anchored to a line, so `Pine-Change-Number: 1` is not `…: 10`
-	// (git log --grep matches per line; --all-match wants every pattern in one commit).
-	const grep = Object.entries(turnChangeTrailers(turnId, changeNumber)).map(([key, value]) => `--grep=^${escapeRegex(key)}: ${escapeRegex(value)}$`);
+	// A trailer is a line of its own, so the pattern is anchored to a line (git log --grep matches per line).
 	// The grep finds the candidates; git's own trailer parsing decides, so text quoted in a message body is no trailer.
-	const found = await run(projectRoot, 'person', ['log', '-z', '--all-match', '-E', ...grep,
-		`--format=%(trailers:key=${TURN_ID},valueonly,separator=%x2C)%x1f%(trailers:key=${CHANGE_NUMBER},valueonly,separator=%x2C)`]);
-	return found.split('\0').some(entry => entry.trim() === `${turnId}\x1f${changeNumber}`);
+	const found = await run(projectRoot, 'person', ['log', '-z', '-E', `--grep=^${escapeRegex(TURN_ID)}: ${escapeRegex(turnId)}$`,
+		`--format=%(trailers:key=${TURN_ID},valueonly,separator=%x2C)`]);
+	return found.split('\0').some(entry => entry.trim() === turnId);
 }
 
-/** One commit of a history: who made it, when, the turn's change it applied if any, and the files it changed. */
+/** One commit of a history: who made it, when, the turn whose result it landed if any, and the files it changed. */
 export interface HistoryEntry {
 	readonly commit: string;
 	readonly author: string;
 	readonly committedAt: string;
-	readonly turnChange: { readonly turnId: string; readonly changeNumber: number } | null;
+	readonly turnId: string | null;
 	/**
 	 * Each file under the path asked that the commit changed, with git's id of its bytes there (a local id, doc/protocol.md
 	 * section 1), or null where the commit deleted it.
@@ -138,18 +134,18 @@ export interface HistoryEntry {
 export async function listHistory(projectRoot: string, path: string): Promise<HistoryEntry[]> {
 	if (!existsSync(join(projectRoot, '.git')) || !await hasHead(projectRoot)) { return []; }
 	const log = await run(projectRoot, 'person', ['log', '-z', '--raw', '--no-renames', '--no-abbrev',
-		`--format=%x1e%H%x1f%an%x1f%cI%x1f%(trailers:key=${TURN_ID},valueonly)%x1f%(trailers:key=${CHANGE_NUMBER},valueonly)`, '--', path]);
+		`--format=%x1e%H%x1f%an%x1f%cI%x1f%(trailers:key=${TURN_ID},valueonly)`, '--', path]);
 	// Each commit starts with a record separator and its fields, then NUL-separated pairs: a raw line
 	// (":<mode> <mode> <blob before> <blob after> <status>") and its path. A blob of zeros is no file.
 	return log.split('\x1e').filter(Boolean).map(record => {
 		const [head, ...raw] = record.split('\0');
-		const [commit, author, committedAt, turnId, changeNumber] = head.split('\x1f').map(field => field.trim());
+		const [commit, author, committedAt, turnId] = head.split('\x1f').map(field => field.trim());
 		const files = new Map<string, string | null>();
 		for (let i = 0; i + 1 < raw.length; i += 2) {
 			const after = raw[i].trim().split(' ')[3];
 			files.set(raw[i + 1], /^0+$/.test(after) ? null : after);
 		}
-		return { commit, author, committedAt, files, turnChange: turnId && changeNumber ? { turnId, changeNumber: Number(changeNumber) } : null };
+		return { commit, author, committedAt, files, turnId: turnId || null };
 	});
 }
 

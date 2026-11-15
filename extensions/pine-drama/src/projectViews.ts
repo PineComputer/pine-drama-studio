@@ -186,7 +186,7 @@ class ProjectProvider implements vscode.TreeDataProvider<OutlineNode> {
 		if (node.stagePath && this.project) {
 			const object = (await this.project.drama()).objects.get(node.stagePath);
 			item.contextValue = 'stage';
-			item.description = !object || object.shownFile ? undefined : notMadeText(object.type, object.makingNow);
+			item.description = !object || object.shownFile ? undefined : notMadeText(object.type);
 			item.tooltip = [node.stagePath, item.description].filter(Boolean).join('\n');
 		}
 		if (node.role === 'script-episode') {
@@ -246,7 +246,7 @@ class TimelineProvider implements vscode.TreeDataProvider<TimelineEntry> {
 		const item = new vscode.TreeItem(shortDate(entry.committedAt));
 		item.description = [madeBy(entry.author), entry.shown ? 'shown' : ''].filter(Boolean).join(' · ');
 		item.iconPath = new vscode.ThemeIcon(entry.shown ? 'pass-filled' : 'circle-small');
-		item.tooltip = `${entry.file}\n${entry.commit.slice(0, 12)}${entry.turnChange ? `\nTurn ${entry.turnChange.turnId}, change ${entry.turnChange.changeNumber}` : ''}`;
+		item.tooltip = `${entry.file}\n${entry.commit.slice(0, 12)}${entry.turnId ? `\nTurn ${entry.turnId}` : ''}`;
 		// The shown file opens from its row; an earlier one is brought back by Use, on its card.
 		if (entry.shown && this.project) {
 			item.command = { command: 'vscode.open', title: 'Open', arguments: [fileUri(this.project.root, entry.file), { preview: true }] };

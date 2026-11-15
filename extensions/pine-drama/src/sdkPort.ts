@@ -3,8 +3,7 @@
 // Errors map to the port's kinds: UnconfirmedError (a send may have arrived), MissingError (the remote resource is
 // gone) and ConnectionLostError (a read got no answer); everything else passes through.
 
-import type { ArtifactStore } from './core/taskArtifacts';
-import { AccountError, ConnectionLostError, MissingError, NoSuchFileError, START_WAIT_SECONDS, StartNotConfirmedError, StartTimeoutError, UnconfirmedError, type FolderEntry, type IdlePolicy, type PineConnection, type PineEvent, type PinePort, type PineSession, type TurnFile, type TurnView } from './core/pinePort';
+import { AccountError, ConnectionLostError, MissingError, NoSuchFileError, START_WAIT_SECONDS, StartNotConfirmedError, StartTimeoutError, UnconfirmedError, type IdlePolicy, type PineConnection, type PineEvent, type PinePort, type PineSession, type TurnView } from './core/pinePort';
 
 const importSdk = () => import('@pinesandbox/computer');
 type Sdk = Awaited<ReturnType<typeof importSdk>>;
@@ -139,9 +138,12 @@ export class SdkPort implements PinePort {
 			// PineSandbox apps/portal/app/services/playground.rb:24, the media.generate opt-in).
 			const skills = await computer.skills.list();
 			if (!skills.some(skill => skill.name === DRAMA_SKILL && skill.enabled !== false)) { throw new AccountError('noMedia'); }
-			// The agent reads and writes the Computer's artifacts: a task's request and return travel through them (doc/protocol.md, 4.1).
-			const session = await computer.createSession({ label, artifactAccess: 'read_write' });
-			return { name: session.name, token: session.token };
+			const session = await computer.createSession({ label });
+			// Before any turn the shell is in the session's working directory (PineSandbox session-coordinator
+			// pkg/session/manager.go:1703-1707), so this is where every later exec runs.
+			const pwd = await session.exec('pwd');
+			if (pwd.exitCode !== 0) { throw new Error(`the new session's working directory could not be read: ${(pwd.error || pwd.stderr).trim()}`); }
+			return { name: session.name, token: session.token, workdir: pwd.stdout.trim() };
 		}, 'none');
 	}
 
@@ -211,70 +213,20 @@ export class SdkPort implements PinePort {
 		}
 	}
 
-	async turnFiles(env: PineConnection, s: PineSession, turnId: string): Promise<TurnFile[]> {
-		// The turn's own result names what it returned, in the working directory, as open-pinedrama main reads it
-		// (src/engine/pine-fleet.ts:53, `turn.result.artifacts`); `listArtifacts` lists the separate returned copies,
-		// whose paths the working directory does not have (404 on pine-dev).
-		const turn = await this.mapped(async () => (await this.session(env, s)).agent.wait(turnId, { timeoutMs: 0 }), 'none');
-		return (turn.result?.artifacts ?? []).map(a => ({ path: a.relativePath, root: a.root, ...(a.computerId ? { computerId: a.computerId } : {}), sha256: a.sha256, size: a.size, type: a.contentType }));
+	async exec(env: PineConnection, s: PineSession, command: string, signal?: AbortSignal) {
+		if (!s.workdir) { throw new Error('this session was started by an earlier Pine Drama Studio, which did not keep its working folder. Start a new session'); }
+		const cwd = s.workdir;
+		const result = await this.mapped(async () => (await this.session(env, s)).exec(command, { cwd, ...signal ? { signal } : {} }), 'none');
+		if (result.exitCode !== 0) { throw new Error(`a command on the Computer failed (exit ${result.exitCode ?? 'unknown'}): ${(result.error || result.stderr).trim()}`); }
+		return result.stdout;
 	}
 
 	async openFile(env: PineConnection, s: PineSession, path: string) {
 		return this.readable(async () => (await this.session(env, s)).openFile(path));
 	}
 
-	async artifacts(env: PineConnection, computerId: string): Promise<ArtifactStore> {
-		const { ArtifactNotFoundError } = await sdk();
-		const store = (await this.client(env)).artifacts(computerId);
-		return {
-			list: async prefix => {
-				const paths: { path: string; size: number }[] = [];
-				let pageToken = '';
-				do {
-					// A Computer Pine no longer has has no artifacts either: MissingError, as for its other resources.
-					const page = await this.mapped(() => store.list({ prefix, recursive: true, ...(pageToken ? { pageToken } : {}) }), 'none');
-					paths.push(...page.files.map(f => ({ path: f.path, size: f.size })));
-					pageToken = page.nextPageToken;
-				} while (pageToken);
-				return paths;
-			},
-			upload: async (path, bytes, signal) => { await store.upload(path, new Uint8Array(bytes), signal ? { signal } : {}); },
-			copy: async (fromComputer, path) => { await store.copy(fromComputer, path, path); },
-			read: async path => {
-				try {
-					const chunks: Uint8Array[] = [];
-					// A web ReadableStream is async-iterable in Node 20 and later.
-					for await (const chunk of await store.open(path) as unknown as AsyncIterable<Uint8Array>) {
-						chunks.push(chunk);
-					}
-					return Buffer.concat(chunks);
-				} catch (error) {
-					if (error instanceof ArtifactNotFoundError) {
-						return undefined;
-					}
-					throw error;
-				}
-			},
-		};
-	}
-
-	async openReturned(env: PineConnection, s: PineSession, file: TurnFile) {
-		if (file.root === 'workdir') {
-			return this.openFile(env, s, file.path);
-		}
-		if (file.root === 'artifact_store' && file.computerId) {
-			return this.readable(async () => (await this.client(env)).artifacts(file.computerId!).open(file.path));
-		}
-		throw new Error(`the turn returned ${file.path} from Pine's "${file.root}" store, which the Studio does not read yet`);
-	}
-
 	async writeFile(env: PineConnection, s: PineSession, name: string, content: Uint8Array) {
 		await this.mapped(async () => (await this.session(env, s)).writeFile(name, content), 'none');
-	}
-
-	async listFolder(env: PineConnection, s: PineSession, folder: string): Promise<FolderEntry[]> {
-		const entries = await this.readable(async () => (await this.session(env, s)).listFiles({ path: folder }));
-		return entries.map(e => ({ path: e.relativePath, folder: e.isDir, size: e.size }));
 	}
 
 	/**
