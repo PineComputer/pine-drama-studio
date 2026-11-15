@@ -24,7 +24,7 @@ import { basename } from 'node:path';
 
 import { assertProjectRoot } from './core/projectPlace';
 import { projectSessions, sessionProjectRoot, type ProjectSessions } from './core/projectSessions';
-import { sessionEpisodes, type RowEpisodes } from './core/sessionEpisodes';
+import { sessionEpisodes } from './core/sessionEpisodes';
 
 const SESSION_TYPE = 'pine-computer';
 /** The tool name of an agent step's row; the row's words are the step's own title (core/activityRow.ts). */
@@ -264,20 +264,17 @@ export function registerPineSessions(
 		item.timing = itemTiming(undefined, undefined, entryCreatedAt); // Entry creation time, not invented message history.
 		return item;
 	};
-	const toItem = (conv: Chat, rows?: ReadonlyMap<string, RowEpisodes>): vscode.ChatSessionItem => {
+	const toItem = (conv: Chat, rows?: ReadonlyMap<string, readonly string[]>): vscode.ChatSessionItem => {
 		// The row names the work once its project has come back (the brief's Title:), else the first message. It has no
 		// description while its Pine is the one the Studio connects to; a session of another Pine says which. An ended Pine session is not the person's to act on, so the row does not say it.
 		const item = controller.createChatSessionItem(vscode.Uri.parse(conv.key), titleOf(conv.key) ?? conv.label);
 		item.iconPath = new vscode.ThemeIcon(conv.project_role === 'main' ? 'comment-discussion' : 'pine-computer');
 		item.metadata = conv.folder ? { workingDirectoryPath: conv.folder } : undefined;
-		// The row's episodes in its description, which Code-OSS renders as Markdown with codicons, and an episode another
-		// running session also makes with $(warning) and its tooltip (chatSessionsProvider.d.ts:315, :330;
-		// agentSessionsViewer.ts:596-598, agentSessionHoverWidget.ts:262).
-		const row = rows?.get(conv.key);
+		// The row's episodes in its description, which Code-OSS renders as Markdown (chatSessionsProvider.d.ts:315).
+		// Several sessions may work on one episode, so nothing marks that.
 		const host = config.kind === 'set' && conv.endpoint === config.pine.endpoint ? undefined : `on ${endpointHost(conv.endpoint)}`;
-		const episodes = row?.episodes.map(e => row.shared.has(e) ? `$(warning) ${e}` : e).join(', ');
+		const episodes = rows?.get(conv.key)?.join(', ');
 		item.description = episodes ? new vscode.MarkdownString([episodes, conv.state === 'running' ? 'working' : undefined, host].filter(Boolean).join(' · '), true) : host;
-		item.tooltip = row?.shared.size ? [...row.shared].map(([e, others]) => `${e} is also being made in ${others.map(k => titleOf(k) ?? k).join(', ')}`).join('\n') : undefined;
 		item.timing = itemTiming(conv.created_at, conv.updated_at, Date.now());
 		// A session whose agent asks the person something shows Code-OSS's NeedsInput.
 		item.status = conv.state === 'running' ? vscode.ChatSessionStatus.InProgress

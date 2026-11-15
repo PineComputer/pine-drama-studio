@@ -169,9 +169,8 @@ test('New Session in a project with a Project Chat is a new Chat in that project
 	f.store.close();
 });
 
-// The description names the turn's episodes; one another running session also makes is
-// marked, with a tooltip naming it.
-test('session rows name the episodes of their latest return, nothing before any, and mark an episode two running sessions make', async () => {
+// The description names the turn's episodes. Two sessions on one episode is normal, so nothing marks it.
+test('session rows name the episodes of their latest return, nothing before any, and never mark an episode two running sessions make', async () => {
 	const f = fixture(); f.add('main', f.root, 'main'); for (const key of ['a', 'b', 'c', 'quiet']) { f.add(key, f.root, 'episode'); }
 	const read = (key: string, path: string) => { f.turnFiles.set(key, [...(f.turnFiles.get(key) ?? []), path]); };
 	for (const key of ['a', 'b', 'c', 'quiet']) { f.store.updateChat(key, { state: 'running' }); }
@@ -181,10 +180,10 @@ test('session rows name the episodes of their latest return, nothing before any,
 	f.turnFiles.set('main', ['drama/episodes/EP003/notes', 'drama/episodes/EP004/notes']);
 	await refreshList();
 	const shown = (key: string) => { const d = listed.get(key)!.description; return typeof d === 'string' || d === undefined ? d : d.value; };
-	assert.equal(shown('main'), 'EP003, EP004', 'an ended turn: what was imported, no warning');
-	assert.equal(shown('a'), '$(warning) EP004 · working');
-	assert.equal(shown('b'), '$(warning) EP004 · working');
-	assert.equal(listed.get('a')!.tooltip, 'EP004 is also being made in OFFLINE fixture');
+	assert.equal(shown('main'), 'EP003, EP004', 'an ended turn: what was imported');
+	assert.equal(shown('a'), 'EP004 · working');
+	assert.equal(shown('b'), 'EP004 · working');
+	assert.equal(listed.get('a')!.tooltip, undefined);
 	assert.equal(shown('c'), 'EP005 · working'); assert.equal(listed.get('c')!.tooltip, undefined);
 	assert.equal(shown('quiet'), undefined, 'nothing before any file: the native "Working..." stays');
 	f.store.close();
