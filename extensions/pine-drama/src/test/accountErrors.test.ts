@@ -72,11 +72,11 @@ test('a message that meets an account problem is given back once with its line, 
 test('a new session starts only where the Computer offers the drama skill, which comes with media generation', async () => {
 	const port = new SdkPort();
 	let skills: Record<string, unknown>[] = [];
-	const created: string[] = [];
+	const created: { label: string; artifactAccess?: string }[] = [];
 	port['computer'] = async () => ({
 		skills: { list: async () => skills },
-		createSession: async ({ label }: { label: string }) => {
-			created.push(label);
+		createSession: async ({ label, artifactAccess }: { label: string; artifactAccess?: string }) => {
+			created.push({ label, artifactAccess });
 			return { name: 's-1', token: 'ps_1', exec: async (command: string) => ({ stdout: command === 'pwd' ? '/sessions/s-1/files\n' : '', stderr: '', exitCode: 0, error: '' }) };
 		},
 	}) as never;
@@ -87,6 +87,7 @@ test('a new session starts only where the Computer offers the drama skill, which
 	assert.deepEqual(created, [], 'no session was started');
 	skills = [{ name: 'drama-workflow', enabled: true }];
 	assert.deepEqual(await port.createSession(env, 'credentials', 'binding', 'Pine Drama'), { name: 's-1', token: 'ps_1', workdir: '/sessions/s-1/files' }, 'its working directory, as pwd printed it');
+	assert.deepEqual(created, [{ label: 'Pine Drama', artifactAccess: 'read_write' }], 'the agent may read and write the Computer\'s artifacts, as its tools need');
 });
 
 test('every exec runs in the session\'s working directory, which the agent\'s own cd never moves', async () => {

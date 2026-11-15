@@ -138,7 +138,10 @@ export class SdkPort implements PinePort {
 			// PineSandbox apps/portal/app/services/playground.rb:24, the media.generate opt-in).
 			const skills = await computer.skills.list();
 			if (!skills.some(skill => skill.name === DRAMA_SKILL && skill.enabled !== false)) { throw new AccountError('noMedia'); }
-			const session = await computer.createSession({ label });
+			// The agent's tools publish what they make through the Computer's artifacts (drama-cli's asset create runs
+			// pine-artifact), which Pine refuses a session without artifact access (PineSandbox session-coordinator
+			// pkg/server/computer_artifacts.go:59-68, 403); the Studio itself reads and writes none.
+			const session = await computer.createSession({ label, artifactAccess: 'read_write' });
 			// Before any turn the shell is in the session's working directory (PineSandbox session-coordinator
 			// pkg/session/manager.go:1703-1707), so this is where every later exec runs.
 			const pwd = await session.exec('pwd');
