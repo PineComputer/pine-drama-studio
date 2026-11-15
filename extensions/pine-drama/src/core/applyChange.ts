@@ -59,14 +59,16 @@ export function applyPersonChange(projectRoot: string, commitMessage: string,
 }
 
 /** Why a path of a turn's result was left out of the project, said to the person. */
-export type LeftOut = 'no path of the project' | 'a link' | 'the same name as another but for case' | 'reached through a link' | 'in the way of a folder or a file';
+export type LeftOut = 'no path of the project' | 'a link' | 'the same name as another but for case' | 'reached through a link' | 'in the way of a folder or a file'
+	| 'not allowed to write there' | 'a name too long for this disk';
 
 /**
  * Lands a turn's result in the project folder, in its write queue: `entries`, the paths it changed in git's own objects
  * (projectHistory.ts treeChanges), each on its own, so no one path keeps the rest out. A path is left out, and named
  * with why, when it is no path of the project (section 1), a link or another repository (its mode is no file's), the same
- * name as another but for case, reached through a link at the destination, or in the way: a folder that is not empty
- * where it writes a file, or a file where it needs a folder. Deletions go first, each with the folders it leaves empty
+ * name as another but for case, reached through a link at the destination, or when the folder will not take it there
+ * (pathError): a folder that is not empty where it writes a file, a file where it needs a folder, a folder it may not
+ * write, a name too long. Only an error that is about no one path (git's, a full disk) fails the landing. Deletions go first, each with the folders it leaves empty
  * (as git does, dir.c remove_path), so a file and a folder can change places; then each file is streamed from its blob.
  * One `pine-computer` commit of exactly what landed, with the turn's trailers, moves HEAD and `refs` together.
  */
@@ -96,8 +98,7 @@ export function landTurnResult(projectRoot: string, ids: PineTurnIds, entries: r
 				if (!throughNoLink(projectRoot, entry.path)) { leftOut.set(entry.path, 'reached through a link'); continue; }
 				await rm(join(projectRoot, entry.path), { force: true });
 			} catch (error) {
-				if (!inTheWay(error)) { throw error; }
-				leftOut.set(entry.path, 'in the way of a folder or a file');
+				leftOut.set(entry.path, pathError(error));
 				continue;
 			}
 			await removeEmptiedFolders(projectRoot, dirname(entry.path));
@@ -113,8 +114,7 @@ export function landTurnResult(projectRoot: string, ids: PineTurnIds, entries: r
 				await mkdir(dirname(file), { recursive: true });
 				await writeBlob(projectRoot, entry.blob!, file, entry.mode === '100755');
 			} catch (error) {
-				if (!inTheWay(error)) { throw error; }
-				leftOut.set(entry.path, 'in the way of a folder or a file');
+				leftOut.set(entry.path, pathError(error));
 				continue;
 			}
 			landed.push(entry);
@@ -124,19 +124,32 @@ export function landTurnResult(projectRoot: string, ids: PineTurnIds, entries: r
 	});
 }
 
-/** A file system error that says something else stands where a path goes: a folder for a file, a file for a folder. */
-const inTheWay = (error: unknown): boolean => ['EISDIR', 'ENOTDIR', 'EEXIST', 'ENOTEMPTY', 'ERR_FS_EISDIR'].includes((error as NodeJS.ErrnoException).code ?? '');
+/** What a file system error says about the one path it was raised for (Node's error codes, POSIX errno). */
+const ABOUT_ONE_PATH: Readonly<Record<string, LeftOut>> = {
+	EISDIR: 'in the way of a folder or a file', ERR_FS_EISDIR: 'in the way of a folder or a file', ENOTDIR: 'in the way of a folder or a file',
+	EEXIST: 'in the way of a folder or a file', ENOTEMPTY: 'in the way of a folder or a file',
+	EACCES: 'not allowed to write there', EPERM: 'not allowed to write there',
+	ENAMETOOLONG: 'a name too long for this disk', ELOOP: 'reached through a link',
+};
+
+/** Why one path was left out, from the error writing or deleting it; an error about no one path is thrown on. */
+function pathError(error: unknown): LeftOut {
+	const why = ABOUT_ONE_PATH[(error as NodeJS.ErrnoException).code ?? ''];
+	if (!why) { throw error; }
+	return why;
+}
 
 /**
  * Removes `folder` and each folder above it that is left empty, up to the project's root, as git does when it removes a
- * file (dir.c remove_path: "unlink and remove leading directories if empty"). A folder that holds anything stays.
+ * file (dir.c remove_path: "unlink and remove leading directories if empty"). A folder that holds anything, or that
+ * may not be removed, stays.
  */
 async function removeEmptiedFolders(projectRoot: string, folder: string): Promise<void> {
 	for (let at = folder; at !== '.'; at = dirname(at)) {
 		try {
 			await rmdir(join(projectRoot, at));
 		} catch (error) {
-			if (['ENOTEMPTY', 'EEXIST', 'ENOENT', 'ENOTDIR'].includes((error as NodeJS.ErrnoException).code ?? '')) { return; }
+			if (['ENOTEMPTY', 'EEXIST', 'ENOENT', 'ENOTDIR', 'EACCES', 'EPERM'].includes((error as NodeJS.ErrnoException).code ?? '')) { return; }
 			throw error;
 		}
 	}

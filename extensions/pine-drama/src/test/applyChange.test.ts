@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { strict as assert } from 'node:assert';
-import { existsSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -82,4 +82,24 @@ test('a folder linked into .git, or another of the project, is never written thr
 	symlinkSync(join(dir, 'assets'), join(dir, 'also-assets'));
 	await assert.rejects(person(dir, { 'also-assets/characters/lin/look.png': 'x' }), (error: Error) => error instanceof NotAProjectPathError);
 	assert.equal(readFileSync(join(dir, LOOK), 'utf8'), 'one');
+});
+
+test('a path the folder will not take (a read-only folder) is left out with why, and the rest of the turn lands', async () => {
+	const dir = project();
+	await person(dir, { 'locked/old.txt': 'the person\'s', [LOOK]: 'one' });
+	chmodSync(join(dir, 'locked'), 0o555);
+	try {
+		const blobOf = async (text: string) => (await git(['hash-object', '-w', '--stdin'], dir, { stdin: text })).stdout.trim();
+		const { landed, leftOut } = await landTurnResult(dir, { computer: 'pc-1', session: 's-1', turn: 'turn-1' }, [
+			{ path: 'locked/new.txt', mode: '100644', blob: await blobOf('not allowed') },
+			{ path: 'locked/old.txt', mode: '100644', blob: null },
+			{ path: LOOK, mode: '100644', blob: await blobOf('two') },
+		], {});
+		assert.deepEqual(landed, [LOOK]);
+		assert.deepEqual(Object.fromEntries(leftOut), { 'locked/new.txt': 'not allowed to write there', 'locked/old.txt': 'not allowed to write there' });
+		assert.equal(readFileSync(join(dir, LOOK), 'utf8'), 'two');
+		assert.equal(readFileSync(join(dir, 'locked/old.txt'), 'utf8'), 'the person\'s');
+	} finally {
+		chmodSync(join(dir, 'locked'), 0o755);
+	}
 });
