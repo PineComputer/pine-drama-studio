@@ -6,24 +6,22 @@ Subject: [PATCH 15/27] pine(L2): reveal native Sessions for explicit project
 
 
 diff --git a/src/vs/workbench/contrib/pine/browser/pineProjectChat.ts b/src/vs/workbench/contrib/pine/browser/pineProjectChat.ts
-index e092963fc98..1353db33fbb 100644
+index 9e0047cfd4a..c577c1d5205 100644
 --- a/src/vs/workbench/contrib/pine/browser/pineProjectChat.ts
 +++ b/src/vs/workbench/contrib/pine/browser/pineProjectChat.ts
-@@ -1,8 +1,12 @@
+@@ -1,6 +1,10 @@
  /*---------------------------------------------------------------------------------------------
   * Native Chat restoration bridge for Pine. Private extension API exposes local-provider sessions only.
   *--------------------------------------------------------------------------------------------*/
 +import { DisposableStore } from '../../../../base/common/lifecycle.js';
 +import { Event } from '../../../../base/common/event.js';
- import { URI } from '../../../../base/common/uri.js';
- import { IAgentSessionsService } from '../../chat/browser/agentSessions/agentSessionsService.js';
 +import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 +import { ChatConfiguration } from '../../chat/common/constants.js';
  import { CommandsRegistry } from '../../../../platform/commands/common/commands.js';
  import { IViewsService } from '../../../services/views/common/viewsService.js';
  import { ChatViewId } from '../../chat/browser/chat.js';
-@@ -23,3 +27,25 @@ CommandsRegistry.registerCommand(prepareProjectChatCommand, async (accessor, mai
- 	sessions.getSession(URI.parse(mainResource))?.setPinned(true);
+@@ -17,3 +21,25 @@ CommandsRegistry.registerCommand(prepareProjectChatCommand, async accessor => {
+ 	await view.whenSessionRestored();
  	return view.widget?.viewModel?.sessionResource.toString();
  });
 +
@@ -49,10 +47,10 @@ index e092963fc98..1353db33fbb 100644
 +	view.focusSessions();
 +});
 diff --git a/src/vs/workbench/contrib/pine/test/browser/pineProjectChat.test.ts b/src/vs/workbench/contrib/pine/test/browser/pineProjectChat.test.ts
-index 2486f1658b5..d7f1b597aa7 100644
+index ab4f283b194..da0225970a8 100644
 --- a/src/vs/workbench/contrib/pine/test/browser/pineProjectChat.test.ts
 +++ b/src/vs/workbench/contrib/pine/test/browser/pineProjectChat.test.ts
-@@ -3,16 +3,18 @@
+@@ -3,14 +3,16 @@
   *  Licensed under the MIT License. See License.txt in the project root for license information.
   *--------------------------------------------------------------------------------------------*/
  import assert from 'assert';
@@ -63,8 +61,6 @@ index 2486f1658b5..d7f1b597aa7 100644
 +import { Emitter } from '../../../../../base/common/event.js';
  import { URI } from '../../../../../base/common/uri.js';
  import { IViewsService } from '../../../../services/views/common/viewsService.js';
- import { IAgentSessionsService } from '../../../chat/browser/agentSessions/agentSessionsService.js';
- import type { IAgentSession } from '../../../chat/browser/agentSessions/agentSessionsModel.js';
  import type { ChatViewPane } from '../../../chat/browser/widgetHosts/viewPane/chatViewPane.js';
  import type { ChatWidget } from '../../../chat/browser/widget/chatWidget.js';
 -import { ChatViewId } from '../../../chat/browser/chat.js';
@@ -72,8 +68,8 @@ index 2486f1658b5..d7f1b597aa7 100644
  import { prepareProjectChatCommand } from '../../browser/pineProjectChat.js';
  import { pineWelcomeStartEntries } from '../../browser/pineWelcome.js';
  
-@@ -45,4 +47,46 @@ suite('Pine project entry', () => {
- 			assert.deepStrictEqual(calls, ['open', 'restore', 'list', 'pin']);
+@@ -39,4 +41,46 @@ suite('Pine project entry', () => {
+ 			assert.deepStrictEqual(calls, ['open', 'restore']);
  		} finally { service.dispose(); }
  	});
 +	test('explicit Sessions navigation temporarily reveals the native list without replacing Chat', async () => {

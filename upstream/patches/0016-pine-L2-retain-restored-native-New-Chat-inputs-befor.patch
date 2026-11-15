@@ -6,10 +6,10 @@ Subject: [PATCH 16/27] pine(L2): retain restored native New Chat inputs before
 
 
 diff --git a/src/vs/workbench/contrib/pine/browser/pineProjectChat.ts b/src/vs/workbench/contrib/pine/browser/pineProjectChat.ts
-index 1353db33fbb..fd47666bcc1 100644
+index c577c1d5205..aeadf4170d2 100644
 --- a/src/vs/workbench/contrib/pine/browser/pineProjectChat.ts
 +++ b/src/vs/workbench/contrib/pine/browser/pineProjectChat.ts
-@@ -10,6 +10,7 @@ import { ChatConfiguration } from '../../chat/common/constants.js';
+@@ -8,6 +8,7 @@ import { ChatConfiguration } from '../../chat/common/constants.js';
  import { CommandsRegistry } from '../../../../platform/commands/common/commands.js';
  import { IViewsService } from '../../../services/views/common/viewsService.js';
  import { ChatViewId } from '../../chat/browser/chat.js';
@@ -17,10 +17,10 @@ index 1353db33fbb..fd47666bcc1 100644
  import type { ChatViewPane } from '../../chat/browser/widgetHosts/viewPane/chatViewPane.js';
  
  export const prepareProjectChatCommand = 'pine.workbench.prepareProjectChat';
-@@ -25,7 +26,13 @@ CommandsRegistry.registerCommand(prepareProjectChatCommand, async (accessor, mai
- 	// The primary uses native pin state/grouping, never invented activity times or a duplicate home button.
- 	await sessions.model.resolve('pine-computer');
- 	sessions.getSession(URI.parse(mainResource))?.setPinned(true);
+@@ -19,7 +20,13 @@ CommandsRegistry.registerCommand(prepareProjectChatCommand, async accessor => {
+ 	const view = await views.openView<ChatViewPane>(ChatViewId, false);
+ 	if (!view) { return undefined; }
+ 	await view.whenSessionRestored();
 -	return view.widget?.viewModel?.sessionResource.toString();
 +	const widget = view.widget;
 +	const resource = widget?.viewModel?.sessionResource;
@@ -33,10 +33,10 @@ index 1353db33fbb..fd47666bcc1 100644
  
  // Native setup/welcome can hide the list even after Show Agent Sessions Sidebar changes its layout.
 diff --git a/src/vs/workbench/contrib/pine/test/browser/pineProjectChat.test.ts b/src/vs/workbench/contrib/pine/test/browser/pineProjectChat.test.ts
-index d7f1b597aa7..e20ddc2346a 100644
+index da0225970a8..716e5b46b54 100644
 --- a/src/vs/workbench/contrib/pine/test/browser/pineProjectChat.test.ts
 +++ b/src/vs/workbench/contrib/pine/test/browser/pineProjectChat.test.ts
-@@ -16,10 +16,11 @@ import type { ChatViewPane } from '../../../chat/browser/widgetHosts/viewPane/ch
+@@ -14,10 +14,11 @@ import type { ChatViewPane } from '../../../chat/browser/widgetHosts/viewPane/ch
  import type { ChatWidget } from '../../../chat/browser/widget/chatWidget.js';
  import { ChatViewId, type IChatWidgetViewModelChangeEvent } from '../../../chat/browser/chat.js';
  import { prepareProjectChatCommand } from '../../browser/pineProjectChat.js';
@@ -49,13 +49,13 @@ index d7f1b597aa7..e20ddc2346a 100644
  		assert.deepStrictEqual(pineWelcomeStartEntries.map(entry => entry.content.command), ['command:pineDrama.newProject', 'command:pineDrama.openProject']);
  	});
  
-@@ -43,10 +44,31 @@ suite('Pine project entry', () => {
- 			const selected = service.invokeFunction(accessor => CommandsRegistry.getCommand(prepareProjectChatCommand)!.handler(accessor, 'pine-computer:/main'));
+@@ -37,10 +38,30 @@ suite('Pine project entry', () => {
+ 			const selected = service.invokeFunction(accessor => CommandsRegistry.getCommand(prepareProjectChatCommand)!.handler(accessor));
  			await Promise.resolve(); assert.deepStrictEqual(calls, ['open', 'restore']);
  			resolveRestore();
 -			assert.strictEqual(await selected, 'pine-computer:/episode');
 +			assert.deepStrictEqual(await selected, { resource: 'pine-computer:/episode', isUntitledDraft: false });
- 			assert.deepStrictEqual(calls, ['open', 'restore', 'list', 'pin']);
+ 			assert.deepStrictEqual(calls, ['open', 'restore']);
  		} finally { service.dispose(); }
  	});
 +	for (const input of ['text', 'attachments', 'empty', 'other-provider'] as const) {
@@ -71,9 +71,8 @@ index d7f1b597aa7..e20ddc2346a 100644
 +				}),
 +			});
 +			service.stub(IViewsService, upcastPartial<IViewsService>({ openView: async <T>() => view as T }));
-+			service.stub(IAgentSessionsService, upcastPartial<IAgentSessionsService>({ model: upcastPartial<IAgentSessionsService['model']>({ resolve: async () => {} }), getSession: () => undefined }));
 +			try {
-+				const restored = await service.invokeFunction(accessor => CommandsRegistry.getCommand(prepareProjectChatCommand)!.handler(accessor, 'pine-computer:/main'));
++				const restored = await service.invokeFunction(accessor => CommandsRegistry.getCommand(prepareProjectChatCommand)!.handler(accessor));
 +				assert.deepStrictEqual(restored, { resource: resource.toString(), isUntitledDraft: input === 'text' || input === 'attachments' });
 +			} finally { service.dispose(); }
 +		});
