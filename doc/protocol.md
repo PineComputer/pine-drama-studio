@@ -136,8 +136,8 @@ The client is the turn's harness, as Codex's cloud harness is: it puts the drama
 
 | Operation | What the client does |
 |---|---|
-| `list` | One `exec` that prints the hash and path of every file under `drama/`. |
-| `put(paths)` | Writes those files' bytes as a tar, in parts of at most 64 MiB, with Pine's `write_file` (into `attachments/`). Then one `exec` extracts the tar into `drama/`, deletes its parts, and deletes every file under `drama/` that the client does not hold. |
+| `list` | One `exec` that prints the hash and path of every file under `drama/` whose path is a path (section 1): a name starting with `.`, such as a lock or a temporary file, is left out. |
+| `put(paths)` | Writes those files' bytes as a tar, in parts of at most 64 MiB, with Pine's `write_file` (into `attachments/`). Then one `exec` extracts the tar into `drama/`, deletes its parts, and deletes every path under `drama/` that the client does not hold. |
 | `get(paths)` | One `exec` writes a tar of those files outside `drama/`. The client reads it with Pine's `read_file`, then deletes it. |
 
 Bytes travel only as files: `exec` output is text.
