@@ -277,15 +277,17 @@ export interface TreeEntry {
 }
 
 /**
- * Inside the project's write queue: a commit of HEAD's files as they go to a Pine Computer, hidden ones and links left out
- * (section 1), at `ref`, with `parent` as its one parent or none. It is made of git's own objects (a temporary index,
- * write-tree, commit-tree), so its bytes are HEAD's whatever the folder holds meanwhile. Returns its id.
+ * Inside the project's write queue: a commit of the index's files as they go to a Pine Computer, hidden ones and links
+ * left out (section 1), at `ref`, with `parent` as its one parent or none. The index holds HEAD's files and what is
+ * staged on top: a running turn's results, which the folder already shows, so another chat starts from them too. It is
+ * made of git's own objects (a temporary index, write-tree, commit-tree), so its bytes are the index's whatever the
+ * folder holds meanwhile. Returns its id.
  */
-export async function commitSnapshotOfHead(projectRoot: string, ref: string, parent: string | null, message: string): Promise<string> {
+export async function commitSnapshotOfIndex(projectRoot: string, ref: string, parent: string | null, message: string): Promise<string> {
 	await ensureRepository(projectRoot);
-	// "<mode> <type> <blob>\t<path>", NUL-terminated (git ls-tree -z), which update-index --index-info reads as it is.
-	const files = await hasHead(projectRoot) ? (await run(projectRoot, 'person', ['ls-tree', '-r', '-z', '--full-tree', 'HEAD'])).split('\0')
-		.filter(line => line && FILE_MODES.has(line.split(' ')[0]) && !hiddenPath(line.slice(line.indexOf('\t') + 1))) : [];
+	// "<mode> <blob> <stage>\t<path>", NUL-terminated (git ls-files -s -z), which update-index --index-info reads as it is.
+	const files = (await run(projectRoot, 'person', ['ls-files', '-s', '-z'])).split('\0')
+		.filter(line => line && FILE_MODES.has(line.split(' ')[0]) && !hiddenPath(line.slice(line.indexOf('\t') + 1)));
 	const tree = await withIndex(async index => {
 		await run(projectRoot, 'person', ['read-tree', '--empty'], { index });
 		if (files.length) { await run(projectRoot, 'person', ['update-index', '-z', '--index-info'], { index, stdin: `${files.join('\0')}\0` }); }

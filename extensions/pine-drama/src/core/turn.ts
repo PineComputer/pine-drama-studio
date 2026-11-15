@@ -17,7 +17,7 @@ import { landTurnFiles, type LeftOut } from './applyChange';
 import { writeWhole } from './placement';
 import type { PineConnection, PinePort, PineSession } from './pinePort';
 import { projectIdentity } from './projectPlace';
-import { bundleRef, commitEntriesToHistory, commitIndexPaths, commitSnapshotOfHead, fetchBundle, readRef, recordFilesFoundOnDisk, runInProjectWriteQueue, treeChanges, type PineTurnIds } from './projectHistory';
+import { bundleRef, commitEntriesToHistory, commitIndexPaths, commitSnapshotOfIndex, fetchBundle, readRef, recordFilesFoundOnDisk, runInProjectWriteQueue, treeChanges, type PineTurnIds } from './projectHistory';
 import { DRAMA_FOLDER } from './protocol';
 import { sha256 } from './sha256';
 
@@ -139,7 +139,7 @@ function sessionRefs(session: string): { readonly acked: string; readonly put: s
 
 /**
  * Turn `turn`'s files on the Computer before its agent runs. In the project's write queue, the folder is recorded, and
- * HEAD's files (no hidden ones, no links) are made a snapshot commit and bundled: a child of the session's acknowledged
+ * the index's files, a running turn's staged results included (no hidden ones, no links), are made a snapshot commit and bundled: a child of the session's acknowledged
  * commit when the Computer still holds it (git cat-file -e), so only what it lacks goes up, else a commit with no
  * parent, so no history goes up. The bundle goes up in parts, and one exec fetches it, checks it out in the drama's
  * folder (git read-tree --reset -u) and removes every other file there (git clean), so the folder holds exactly the
@@ -154,7 +154,7 @@ export async function putTurnFiles(at: ComputerSession, root: string, turn: stri
 	try {
 		const seed = await runInProjectWriteQueue(root, async () => {
 			await recordFilesFoundOnDisk(root, `The project as found before turn ${turn}`);
-			const seed = await commitSnapshotOfHead(root, refs.put, held ? acked : null, `The project as turn ${turn} starts`);
+			const seed = await commitSnapshotOfIndex(root, refs.put, held ? acked : null, `The project as turn ${turn} starts`);
 			await bundleRef(root, bundle, refs.put, held ? acked : null);
 			return seed;
 		});
