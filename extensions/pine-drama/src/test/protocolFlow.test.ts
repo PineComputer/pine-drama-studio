@@ -98,7 +98,7 @@ test('a session\'s next turn waits until its last one is settled, and then start
 	} finally { f.store.close(); }
 });
 
-test('while a turn runs its files come into the project folder on a timer, with no commit until the turn ends', async () => {
+test('while a turn runs its files come into the project folder on a timer, each collection its own commit with the turn\'s trailer', async () => {
 	const f = fixture({ collectEveryMs: 20 });
 	try {
 		f.pine.plans = [{ state: 'running', files: made('assets/props/a', 'a, being drawn') }];
@@ -106,11 +106,13 @@ test('while a turn runs its files come into the project folder on a timer, with 
 		const pumping = drain(reply);
 		await until(() => existsSync(join(f.root, 'assets/props/a/picture.png')), 'the file comes in while the turn runs');
 		assert.equal(f.store.chat('main')?.state, 'running');
-		assert.equal((await git(['log', '--format=%an', '--author=pine-computer'], f.root)).stdout.trim(), '', 'no commit while it runs');
-		f.pine.finish(f.store.chat('main')!.current_turn_id!, { state: 'completed', text: 'drawn', files: made('assets/props/a', 'a, drawn') });
+		const turnId = f.store.chat('main')!.current_turn_id!;
+		const commits = async () => (await git(['log', '--format=%(trailers:key=Pine-Turn-Id,valueonly,separator=)', '--author=pine-computer'], f.root)).stdout.trim();
+		await until(async () => await commits() === turnId, 'the collection is a commit while the turn runs');
+		f.pine.finish(turnId, { state: 'completed', text: 'drawn', files: made('assets/props/a', 'a, drawn') });
 		await pumping;
 		assert.equal(readFileSync(join(f.root, 'assets/props/a/picture.png'), 'utf8'), 'a, drawn');
-		assert.equal((await git(['log', '--format=%an', '--author=pine-computer'], f.root)).stdout.trim(), 'pine-computer', 'one commit, at the end');
+		assert.equal(await commits(), `${turnId}\n${turnId}`, 'and the end\'s collection one more');
 	} finally { f.store.close(); }
 });
 
@@ -296,7 +298,7 @@ test('a turn whose Computer stopped before its files came in is said lost once, 
 		f.pine.plans = [{ state: 'completed', text: 'ok' }];
 		const said = f.said(await f.send('next'));
 		assert.match(said, /ok/, said);
-		assert.equal(f.store.messages('main').filter(m => /^The results of turn .* were on a Computer session that has ended[^]*Nothing is run again by itself/.test(m.text)).length, 1);
+		assert.equal(f.store.messages('main').filter(m => /^The Computer session of turn .* has ended, so what it wrote after its last collection could not be brought into your project[^]*Nothing is run again by itself/.test(m.text)).length, 1);
 		assert.equal(existsSync(join(f.root, 'assets/props/a/picture.png')), false);
 		assert.equal(f.service.hasUnfinishedTurnFollowUp('main'), false);
 	} finally { f.store.close(); }
@@ -309,9 +311,9 @@ function stop(updates: AsyncGenerator<Update>, abort: AbortController): void {
 	void updates.return(undefined);
 }
 
-async function until(done: () => boolean, what: string): Promise<void> {
+async function until(done: () => boolean | Promise<boolean>, what: string): Promise<void> {
 	const end = Date.now() + 10_000;
-	while (!done()) {
+	while (!await done()) {
 		assert.ok(Date.now() < end, what);
 		await new Promise(resolve => setTimeout(resolve, 5));
 	}

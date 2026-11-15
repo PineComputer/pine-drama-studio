@@ -1,10 +1,10 @@
 // A turn on the Studio's side, with git on both sides. Before Pine's agent runs, the drama's folder on the Computer is
-// made the project's: a snapshot commit of the index goes up as a bundle and is checked out there (putTurnFiles). At the
-// turn's end, however it ended, what the agent changed is committed there, comes back as a bundle, and its changed paths
-// land in the project as one commit (collectTurn). Everything goes through Pine's exec, write_file and read_file, so
-// nothing assumes what the agent runs; the git on the Computer is the harness's, not the agent's. How the turn ended is
-// Pine's own turn result. The Studio's record of a project's turns lives in its storage, never in the folder. No vscode
-// import.
+// made the project's: a snapshot commit of the index goes up as a bundle and is checked out there (putTurnFiles). While
+// the turn runs and once at its end, however it ended, what the agent changed is committed there, comes back as a
+// bundle, and its changed paths land in the project as one commit per collection (collectTurn). Everything goes through
+// Pine's exec, write_file and read_file, so nothing assumes what the agent runs; the git on the Computer is the
+// harness's, not the agent's. How the turn ended is Pine's own turn result. The Studio's record of a project's turns
+// lives in its storage, never in the folder. No vscode import.
 
 import { createWriteStream, existsSync, readdirSync, readFileSync } from 'node:fs';
 import { mkdir, mkdtemp, open, rm } from 'node:fs/promises';
@@ -17,7 +17,7 @@ import { landTurnFiles, type LeftOut } from './applyChange';
 import { writeWhole } from './placement';
 import type { PineConnection, PinePort, PineSession } from './pinePort';
 import { projectIdentity } from './projectPlace';
-import { bundleRef, commitEntriesToHistory, commitIndexPaths, commitSnapshotOfIndex, fetchBundle, readRef, recordFilesFoundOnDisk, runInProjectWriteQueue, treeChanges, type PineTurnIds } from './projectHistory';
+import { bundleRef, changesAlong, commitEntriesToHistory, commitSnapshotOfIndex, fetchBundle, readRef, recordFilesFoundOnDisk, runInProjectWriteQueue, type PineTurnIds } from './projectHistory';
 import { DRAMA_FOLDER } from './protocol';
 import { sha256 } from './sha256';
 
@@ -129,8 +129,9 @@ const PUT_BUNDLE = 'pine-drama-put.bundle';
 const GET_BUNDLE = 'pine-drama-get.bundle';
 
 /**
- * The project's refs for a session (one name per session, from its own): `acked`, the last commit both sides hold;
- * `put`, the snapshot going up; `result`, the last capture fetched back. Refs outside refs/heads, so no branch shows them.
+ * The project's refs for a session (one name per session, from its own): `acked`, the last commit both sides hold, the
+ * put or the last capture landed; `put`, the snapshot going up; `result`, the last capture fetched back. Refs outside
+ * refs/heads, so no branch shows them.
  */
 function sessionRefs(session: string): { readonly acked: string; readonly put: string; readonly result: string } {
 	const key = sha256(session).slice(0, 16);
@@ -139,7 +140,7 @@ function sessionRefs(session: string): { readonly acked: string; readonly put: s
 
 /**
  * Turn `turn`'s files on the Computer before its agent runs. In the project's write queue, the folder is recorded, and
- * the index's files, a running turn's staged results included (no hidden ones, no links), are made a snapshot commit and bundled: a child of the session's acknowledged
+ * the index's files (no hidden ones, no links) are made a snapshot commit and bundled: a child of the session's acknowledged
  * commit when the Computer still holds it (git cat-file -e), so only what it lacks goes up, else a commit with no
  * parent, so no history goes up. The bundle goes up in parts, and one exec fetches it, checks it out in the drama's
  * folder (git read-tree --reset -u) and removes every other file there (git clean), so the folder holds exactly the
@@ -187,17 +188,16 @@ export interface Collected {
 }
 
 /**
- * Collects what Pine's turn `ids` agent has changed in the drama's folder on the Computer: while the turn runs (`last`
- * false), on a timer, and once at its Pine turn's end however it ended (`last` true), which is the last word.
+ * Collects what Pine's turn `ids` agent has changed in the drama's folder on the Computer: on a timer while the turn
+ * runs, and once more after its Pine turn's end however it ended, the same way each time.
  *
  * One exec stages the folder (git add -A --force, names starting with "." left out) and, when its tree differs from the
  * turn's last capture (`result`; the put's snapshot before any), commits it as that capture's child and bundles only
  * that commit; an unchanged tree makes no commit and no bundle. The bundle is read back and fetched as the new last
- * capture, and the folder takes what changed (applyChange.ts landTurnFiles): since the last capture while the turn
- * runs, staged with no commit; since the acknowledged commit at its end, in the turn's one commit, the acknowledged
- * commit moving with it. Collecting again is a no-op.
+ * capture, and the folder takes what changed (applyChange.ts landTurnFiles) in one commit, the acknowledged commit
+ * moving to the capture in the same ref transaction: it is what has landed. Collecting again is a no-op.
  */
-export async function collectTurn(at: ComputerSession, root: string, ids: PineTurnIds, { last }: { readonly last: boolean }): Promise<Collected> {
+export async function collectTurn(at: ComputerSession, root: string, ids: PineTurnIds): Promise<Collected> {
 	const refs = sessionRefs(at.session.name);
 	const acked = await readRef(root, refs.acked);
 	if (!acked) { throw new Error(`the Studio holds no commit of session ${at.session.name}, so its turn cannot be compared`); }
@@ -205,14 +205,23 @@ export async function collectTurn(at: ComputerSession, root: string, ids: PineTu
 	const said = await run(at, [`${GIT} add -A --force ${DRAMA_PATHS}`, `t=$(${GIT} write-tree)`,
 		`if [ "$t" = "$(${GIT} rev-parse ${base}^{tree})" ]; then echo unchanged; else c=$(${GIT} -c user.name=pine-computer -c user.email=pine-computer@pine-drama.invalid commit-tree "$t" -p ${base} -m ${shellWord(`Turn ${ids.turn}`)})`
 		+ ` && ${GIT} update-ref refs/heads/turn "$c" && ${GIT} bundle create ${GET_BUNDLE} refs/heads/turn ^${base} && echo captured; fi`].join(' && '));
-	const to = said.trim().split('\n').at(-1) === 'unchanged' ? base : await fetchCapture(at, root, refs.result);
-	if (!last && to === base) { return { files: [], leftOut: new Map() }; }
-	// At the end, also what changed since the last capture, so a file the turn wrote and then removed or restored is
-	// brought to the end too, though the turn changed it from the acknowledged commit in the end not at all.
-	const since = await treeChanges(root, base, to);
-	const turnPaths = last ? await treeChanges(root, acked, to) : [];
-	const entries = [...turnPaths, ...since.filter(e => !turnPaths.some(t => t.path === e.path))];
-	const { landed, leftOut } = await landTurnFiles(root, ids, entries, last, last ? { [refs.acked]: to } : {});
+	if (said.trim().split('\n').at(-1) === 'captured') { await fetchCapture(at, root, refs.result); }
+	return landCaptures(root, ids);
+}
+
+/**
+ * Lands what the session's captures fetched so far (`result`) changed since its last landing (`acked`), also once the
+ * session is gone, since they are the project's own git objects: every path a capture of `acked..result` changed, as the
+ * newest holds it, which is more than what changed from the one to the other only after a landing failed, whose writes,
+ * however far they got, come to the newest too. None before any put.
+ */
+export async function landCaptures(root: string, ids: PineTurnIds): Promise<Collected> {
+	const refs = sessionRefs(ids.session);
+	const acked = await readRef(root, refs.acked);
+	const to = (await readRef(root, refs.result)) ?? acked;
+	const entries = acked && to ? await changesAlong(root, acked, to) : [];
+	if (!entries.length) { return { files: [], leftOut: new Map() }; }
+	const { landed, leftOut } = await landTurnFiles(root, ids, entries, { [refs.acked]: to! });
 	return { files: landed, leftOut };
 }
 
@@ -228,17 +237,4 @@ async function fetchCapture(at: ComputerSession, root: string, into: string): Pr
 	} finally {
 		await rm(dir, { recursive: true, force: true });
 	}
-}
-
-/**
- * A session Pine no longer has took its files with it, and its turn has no end to collect: what that turn staged in the
- * folder is committed as found on disk, so no running turn holds it any more.
- */
-export async function forgetCaptures(root: string, session: string): Promise<void> {
-	const refs = sessionRefs(session);
-	const acked = await readRef(root, refs.acked);
-	const captured = await readRef(root, refs.result);
-	if (!acked || !captured || acked === captured) { return; }
-	await runInProjectWriteQueue(root, async () => commitIndexPaths(root, 'client-found-changes-on-disk', (await treeChanges(root, acked, captured)).map(e => e.path),
-		'What a turn wrote before its session ended', {}, { [refs.result]: acked }));
 }

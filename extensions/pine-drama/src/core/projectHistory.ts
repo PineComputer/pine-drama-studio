@@ -88,8 +88,7 @@ export function commitFilesFoundOnDisk(projectRoot: string, message: string): Pr
 
 /**
  * Inside the project's write queue: commits, as `client-found-changes-on-disk`, every change of the folder that is not
- * staged (git status: the work tree differs from the index), and nothing staged: a running turn stages each file it
- * writes into the folder (applyChange.ts landTurnFiles), and its one commit at its end records them.
+ * staged (git status: the work tree differs from the index); what the person staged with git stays theirs to commit.
  */
 export async function recordFilesFoundOnDisk(projectRoot: string, message: string): Promise<void> {
 	const changed = await unstagedPaths(projectRoot);
@@ -103,7 +102,7 @@ export async function recordFilesFoundOnDisk(projectRoot: string, message: strin
  * files among them), the person's changes git has not been told of; a hidden file of the Studio's own (info/exclude) is
  * none.
  */
-export async function unstagedPaths(projectRoot: string): Promise<string[]> {
+async function unstagedPaths(projectRoot: string): Promise<string[]> {
 	await ensureRepository(projectRoot);
 	// "XY <path>", NUL-terminated; with no rename detection, one path a record.
 	return (await run(projectRoot, 'person', ['status', '--porcelain=v1', '-z', '--untracked-files=all', '--no-renames']))
@@ -275,8 +274,8 @@ export interface TreeEntry {
 
 /**
  * Inside the project's write queue: a commit of the index's files as they go to a Pine Computer, hidden ones and links
- * left out (section 1), at `ref`, with `parent` as its one parent or none. The index holds HEAD's files and what is
- * staged on top: a running turn's results, which the folder already shows, so another chat starts from them too. It is
+ * left out (section 1), at `ref`, with `parent` as its one parent or none. The index holds HEAD's files, every collection
+ * of every turn among them, and what the person staged on top. It is
  * made of git's own objects (a temporary index, write-tree, commit-tree), so its bytes are the index's whatever the
  * folder holds meanwhile. Returns its id.
  */
@@ -323,6 +322,23 @@ export async function treeChanges(projectRoot: string, from: string, to: string)
 		entries.push({ path: fields[i + 1], mode, blob: status === 'D' ? null : blob });
 	}
 	return entries;
+}
+
+/**
+ * Every path a commit of `from..to` changed (git log --name-only, NUL-terminated, no rename detection), each as `to`
+ * holds it (git ls-tree), or gone where `to` holds no file there.
+ */
+export async function changesAlong(projectRoot: string, from: string, to: string): Promise<TreeEntry[]> {
+	const paths = [...new Set((await run(projectRoot, 'person', ['log', '-z', '--format=', '--name-only', '--no-renames', `${from}..${to}`])).split('\0').filter(Boolean))];
+	const held = new Map<string, { readonly mode: string; readonly blob: string }>();
+	// "<mode> <type> <blob>\t<path>", NUL-terminated; a batch at a time, so no command line is too long.
+	for (let i = 0; i < paths.length; i += 200) {
+		for (const line of (await run(projectRoot, 'person', ['ls-tree', '-r', '-z', '--full-tree', to, '--', ...paths.slice(i, i + 200)])).split('\0').filter(Boolean)) {
+			const [mode, , blob] = line.slice(0, line.indexOf('\t')).split(' ');
+			held.set(line.slice(line.indexOf('\t') + 1), { mode, blob });
+		}
+	}
+	return paths.map(path => ({ path, mode: held.get(path)?.mode ?? '000000', blob: held.get(path)?.blob ?? null }));
 }
 
 /** Every path the index holds (git ls-files): HEAD's, and what is staged. */

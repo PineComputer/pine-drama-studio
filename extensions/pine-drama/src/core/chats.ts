@@ -19,9 +19,10 @@ import { sha256 } from './sha256';
 //    before it puts or starts anything (its AbortSignal), and a turn Pine runs is cancelled (cancelTurn); what it
 //    changed then lands as any turn's does. Nothing steers a turn: a message that arrives while one runs waits for it
 //    and then goes as the answer or a new run.
-// 8. At a Pine turn's end, however it ended, what its agent changed in the drama's folder on the Computer lands in the
-//    project folder as one commit, and the turn is settled, under the same generation; how it ended is Pine's turn
-//    result. A collection that fails is logged and shown, and is taken up again at the next send or follow.
+// 8. While a Pine turn runs and once at its end, however it ended, what its agent changed in the drama's folder on the
+//    Computer lands in the project folder as one commit per collection; after the end's, the turn is settled, under the
+//    same generation; how it ended is Pine's turn result. A collection that fails is logged and shown, and is taken up
+//    again at the next send or follow.
 // 9. Files the person attaches go into the project folder and up with the Chat's next run; the Studio's note about them
 //    is recorded as the Studio's text.
 // No vscode import.
@@ -34,8 +35,9 @@ import { entryFor, type Entry } from './binding';
 import { givenBack, refusalLine } from './refusal';
 import { Replay } from './replay';
 import { COLLECT_EVERY_MS, IDLE_WAITING_SECONDS, IDLE_WORKING_SECONDS, RECONNECT_LIMIT_MS, RECONNECT_WAITS_MS, START_WAIT_SECONDS, TURN_END_GRACE_MS, TURN_WAIT_MS } from './tuning';
-import { collectTurn, forgetCaptures, putTurnFiles, turnRecordOf, type ComputerSession, type SentTurn, type TurnRecord } from './turn';
-import { applyPersonChange } from './applyChange';
+import { listHistory } from './projectHistory';
+import { collectTurn, landCaptures, putTurnFiles, turnRecordOf, type ComputerSession, type SentTurn, type TurnRecord } from './turn';
+import { applyPersonChange, type LeftOut } from './applyChange';
 import { DRAMA_FOLDER, PERSON_ATTACHMENTS_FOLDER } from './protocol';
 import { unusedName, within } from './placement';
 import { existsSync, mkdirSync, readFileSync, statSync } from 'node:fs';
@@ -114,6 +116,10 @@ export interface ChatServiceOptions {
 type SendResult = { kind: 'sent'; turn: TurnView } | { kind: 'unknown' } | { kind: 'failed' } | { kind: 'ended' };
 
 const LABEL = 'pine-drama-studio';
+
+/** The line that tells the person which paths of a turn's result were left out of the project, and why (applyChange.ts LeftOut). */
+const leftOutLine = (leftOut: ReadonlyMap<string, LeftOut>): string =>
+	`Not brought into your project: ${[...leftOut].map(([path, why]) => `${path} (${why})`).join(', ')}`;
 
 /** A moment as a chat line states it: UTC to the second, "04:59:29Z", as the Output channel's times are. */
 function utcTime(at: Date): string {
@@ -1235,7 +1241,7 @@ export class ChatService {
 		})();
 
 		// What the turn has changed so far comes into the project folder while it runs, until it ends.
-		const collecting = this.collectWhileRunning(key, env, epoch, () => turnId!);
+		const collecting = this.collectWhileRunning(key, env, epoch, () => turnId!, push);
 		const ended = (async () => {
 			for (; ;) {
 				let turn = await this.held(key, epoch, () => this.port.turn(env, session, turnId!, TURN_WAIT_MS));
@@ -1254,14 +1260,15 @@ export class ChatService {
 		let turnEnded = false;
 		ended.then(async () => {
 			turnEnded = true;
-			void collecting.stop();
+			// What a running collection still says (a left-out path) reaches the follow before it finishes.
+			await collecting.stop();
 			await new Promise(resolve => setTimeout(resolve, this.options.turnEndGraceMs ?? TURN_END_GRACE_MS));
 			stream.abort();
 			await pump;
 			finished = true;
 			wake?.();
 		}, async (error) => {
-			void collecting.stop();
+			await collecting.stop();
 			failed(error);
 			stream.abort();
 			await pump;
@@ -1309,10 +1316,11 @@ export class ChatService {
 
 	/**
 	 * Collects a running turn on a timer (COLLECT_EVERY_MS), each collection in the Chat's line (runOneCollectionPerChat),
-	 * so none overlaps another or the turn end's; a tick while one runs is skipped, not queued. It writes the turn's files
-	 * into the folder with no commit (turn.ts collectTurn, not last). Stopped when the turn ends or its follow does.
+	 * so none overlaps another or the turn end's; a tick while one runs is skipped, not queued. Each lands what the turn
+	 * changed since the last as one commit (turn.ts collectTurn), and what it says goes to the follow (`say`). Stopped when
+	 * the turn ends or its follow does.
 	 */
-	private collectWhileRunning(key: string, env: PineConnection, epoch: number, turnId: () => string): { stop(): Promise<void> } {
+	private collectWhileRunning(key: string, env: PineConnection, epoch: number, turnId: () => string, say: (update: Update) => void): { stop(): Promise<void> } {
 		let stopped = false;
 		let wake: (() => void) | undefined;
 		const running = (async () => {
@@ -1325,7 +1333,7 @@ export class ChatService {
 			for (await pause(); !stopped; await pause()) {
 				if (this.settling.has(key)) { continue; }
 				try {
-					for await (const _ of this.runOneCollectionPerChat(key, () => this.collectRunningTurn(key, env, epoch, turnId()))) { /* a running turn's collection says nothing */ }
+					for await (const update of this.runOneCollectionPerChat(key, () => this.collectRunningTurn(key, env, epoch, turnId()))) { say(update); }
 				} catch (error) {
 					if (error instanceof PineSessionReplacedError) { return; }
 					this.log(`${key}: turn ${turnId()}'s files could not be collected while it runs: ${(error as Error).message}`);
@@ -1335,7 +1343,7 @@ export class ChatService {
 		return { stop: async () => { stopped = true; wake?.(); await running; } };
 	}
 
-	/** collectWhileRunning's pass: each sent turn the running Pine turn carries, not settled, collected (not last). */
+	/** collectWhileRunning's pass: each sent turn the running Pine turn carries, not settled, collected. */
 	private async *collectRunningTurn(key: string, env: PineConnection, epoch: number, pineTurn: string): AsyncGenerator<Update> {
 		const root = this.projectRoot(key);
 		const record = this.turnRecord(root);
@@ -1346,8 +1354,13 @@ export class ChatService {
 			const at = await this.turnSession(key, env, sent.session);
 			if (!at) { continue; }
 			const ids = { computer: this.store.chat(key)?.computer_id ?? '', session: sent.session, turn: pineTurn };
-			const collected = await this.held(key, epoch, () => collectTurn(at, root, ids, { last: false }));
+			const collected = await this.held(key, epoch, () => collectTurn(at, root, ids));
 			if (collected.files.length) { this.changed(key); }
+			// A path left out is in no later collection's changes unless the turn writes it again, so it is told now, as at the end.
+			if (collected.leftOut.size) {
+				this.store.addMessage({ chat_key: key, turn_id: pineTurn, saved_send_id: null, kind: 'notice', text: leftOutLine(collected.leftOut), cost: null, currency: null });
+				yield { kind: 'markdown', text: `\n\n_${leftOutLine(collected.leftOut)}_` };
+			}
 		}
 	}
 
@@ -1645,15 +1658,17 @@ export class ChatService {
 				this.inBoundFolder(key, root);
 				const at = await this.turnSession(key, env, sent.session);
 				const ids = { computer: this.store.chat(key)?.computer_id ?? '', session: sent.session, turn: pineTurn };
-				const collected = at && await this.held(key, epoch, () => collectTurn(at, root, ids, { last: true })).catch(error => {
+				const collected = at && await this.held(key, epoch, () => collectTurn(at, root, ids)).catch(error => {
 					if (error instanceof MissingError) { return undefined; }
 					throw error;
 				});
-				if (!collected) { await forgetCaptures(root, sent.session); }
-				await record.settle(sent.turn, { files: collected?.files ?? [] });
-				if (!collected) { tell(pineTurn, `The results of turn ${pineTurn} were on a Computer session that has ended, so they could not be brought into your project. Nothing is run again by itself. What Pine charged for the turn is in your Pine account at ${PINE_ACCOUNT_URL}`); }
-				if (collected?.leftOut.size) {
-					tell(pineTurn, `Not brought into your project, and removed from the Computer at the next turn: ${[...collected.leftOut].map(([path, why]) => `${path} (${why})`).join(', ')}`);
+				// A session gone took what it had not captured with it, but what was fetched and not landed is the project's own.
+				const landed = collected ?? await this.held(key, epoch, () => landCaptures(root, ids));
+				// The files of every collection of the turn, each its own commit with the turn's trailer.
+				await record.settle(sent.turn, { files: [...new Set((await listHistory(root, '.')).filter(e => e.turnId === pineTurn).flatMap(e => [...e.files.keys()]))] });
+				if (!collected) { tell(pineTurn, `The Computer session of turn ${pineTurn} has ended, so what it wrote after its last collection could not be brought into your project. Nothing is run again by itself. What Pine charged for the turn is in your Pine account at ${PINE_ACCOUNT_URL}`); }
+				if (landed.leftOut.size) {
+					tell(pineTurn, leftOutLine(landed.leftOut));
 				}
 			}
 		} catch (error) {

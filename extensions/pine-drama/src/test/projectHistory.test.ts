@@ -152,15 +152,15 @@ test("the person's change commits a file and a folder that changed places, eithe
 
 // Codex's production review, item A4: a running turn's results are written into the folder and staged, not committed.
 // A put that snapshotted HEAD sent another chat the files from before them, which the person no longer saw.
-test('a put\'s snapshot holds what the index holds, staged results of a running turn included, and no hidden path', async () => {
+test('a put\'s snapshot holds what the index holds, what the person staged included, and no hidden path', async () => {
 	const dir = project();
 	await commitPathsToHistory(dir, 'person', [], 'empty');
 	writeFileSync(join(dir, 'old.txt'), 'committed\n');
 	await commitPathsToHistory(dir, 'person', ['old.txt'], 'old');
-	writeFileSync(join(dir, 'look.png'), 'staged by a running turn\n');
+	writeFileSync(join(dir, 'look.png'), 'staged by the person\n');
 	writeFileSync(join(dir, '.hidden'), 'never sent\n');
 	await out(dir, 'add', '--force', 'look.png', '.hidden');
 	const seed = await commitSnapshotOfIndex(dir, 'refs/pine-drama/put/test', null, 'snapshot');
 	assert.deepEqual((await out(dir, 'ls-tree', '-r', '--name-only', seed)).split('\n').sort(), ['look.png', 'old.txt']);
-	assert.equal(await out(dir, 'show', `${seed}:look.png`), 'staged by a running turn');
+	assert.equal(await out(dir, 'show', `${seed}:look.png`), 'staged by the person');
 });

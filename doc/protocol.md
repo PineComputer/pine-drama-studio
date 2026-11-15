@@ -37,13 +37,13 @@ A client can be built from this page and one schema file, [`protocol/v2/protocol
 **What every client MUST keep.** These are properties; any storage that has them will do.
 - **Files, byte for byte.** Every file of the drama, exactly as written, with no line-ending, encoding or other conversion.
 - **A complete history.** Every earlier content of every file, with who changed it: `pine-computer` (a turn's files, as a collection landed them, 4.3), `person` (the person's own change), or `client-found-changes-on-disk` (what a folder client finds on disk that no record holds, 3).
-- **Applied once.** A turn's change is recorded at most once, and the record that it was is durable (4.2).
+- **Applied once.** A collection's change is recorded at most once, and the record that it was is durable (4.2).
 - **One record per change.** A change's files are recorded together, as one entry of history. They are written one by one before that, so a reader of the folder can see some written and not others.
 - **Restore.** Any earlier result's files can be brought back (5).
 
 **The reference implementation is a git repository in the drama's folder**, which Pine Drama Studio uses:
 - each change is a commit of exactly its paths, authored as above;
-- a turn's change is a commit with the subject `Turn <turn id>` and the trailers `Pine-Computer-Id: <the Computer's id>`, `Pine-Session-Id: <the session's name, Pine's id for it>` and `Pine-Turn-Id: <turn id>`. These say where the result came from. The landing moves the session's last commit (4.2) in the same ref transaction as the commit, and that move is the applied record;
+- each collection of a turn is a commit with the subject `Turn <turn id>` and the trailers `Pine-Computer-Id: <the Computer's id>`, `Pine-Session-Id: <the session's name, Pine's id for it>` and `Pine-Turn-Id: <turn id>`. These say where the result came from. The landing moves the session's last commit (4.2) in the same ref transaction as the commit, and that move is the applied record;
 - for a repository the client makes, the byte rule is `* -text -filter -ident -working-tree-encoding` in the repository's `info/attributes`, which takes precedence over any `.gitattributes` ([gitattributes](https://git-scm.com/docs/gitattributes)), and nothing of the client's own goes into the folder itself. A folder that already is a git repository keeps its own settings, its own filters included;
 - history is `git log` of a path.
 
@@ -93,7 +93,7 @@ Each output of a paid call has a receipt beside it, **`<file>.receipt.json`** (`
 |---|---|
 | `paid_call_id` | The paid call that made it (2.4). |
 | `finished_at` | When the output was finished. |
-| `inputs_sent_in_order` | The record of what this call sent, for money and history (never for lines, 2.2): the files the call was sent, in the order it was given them (`Image 1`…`Image N`), each `{path, sha256}` as it was then. Their bytes are in the drama's history when the file was in the drama before the turn or at its end (4.3). An input that the same turn made and then replaced is recorded by its hash alone. |
+| `inputs_sent_in_order` | The record of what this call sent, for money and history (never for lines, 2.2): the files the call was sent, in the order it was given them (`Image 1`…`Image N`), each `{path, sha256}` as it was then. Their bytes are in the drama's history when the file was in the drama before the turn or at one of its collections (4.3). An input that the same turn made and then replaced is recorded by its hash alone. |
 | `prompt_sent` | The prompt the call was sent, or `null`. |
 | `cost` | `{usd, reported_by}`, for example `"reported_by": "pine"`, or `null` when unknown. |
 
@@ -116,10 +116,10 @@ Pine Computer keeps its own records of the drama in **`pine-computer-records/`**
   - `description.md` or `prompt.md`;
   - the person's own picture or video, below.
 - **Canvas positions** and every other view state are the client's own, per person or per profile, and are never written into the drama.
-- **Hand changes** (a folder client): a file changed outside the client is recorded as `client-found-changes-on-disk` at the next opening or before the next turn (4.3).
+- **Hand changes** (a folder client): a file changed outside the client is recorded as `client-found-changes-on-disk` at the next opening, before the next turn, or at a running turn's next collection (4.3).
 - **Using the person's own picture or video for an object.** The person's file replaces the object's shown file. It is written under the shown file's name, with the extension of the person's file, and `object.json` `shown_file` is set to it. If the extension changed, the old shown file and its receipt are deleted in the same commit. The person's file has no receipt, since no paid call made it. History keeps what it replaced.
 - **Files the person attaches** to a chat message, and are not an object's file: a picture is written to `person-attachments/<id>.<extension>`, any other file to `inputs/` under a name not taken there, and a document whose text the client can read (.docx, .doc, a PDF with a text layer, .rtf) also gets that text beside it as a `.txt` file, also under a name not taken. Each is recorded as a `person` change, and the message names each by its path.
-- **A running turn** sees the person's change only from the next turn on (4.3). A person's edit made while a turn runs is replaced only if that turn changes the same file; it stays in the file's history, one restore away (4.3).
+- **A running turn** sees the person's change only from the next turn on (4.3). A person's edit made while a turn runs follows git's 3-way rule per file, with the turn's last sight of the file as the base: a file only one side changed keeps that side's version; a file both changed gets the turn's, and the person's version is committed first, so it stays in the file's history, one restore away (4.3).
 
 ## 4. The turn
 
@@ -154,9 +154,8 @@ For each session, the client keeps the commit the Computer and the client last a
 2. **The turn.** The client sends the message (4.1).
 3. **Collect.**
    - One `exec` captures what `drama/` holds (`git add -A --force` with that pathspec, then a commit whose parent is the turn's previous capture, else the session's last commit) and writes a bundle of it. When the tree is unchanged, there is no commit and no bundle.
-   - The client fetches the bundle under a ref of its own and takes the changed paths with `git diff-tree -r -z --no-renames`. It applies each path on its own. Deletions go first, each removing the folders it leaves empty. Then each write, streamed from its blob, receipts before the outputs they describe (2.3).
-   - **While the turn runs**, the client MAY collect, for example every few seconds. Such a collection writes the files changed since the previous capture into the folder and stages them, so the person sees the turn's results as they come; a path the person edited by hand is not written over. It makes no commit, and the session's last commit stays.
-   - **Once the turn has ended on Pine, however it ended**, a last collection writes every path the turn changed since the session's last commit, and what changed since the previous capture. A path the person edited by hand is first recorded as `client-found-changes-on-disk`, so history keeps their version. Then the client records exactly what landed of the turn's changes since the session's last commit as the turn's **one** `pine-computer` change, with its trailers (2.1). The change is built from the result's files, whatever the folder holds now. In the same step it moves the session's last commit to the result, so a collection again finds nothing new.
+   - The client fetches the bundle under a ref of its own (the session's last capture fetched). It takes every path that any capture since the session's last commit changed (`git log -z --name-only --no-renames <last commit>..<capture>`), each as the newest capture holds it, so a path a failed landing may have written is landed again. It applies each path on its own. Deletions go first, each removing the folders it leaves empty. Then each write, streamed from its blob, receipts before the outputs they describe (2.3).
+   - **Every collection** is the same, while the turn runs (the client MAY collect, for example every few seconds, so the person sees the turn's results as they come) and once more after it has ended on Pine, however it ended; once the session is gone, what was fetched and not landed still lands. It writes the paths above. What the folder holds that no record does is first recorded as `client-found-changes-on-disk`, so history keeps the person's version (3). Then the client records exactly what landed as one `pine-computer` change, with the turn's trailers (2.1), built from the capture's files whatever the folder holds now, and in the same step moves the session's last commit to the capture, so a collection again finds nothing new.
    - A path is **left out**, and the person is told once, when it:
      - is no path of the project (section 1);
      - is a link or a gitlink;
@@ -166,9 +165,9 @@ For each session, the client keeps the commit the Computer and the client last a
 
      The rest lands. Nothing blocks the turn.
 
-- **A turn is settled** once it has ended on Pine and its one change is recorded. Until then, the files a running turn's collections wrote are in the folder but not yet in its history. A folder client's recording of changes found on disk (3) leaves those paths out, so the turn's change records them.
+- **A turn is settled** once it has ended on Pine and a collection after its end has landed.
 - **A put waits for the session's last collection.** A session's next turn, or the drama's next opening, first collects any ended turn not settled yet. A put makes `drama/` the client's files, so it would otherwise remove that turn's results and Pine Computer's records (2.4).
-- **The newest result lands.** There is no check against what a file held before, and no refusal: whatever lands last is the file's current content, and its history keeps every earlier one. The same rule covers a reroll, two sessions writing one file, and a turn writing over a person's edit. A turn's change records each file as it was at the turn's end, so a file the turn wrote twice is in history once. "Use" (5) brings any earlier one back.
+- **The newest result lands.** There is no refusal: a file a collection changed is the file's current content once it lands, and its history keeps every earlier one. The same rule covers a reroll, two sessions writing one file, and a turn writing over a person's edit (3). A collection records each file as its capture held it, so a file written twice between two collections is in history once. "Use" (5) brings any earlier one back.
 - **Only on the Computer until collected.** A turn's files exist on the Computer alone until a collection lands them. If the Computer stops first (an idle timeout, for example), what no collection took is lost with the session's files ([limits](https://console.pinecomputer.io/docs/limits)).
 
 ### 4.4 How a turn ends
@@ -189,7 +188,7 @@ A turn ends as Pine reports it ([agent turns](https://console.pinecomputer.io/do
 ## 5. What the client shows
 
 - **The cards** show what the client holds: each object's `object.json`, its `shown_file` and its receipts. A file's history is every earlier content of it (2.1; in git, `git log` of the path).
-- **"Use" on a past result** restores the files that result's change wrote inside the object's own folder, receipts with them, as a `person` change. That is the change's commit in git; for a turn's change, the commit carrying its `Pine-Turn-Id`. Files of a variant or any other object folded inside it are not included, since each is an object of its own. Files the same change wrote for other objects stay as they are. The rule is the same whoever made the change: a turn, the person, or `client-found-changes-on-disk`, which may hold the whole project. The restored result's file is the shown one again: `object.json` `shown_file` names it, and a current shown file of another name is deleted with its receipt in the same change, as for the person's own picture (3). Use restores only the files that result's change wrote: a file a later result added beside them, such as a take's last frame, stays.
+- **"Use" on a past result** restores the files that result's change wrote inside the object's own folder, receipts with them, as a `person` change. That is the change's commit in git; for a turn's, the commit of the collection that landed it, which carries the turn's `Pine-Turn-Id`. Files of a variant or any other object folded inside it are not included, since each is an object of its own. Files the same change wrote for other objects stay as they are. The rule is the same whoever made the change: a turn, the person, or `client-found-changes-on-disk`, which may hold the whole project. The restored result's file is the shown one again: `object.json` `shown_file` names it, and a current shown file of another name is deleted with its receipt in the same change, as for the person's own picture (3). Use restores only the files that result's change wrote: a file a later result added beside them, such as a take's last frame, stays.
 
 ## 6. Majors and upgrades
 
