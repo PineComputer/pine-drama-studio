@@ -38,13 +38,3 @@ export function projectPlaceOf(projectsRoot: string, conv: { readonly key: strin
 	return { root, boundary: root };
 }
 
-/**
- * The view's Chat for the window's project. A sole matching history remains viewable; with several, the Project Chat
- * rather than a guess from creation order. Scoped native navigation is S2.
- */
-export function owningChat<T extends { readonly key: string; readonly folder: string | null; readonly project_role?: 'main' | null }>(chats: readonly T[], projectsRoot: string, windowFolders: readonly string[]): T | undefined {
-	const open = new Set(windowFolders.map(projectIdentity));
-	const matches = chats.filter(c => open.has(projectIdentity(projectRootOf(projectsRoot, c))));
-	return matches.length === 1 ? matches[0] : matches.find(c => c.project_role === 'main');
-}
-

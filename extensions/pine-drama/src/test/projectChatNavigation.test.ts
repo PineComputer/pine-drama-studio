@@ -3,45 +3,27 @@ import { mkdirSync, mkdtempSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { initialProjectChat, openProjectChat, projectWindowRestorer } from '../projectChatNavigation';
+import { openProjectChat, projectWindowRestorer } from '../projectChatNavigation';
 import { projectSessions } from '../core/projectSessions';
 import { Store } from '../core/store';
 import { associateProject } from './storeFixture';
-
-const savedChat = (resource: string) => ({ resource, isUntitledDraft: false });
-
-test('default entry preserves a restored episode; a named destination overrides it only inside its project', () => {
-	const root = realpathSync(mkdtempSync(join(tmpdir(), 'pine-chat-navigation-')));
-	const store = new Store(':memory:');
-	store.insertChat({ key: 'ep1', label: 'Episode 1', env: 'offline', endpoint: 'https://pine.test', secret_ref: 'offline' });
-	associateProject(store, 'ep1', root, null);
-	const scope = projectSessions(root, store.chats());
-	assert.equal(initialProjectChat(undefined, savedChat('foreign')), undefined);
-	assert.equal(initialProjectChat(scope), scope.mainKey);
-	assert.equal(initialProjectChat(scope, savedChat('pine-computer:/untitled-empty')), scope.mainKey, 'an empty native draft still defaults to main');
-	assert.equal(initialProjectChat(scope, savedChat('foreign')), scope.mainKey);
-	assert.equal(initialProjectChat(scope, savedChat('ep1')), undefined);
-	assert.equal(initialProjectChat(scope, savedChat(scope.mainKey)), undefined);
-	assert.equal(initialProjectChat(scope, savedChat(scope.mainKey), 'ep1'), 'ep1');
-	assert.equal(initialProjectChat(scope, savedChat('ep1'), 'foreign'), undefined);
-	store.close();
-});
 
 test('initial restore and the exact destination are serialized across focus events', async () => {
 	const root = realpathSync(mkdtempSync(join(tmpdir(), 'pine-window-restore-')));
 	const store = new Store(':memory:');
 	for (const key of ['main', 'episode']) {
 		store.insertChat({ key, label: key, env: 'offline', endpoint: 'https://pine.test', secret_ref: 'offline' });
-		associateProject(store, key, root, key === 'main' ? { kind: 'main' } : null);
+		associateProject(store, key, root);
 	}
 	store.requestChatReveal('episode');
 	const calls: string[] = [];
 	let selected = 'main';
 	let restored!: (key: string) => void;
-	const ready = new Promise<string>(resolve => { restored = resolve; });
+	const ready = new Promise<string>(resolve => { restored = resolve; }).then(resource => ({ resource, isUntitledDraft: false }));
 	const restore = projectWindowRestorer({
 		scope: () => projectSessions(root, store.chats()),
-		prepare: async () => { calls.push('prepare'); return ready.then(savedChat); },
+		prepare: async () => { calls.push('prepare'); return ready; },
+		fresh: async () => { calls.push('fresh'); },
 		takeRequested: root => { calls.push('take'); return store.takeChatReveal(root, 60_000); },
 		show: async key => { calls.push(`show:${key}`); selected = key; },
 		failed: error => { throw error; },
@@ -51,40 +33,47 @@ test('initial restore and the exact destination are serialized across focus even
 	restored('main');
 	await Promise.all([first, focused]);
 	assert.deepEqual(calls, ['prepare', 'take', 'show:episode', 'take'], 'the focus waits for the startup, and prepares nothing again');
-	assert.equal(selected, 'episode', 'the restored main never overrides the named episode destination');
+	assert.equal(selected, 'episode', 'the restored Chat never overrides the named destination');
 	assert.equal(store.takeChatReveal(root, 60_000), undefined);
 	store.close();
 });
 
-test('the startup default runs once: a later focus after a failed restore does not switch an empty New Chat', async () => {
-	const root = realpathSync(mkdtempSync(join(tmpdir(), 'pine-window-default-once-')));
+test('no Chat is chosen by default: a draft or a Chat of this project stays, another project\'s is replaced by a fresh Chat', async () => {
+	const root = realpathSync(mkdtempSync(join(tmpdir(), 'pine-window-default-none-')));
 	const store = new Store(':memory:');
-	const scope = projectSessions(root, store.chats());
-	const shown: string[] = [];
-	const failures: unknown[] = [];
-	const restore = projectWindowRestorer({
-		scope: () => scope,
-		// Before the first default nothing related is open; later the person has opened an empty untitled New Chat,
-		// which is neither a draft nor a project Chat (pineProjectChat.ts:67-69).
-		prepare: async () => savedChat('pine-computer:/untitled-empty'),
-		takeRequested: () => undefined,
-		show: async key => { shown.push(key); if (shown.length === 1) { throw new Error('the Chat could not be shown'); } },
-		failed: error => { failures.push(error); },
-	});
-	await restore();
-	assert.deepEqual(shown, [scope.mainKey], 'the first focus applies the default');
-	assert.equal(failures.length, 1, 'the failure is reported');
-	await restore();
-	assert.deepEqual(shown, [scope.mainKey], 'the default is not applied again');
+	store.insertChat({ key: 'here', label: 'here', env: 'offline', endpoint: 'https://pine.test', secret_ref: 'offline' });
+	associateProject(store, 'here', root);
+	// Code-OSS getNewChatSessionResource('pine-computer') before first send; no provider item/history exists yet.
+	const cases: [{ resource: string; isUntitledDraft: boolean } | undefined, number][] = [
+		[undefined, 0], [{ resource: 'here', isUntitledDraft: false }, 0],
+		[{ resource: 'pine-computer:/untitled-offline-fixture', isUntitledDraft: true }, 0], [{ resource: 'foreign', isUntitledDraft: false }, 1],
+	];
+	for (const [restored, fresh] of cases) {
+		let opened = 0;
+		const shown: string[] = [];
+		const restore = projectWindowRestorer({
+			scope: () => projectSessions(root, store.chats()),
+			prepare: async () => restored,
+			fresh: async () => { opened++; },
+			takeRequested: () => undefined,
+			show: async key => { shown.push(key); },
+			failed: error => { throw error; },
+		});
+		await restore();
+		await restore();
+		assert.deepEqual([shown, opened], [[], fresh], JSON.stringify(restored));
+	}
 	store.close();
 });
 
-test('navigation shows an unsent main locally; foreign destinations open their exact canonical root before selecting Chat', async () => {
+test('navigation shows a Chat of this project here; foreign destinations open their exact canonical root before selecting Chat', async () => {
 	const root = realpathSync(mkdtempSync(join(tmpdir(), 'pine-chat-navigation-')));
 	const foreign = join(root, 'foreign'); mkdirSync(foreign);
 	const store = new Store(':memory:');
-	store.insertChat({ key: 'foreign', label: 'Episode 1', env: 'offline', endpoint: 'https://pine.test', secret_ref: 'offline' });
-	associateProject(store, 'foreign', foreign, { kind: 'main' });
+	for (const [key, folder] of [['here', root], ['foreign', foreign]]) {
+		store.insertChat({ key, label: key, env: 'offline', endpoint: 'https://pine.test', secret_ref: 'offline' });
+		associateProject(store, key, folder);
+	}
 	const scope = projectSessions(root, store.chats());
 	const calls: string[][] = [];
 	const navigation = {
@@ -93,9 +82,8 @@ test('navigation shows an unsent main locally; foreign destinations open their e
 		open: async (path: string) => { calls.push(['open', path]); },
 		request: (key: string) => store.requestChatReveal(key), clear: (token: string) => store.clearChatReveal(token),
 	};
-	await openProjectChat(scope.mainKey, navigation);
-	assert.deepEqual(calls, [['show', scope.mainKey]]);
-	assert.equal(store.chat(scope.mainKey), undefined);
+	await openProjectChat('here', navigation);
+	assert.deepEqual(calls, [['show', 'here']]);
 	await openProjectChat('foreign', navigation);
 	assert.deepEqual(calls.at(-1), ['open', foreign]);
 	assert.equal(store.takeChatReveal(root, 60_000), undefined);
@@ -104,24 +92,5 @@ test('navigation shows an unsent main locally; foreign destinations open their e
 	await assert.rejects(openProjectChat('foreign', { ...navigation, open: async () => { throw new Error('open failed'); } }), /open failed/);
 	assert.equal(store.takeChatReveal(foreign, 60_000), undefined);
 	assert.equal(store.chat('foreign')!.computer_state, 'none', 'navigation starts nothing');
-	store.close();
-});
-
-// What the draft holds, text or attachments, never reaches the restorer: one case stands for both.
-test('a native New Chat draft restored before its first send stays visible', async () => {
-	const root = realpathSync(mkdtempSync(join(tmpdir(), 'pine-untitled-restore-')));
-	const store = new Store(':memory:');
-	// Code-OSS getNewChatSessionResource('pine-computer') before first send; no provider item/history exists yet.
-	const resource = 'pine-computer:/untitled-offline-fixture';
-	let selected = resource;
-	const restore = projectWindowRestorer({
-		scope: () => projectSessions(root, store.chats()), prepare: async () => ({ resource, isUntitledDraft: true }),
-		takeRequested: () => undefined,
-		show: async key => { selected = key; },
-		failed: error => { throw error; },
-	});
-	await restore();
-	assert.equal(selected, resource, 'the native draft must remain reachable in the active Chat');
-	assert.deepEqual(store.chats(), []);
 	store.close();
 });

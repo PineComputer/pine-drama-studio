@@ -25,15 +25,16 @@ function fixture() {
 	return { dir, root, store, pine, options, service: new ChatService(options) };
 }
 
-test('a reserved Project Chat entry is admitted by its first send, but one with orphaned execution history is not', async () => {
+test('an existing drama is joined by a Chat\'s first send, but a Chat with orphaned execution history is not bound to it', async () => {
 	for (const orphaned of [false, true]) {
 		const f = fixture();
 		try {
-			f.store.insertChat({ key: 'main', label: 'Project Chat', env: 'pine', endpoint: env.endpoint, secret_ref: 'offline' });
-			if (orphaned) { f.store.updateChat('main', { computer_state: 'stopped', pine_session_state: 'ended', computer_id: 'old' }); }
-			const result = await drain(f.service.submit('main', 'continue', 'Project Chat', f.root));
-			assert.equal(f.store.chat('main')?.project_role, orphaned ? null : 'main');
-			if (orphaned) { assert.match(result, /execution history/); assert.equal(f.pine.calls.createSession ?? 0, 0); }
+			f.store.insertChat({ key: 'first', label: 'first', env: 'pine', endpoint: env.endpoint, secret_ref: 'offline' });
+			if (orphaned) { f.store.updateChat('first', { computer_state: 'stopped', pine_session_state: 'ended', computer_id: 'old' }); }
+			const sent = drain(f.service.submit('first', 'continue', 'first', f.root));
+			if (orphaned) { await assert.rejects(sent, /execution history/); } else { await sent; }
+			assert.equal(f.store.chat('first')?.folder, orphaned ? null : f.root);
+			if (orphaned) { assert.equal(f.pine.calls.createSession ?? 0, 0); }
 		} finally { f.store.close(); }
 	}
 });

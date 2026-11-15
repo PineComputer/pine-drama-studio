@@ -19,7 +19,6 @@ export type Situation =
 	| { readonly kind: 'none' }
 	| { readonly kind: 'rootChanged' }
 	| { readonly kind: 'several'; readonly count: number }
-	| { readonly kind: 'unassigned' }
 	| { readonly kind: 'elsewhere'; readonly folder: string }
 	| { readonly kind: 'inside'; readonly folder: string; readonly project: string }
 	| { readonly kind: 'otherFormat'; readonly folder: string; readonly schema: number };
@@ -77,8 +76,6 @@ export function refusalOf(situation: Situation, commands: RefusalCommands, messa
 			return { line: `Not sent: the opened project folder changed. Open the intended project explicitly.${kept(BELOW)}`, actions: folderActions, ...given };
 		case 'several':
 			return { line: `Not sent: this window has ${situation.count} folders; open one.${kept(BELOW)}`, actions: folderActions, ...given };
-		case 'unassigned':
-			return { line: `Not sent: this project has no admitted executor. Its files remain available for inspection.${kept(BELOW)}`, actions: [], ...given };
 		case 'elsewhere':
 			return {
 				line: `Not sent: this session's drama is in another folder, ${code(situation.folder)}.${kept(BELOW)}`,

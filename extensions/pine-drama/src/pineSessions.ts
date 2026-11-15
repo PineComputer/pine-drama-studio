@@ -46,7 +46,7 @@ export function registerPineSessions(
 	output: vscode.OutputChannel,
 	config: PineConfig,
 	service: ChatService,
-): { refresh(key: string): void; scope(): ProjectSessions | undefined; newSession(key?: string): vscode.ChatSessionItem } {
+): { refresh(key: string): void; scope(): ProjectSessions | undefined } {
 	const titleOf = (key: string) => service.chat(key)?.label;
 
 	const openFolder = (folder: vscode.Uri) => vscode.commands.executeCommand('vscode.openFolder', folder, { forceNewWindow: false });
@@ -171,8 +171,6 @@ export function registerPineSessions(
 		// The folder must be one the Studio can bind this session to (core/binding.ts; 4.1; 4.6).
 		const binding = service.entry(key, entry.folder);
 		switch (binding.kind) {
-			case 'unassigned':
-				return refuse(binding, 'the project has no admitted executor');
 			case 'elsewhere':
 				return refuse({ kind: 'elsewhere', folder: binding.folder }, `the session is bound to ${binding.folder}`);
 			case 'moved':
@@ -182,7 +180,6 @@ export function registerPineSessions(
 			case 'otherFormat':
 				return refuse(binding, `the folder is a drama of format ${binding.schema}`);
 			case 'go':
-			case 'adopt':
 				break;
 			default: {
 				const unreachable: never = binding;
@@ -200,8 +197,8 @@ export function registerPineSessions(
 			const key = resource.toString();
 			const conv = service.chat(key);
 			const project = scope();
-			const reservedUnbound = conv?.folder === null && project?.mainKey === key;
-			if (conv && (!project || conv.folder !== project.root) && !reservedUnbound) {
+			// A row not bound yet (its first send is under way) has no history to show; one bound elsewhere is another project's.
+			if (conv?.folder && (!project || conv.folder !== project.root)) {
 				// Native direct resources can bypass the filtered list. Never display/follow foreign history here.
 				const message = new vscode.MarkdownString('Open this conversation’s project to read it.');
 				if (conv.folder) {
@@ -211,11 +208,10 @@ export function registerPineSessions(
 				}
 				return { title: 'Open Session’s Project', history: [new vscode.ChatResponseTurn2([new vscode.ChatResponseMarkdownPart(message)], {}, SESSION_TYPE)], requestHandler: handler };
 			}
-			// A reserved, interrupted first-send row is not yet this project's saved history or runtime.
 			const visible = conv?.folder === project?.root ? conv : undefined;
 			const history = visible ? toHistory(service.history(key), showTurnCost()) : [];
 			return {
-				...(visible ? { title: titleOf(visible.key) ?? visible.label } : project?.mainKey === key ? { title: 'New Session' } : {}),
+				...(visible ? { title: titleOf(visible.key) ?? visible.label } : {}),
 				history,
 				requestHandler: handler,
 				// A Chat that ended but still owes the project its turn's result is followed too: attachChatToPineTurn() installs it
@@ -230,9 +226,8 @@ export function registerPineSessions(
 	let root = sessionProjectRoot(windowFileFolders());
 	const scope = (): ProjectSessions | undefined => root ? projectSessions(root, service.chats()) : undefined;
 	const controller = vscode.chat.createChatSessionItemController(SESSION_TYPE, async () => refresh());
-	// New Session's native "+" makes a new session; Start Episode and Generate open the item owner's (ownerOf) the same
-	// way, as it is listed once it has been sent.
-	const newSession = (key = vscode.Uri.from({ scheme: SESSION_TYPE, path: `/session-${randomUUID()}` }).toString()): vscode.ChatSessionItem => {
+	// New Session's native "+" makes a new session: a peer of every other, listed once it has been sent.
+	const newSession = (): vscode.ChatSessionItem => {
 		const project = scope();
 		if (!project) {
 			// A current unsent request is not global history. The folder refusal gives its message back.
@@ -241,34 +236,20 @@ export function registerPineSessions(
 			controller.items.add(item);
 			return item;
 		}
-		// New Session is a new peer Chat, which its first send binds to the project (entryFor, bindFolder). Until the
-		// project has its Project Chat, the new session is that entry.
-		const sent = project.main && project.chats.find(c => c.key === key);
-		const item = sent ? toItem(sent, rows(project)) : project.main ? controller.createChatSessionItem(vscode.Uri.parse(key), 'New Session') : mainEntry(project);
-		if (project.main && !sent) {
-			item.metadata = { workingDirectoryPath: project.root };
-			item.timing = itemTiming(undefined, undefined, Date.now());
-		}
+		// Its first send binds it to the project (entryFor, bindFolder).
+		const item = controller.createChatSessionItem(vscode.Uri.from({ scheme: SESSION_TYPE, path: `/session-${randomUUID()}` }), 'New Session');
+		item.metadata = { workingDirectoryPath: project.root };
+		item.timing = itemTiming(undefined, undefined, Date.now());
 		controller.items.add(item);
 		return item;
 	};
 	controller.newChatSessionItemHandler = async () => newSession();
 	const rows = (project: ProjectSessions) => sessionEpisodes(project.chats, key => service.latestTurnFiles(key));
-	const entryCreatedAt = Date.now();
-	const mainEntry = (project: ProjectSessions): vscode.ChatSessionItem => {
-		const item = controller.createChatSessionItem(vscode.Uri.parse(project.mainKey), 'New Session');
-		item.iconPath = new vscode.ThemeIcon('comment-discussion');
-		item.description = 'No messages yet';
-		item.tooltip = 'This project’s main conversation. Opening it starts no Computer.';
-		item.metadata = { workingDirectoryPath: project.root };
-		item.timing = itemTiming(undefined, undefined, entryCreatedAt); // Entry creation time, not invented message history.
-		return item;
-	};
 	const toItem = (conv: Chat, rows?: ReadonlyMap<string, readonly string[]>): vscode.ChatSessionItem => {
 		// The row names the work once its project has come back (the brief's Title:), else the first message. It has no
 		// description while its Pine is the one the Studio connects to; a session of another Pine says which. An ended Pine session is not the person's to act on, so the row does not say it.
 		const item = controller.createChatSessionItem(vscode.Uri.parse(conv.key), titleOf(conv.key) ?? conv.label);
-		item.iconPath = new vscode.ThemeIcon(conv.project_role === 'main' ? 'comment-discussion' : 'pine-computer');
+		item.iconPath = new vscode.ThemeIcon('pine-computer');
 		item.metadata = conv.folder ? { workingDirectoryPath: conv.folder } : undefined;
 		// The row's episodes in its description, which Code-OSS renders as Markdown (chatSessionsProvider.d.ts:315).
 		// Several sessions may work on one episode, so nothing marks that.
@@ -286,10 +267,7 @@ export function registerPineSessions(
 	const refresh = (_key?: string) => {
 		const project = scope();
 		const episodes = project && rows(project);
-		controller.items.replace(project ? [
-			...(project.main ? [] : [mainEntry(project)]),
-			...project.chats.map(conv => toItem(conv, episodes)),
-		] : []);
+		controller.items.replace(project ? project.chats.map(conv => toItem(conv, episodes)) : []);
 	};
 	context.subscriptions.push(vscode.workspace.onDidChangeWorkspaceFolders(() => {
 		root = sessionProjectRoot(windowFileFolders());
@@ -344,7 +322,7 @@ export function registerPineSessions(
 		}
 	});
 	output.appendLine(`${new Date().toISOString()} chat session type "${SESSION_TYPE}" on ${config.kind === 'set' ? endpointHost(config.pine.endpoint) : 'no Pine environment (not set up)'}; ${service.chats().length} saved conversation(s)`);
-	return { refresh, scope, newSession };
+	return { refresh, scope };
 }
 
 /** The Chat a file or project goes to, chosen by the person; the most recently active first (core/chatPick.ts). */

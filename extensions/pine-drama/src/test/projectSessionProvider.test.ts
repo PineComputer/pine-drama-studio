@@ -97,9 +97,9 @@ function fixture(windowRoot?: string) {
 	} as unknown as ChatService;
 	const config: PineConfig = { kind: 'set', file: 'offline', pine: { endpoint: 'https://pine.test', apiKey: 'offline-not-a-key' } };
 	const api = registerPineSessions({ subscriptions: [] } as unknown as vscode.ExtensionContext, { appendLine() {} } as unknown as vscode.OutputChannel, config, service);
-	const add = (key: string, folder: string, role: 'main' | 'episode') => {
+	const add = (key: string, folder: string) => {
 		store.insertChat({ key, label: 'OFFLINE fixture', env: 'offline', endpoint: 'https://pine.test', secret_ref: 'offline' });
-		associateProject(store, key, folder, role === 'main' ? { kind: 'main' } : null);
+		associateProject(store, key, folder);
 	};
 	return { root, other, store, service, api, add, turnFiles };
 }
@@ -113,11 +113,10 @@ const request = async (key: string, prompt: string, files: string[] = []) => han
 const said = () => calls.filter(c => c[0] === 'markdown').map(c => (c[1] as { value: string }).value).join('\n');
 
 test('the actual native provider replaces its list with this project only; foreign refresh cannot reinsert a row', async () => {
-	const f = fixture(); f.add('main', f.root, 'main'); f.add('episode', f.root, 'episode'); f.add('foreign', f.other, 'main');
+	const f = fixture(); f.add('main', f.root); f.add('episode', f.root); f.add('foreign', f.other);
 	await refreshList();
 	assert.deepEqual([...listed.keys()].sort(), ['episode', 'main']);
-	assert.equal(listed.get('main')!.label, 'OFFLINE fixture', 'the pinned session is titled by its first message, as every session is');
-	assert.equal(f.api.scope()!.mainKey, 'main', 'its role, which the native pin follows (prepareProjectChat), is unchanged');
+	assert.equal(listed.get('main')!.label, 'OFFLINE fixture', 'a session is titled by its first message');
 	f.api.refresh('foreign'); assert.equal(listed.has('foreign'), false);
 	folders = []; workspaceChanged(); assert.equal(listed.size, 0);
 	assert.equal(f.store.chats().length, 3);
@@ -125,14 +124,14 @@ test('the actual native provider replaces its list with this project only; forei
 	f.store.close();
 });
 
-test('opening/defaulting/new-chat selection uses one unsent main entry and neither persists history nor sends work', async () => {
+test('a project with no Chat lists none, and New Session is a new unsent Chat that neither persists history nor sends work', async () => {
 	const f = fixture(); await refreshList();
-	const key = f.api.scope()!.mainKey;
+	assert.equal(listed.size, 0, 'no entry is invented for a project with no Chat');
 	const item = await controller.newChatSessionItemHandler!({} as Parameters<NonNullable<vscode.ChatSessionItemController['newChatSessionItemHandler']>>[0], {} as vscode.CancellationToken);
-	assert.equal(item.resource.toString(), key);
+	const key = item.resource.toString();
 	assert.equal(item.status, undefined);
 	const session = await content.provideChatSessionContent(item.resource, {} as vscode.CancellationToken, {} as Parameters<vscode.ChatSessionContentProvider['provideChatSessionContent']>[2]);
-	assert.equal(session!.title, 'New Session'); assert.deepEqual(session!.history, []);
+	assert.deepEqual(session!.history, []);
 	assert.equal(session!.activeResponseCallback, undefined);
 	assert.equal(f.store.chats().length, 0);
 	assert.equal(calls.some(c => ['send', 'entry'].includes(String(c[0]))), false);
@@ -140,12 +139,11 @@ test('opening/defaulting/new-chat selection uses one unsent main entry and neith
 	f.store.close();
 });
 
-// In a project whose Project Chat exists, New Session is a new Chat. The
-// handler names the real session the untitled one becomes, as upstream's materialization contract has it
-// (chatServiceImpl.ts:1685-1698); its first send binds it to the project (entryFor, bindFolder). The person's live test on
-// ffabe1b: the new session became the busy Project Chat and could not send.
-test('New Session in a project with a Project Chat is a new Chat in that project; its send goes to it, not to Project Chat', async () => {
-	const f = fixture(); f.add('main', f.root, 'main'); f.add('episode', f.root, 'episode');
+// New Session is a new Chat. The handler names the real session the untitled one becomes, as upstream's
+// materialization contract has it (chatServiceImpl.ts:1685-1698); its first send binds it to the project (entryFor,
+// bindFolder). The person's live test on ffabe1b: a new session became a busy one and could not send.
+test('New Session in a project with Chats is a new Chat in that project; its send goes to it, not to another', async () => {
+	const f = fixture(); f.add('main', f.root); f.add('episode', f.root);
 	await refreshList();
 	const before = f.store.chats().map(c => c.key).sort();
 	const item = await controller.newChatSessionItemHandler!({} as Parameters<NonNullable<vscode.ChatSessionItemController['newChatSessionItemHandler']>>[0], {} as vscode.CancellationToken);
@@ -164,7 +162,7 @@ test('New Session in a project with a Project Chat is a new Chat in that project
 
 // The description names the turn's episodes. Two sessions on one episode is normal, so nothing marks it.
 test('session rows name the episodes of their latest return, nothing before any, and never mark an episode two running sessions make', async () => {
-	const f = fixture(); f.add('main', f.root, 'main'); for (const key of ['a', 'b', 'c', 'quiet']) { f.add(key, f.root, 'episode'); }
+	const f = fixture(); f.add('main', f.root); for (const key of ['a', 'b', 'c', 'quiet']) { f.add(key, f.root); }
 	const read = (key: string, path: string) => { f.turnFiles.set(key, [...(f.turnFiles.get(key) ?? []), path]); };
 	for (const key of ['a', 'b', 'c', 'quiet']) { f.store.updateChat(key, { state: 'running' }); }
 	read('a', 'drama/episodes/EP004/breakdown/v1/breakdown.json');
@@ -183,7 +181,7 @@ test('session rows name the episodes of their latest return, nothing before any,
 });
 
 test('direct foreign resources cannot display history or attach an active response in this project or an empty window', async () => {
-	const f = fixture(); f.add('foreign', f.other, 'main'); f.store.updateChat('foreign', { state: 'running' });
+	const f = fixture(); f.add('foreign', f.other); f.store.updateChat('foreign', { state: 'running' });
 	for (const empty of [false, true]) {
 		if (empty) { folders = []; workspaceChanged(); }
 		const session = await content.provideChatSessionContent(Uri.parse('foreign') as unknown as vscode.Uri, {} as vscode.CancellationToken, {} as Parameters<vscode.ChatSessionContentProvider['provideChatSessionContent']>[2]);
@@ -203,26 +201,26 @@ test('a refused no-project send gives its text back and names its files, without
 	f.store.close();
 });
 
-test('an interrupted reserved main remains an empty entry, never exposes unbound history or follows its runtime', async () => {
-	const f = fixture(); const key = f.api.scope()!.mainKey;
+test('an interrupted first send leaves an unbound row that is not listed, shows no history and follows no runtime', async () => {
+	const f = fixture(); const key = 'pine-computer:/session-interrupted';
 	f.store.insertChat({ key, env: 'offline', endpoint: 'https://pine.test', label: 'Interrupted', secret_ref: 'offline' });
 	try {
 		f.store.updateChat(key, { state: 'running', computer_id: 'unattributed-computer' });
 		await refreshList();
-		assert.equal(listed.get(key)!.description, 'No messages yet');
+		assert.equal(listed.has(key), false);
 		const session = await content.provideChatSessionContent(Uri.parse(key) as unknown as vscode.Uri, {} as vscode.CancellationToken, {} as Parameters<vscode.ChatSessionContentProvider['provideChatSessionContent']>[2]);
-		assert.equal(session!.title, 'New Session'); assert.deepEqual(session!.history, []);
+		assert.deepEqual(session!.history, []);
 		assert.equal(session!.activeResponseCallback, undefined);
 		assert.equal(calls.some(c => ['send', 'history', 'entry'].includes(String(c[0]))), false);
-		assert.equal(f.store.chat(key)!.folder, null, 'navigation never repairs or adopts execution evidence');
+		assert.equal(f.store.chat(key)!.folder, null, 'navigation never repairs or binds execution evidence');
 	} finally { f.store.close(); }
 });
 
-test('an alias retargeted before the first send gives the message back and never assigns its main entry to the new project', async () => {
+test('an alias retargeted before the first send gives the message back and never binds the Chat to the new project', async () => {
 	const root = realpathSync(mkdtempSync(join(tmpdir(), 'pine-native-alias-')));
 	const a = join(root, 'a'); const b = join(root, 'b'); mkdirSync(a); mkdirSync(b);
 	const alias = join(root, 'alias'); symlinkSync(a, alias);
-	const f = fixture(alias); const key = f.api.scope()!.mainKey;
+	const f = fixture(alias); const key = 'pine-computer:/session-alias';
 	unlinkSync(alias); symlinkSync(b, alias);
 	await request(key, 'OFFLINE keep the right project');
 	assert.match(said(), /```text\nOFFLINE keep the right project\n```/);
@@ -233,7 +231,7 @@ test('an alias retargeted before the first send gives the message back and never
 
 
 test('the Studio\'s notices show in the history as one markdown part, each in italics', async () => {
-	const f = fixture(); f.add('main', f.root, 'main');
+	const f = fixture(); f.add('main', f.root);
 	try {
 		f.service.history = () => [
 			{ kind: 'prompt', text: 'Draw Lin', turn_id: null },
@@ -249,7 +247,7 @@ test('the Studio\'s notices show in the history as one markdown part, each in it
 });
 
 test('reopening an ended Chat offers no restart button and sends nothing: the next message starts the agent again', async () => {
-	const f = fixture(); f.add('main', f.root, 'main');
+	const f = fixture(); f.add('main', f.root);
 	try {
 		f.store.updateChat('main', { pine_session_state: 'ended', computer_state: 'stopped' });
 		const opened = await content.provideChatSessionContent(Uri.parse('main') as unknown as vscode.Uri, {} as vscode.CancellationToken, {} as Parameters<vscode.ChatSessionContentProvider['provideChatSessionContent']>[2]);
@@ -261,7 +259,7 @@ test('reopening an ended Chat offers no restart button and sends nothing: the ne
 
 test('native Archive and Unarchive never stop idle or running remote work or mutate its saved history', async () => {
 	for (const state of ['idle', 'running'] as const) {
-		const f = fixture(); f.add('main', f.root, 'main');
+		const f = fixture(); f.add('main', f.root);
 		f.store.updateChat('main', { state, computer_state: 'running', pine_session_state: 'open' });
 		await refreshList();
 		const before = f.store.chat('main');
@@ -280,7 +278,7 @@ test('native Archive and Unarchive never stop idle or running remote work or mut
 });
 
 test('a session whose agent asks a question shows NeedsInput in the Sessions list; a running one shows InProgress', async () => {
-	const f = fixture(); f.add('main', f.root, 'main'); f.add('episode', f.root, 'episode');
+	const f = fixture(); f.add('main', f.root); f.add('episode', f.root);
 	const { NeedsInput, Completed, InProgress } = native.ChatSessionStatus;
 	const status = async (key: string) => { await refreshList(); return listed.get(key)!.status; };
 	assert.equal(await status('episode'), Completed);

@@ -6,12 +6,8 @@ import { projectIdentity, projectRootOf } from './projectPlace';
 import { readProjectMajor } from './project';
 
 export type Entry =
-	/** An explicit send may adopt this initialized root only after local CLI validation. */
-	| { readonly kind: 'adopt'; readonly folder: string }
 	/** The session is bound to this folder already, or is new and will be bound on this message (`note`, said once). */
 	| { readonly kind: 'go'; readonly bind: boolean; readonly note?: string }
-	/** Associated history exists but the project has no Project Chat: nothing was admitted to work in it. */
-	| { readonly kind: 'unassigned' }
 	/** This session's drama is in another folder. */
 	| { readonly kind: 'elsewhere'; readonly folder: string }
 	/** This session's bound folder is missing, or its real path changed. */
@@ -25,7 +21,6 @@ interface Conv {
 	readonly key: string;
 	readonly label: string;
 	readonly folder: string | null;
-	readonly project_role?: 'main' | null;
 }
 
 /** Every folder below `dir`, outside hidden ones, which no turn carries (doc/protocol.md 4.2); a link is not followed. */
@@ -68,17 +63,12 @@ export function entryFor(chats: readonly Conv[], projectsRoot: string, key: stri
 		if (!existsSync(root) || projectIdentity(root) !== root) { return { kind: 'moved', folder: root }; }
 		if (root !== here) { return { kind: 'elsewhere', folder: root }; }
 	}
-	const associated = chats.filter(c => projectIdentity(projectRootOf(projectsRoot, c)) === here);
-	// The Project Chat and every other session of the project work in it (sessions are peers). A Chat of no project
-	// yet, such as New Session's, joins it as a session on its first send (bindFolder).
-	if (associated.some(c => c.project_role === 'main')) {
+	// Every Chat of a project is a peer: a Chat of no project yet, such as New Session's, joins it on its first send
+	// (bindFolder, which refuses a Chat with execution history), and so does the first Chat of a drama made or converted
+	// before any Chat. Only an explicit binding counts: an unbound Chat's storage folder is no association.
+	const associated = chats.filter(c => c.folder && projectIdentity(projectRootOf(projectsRoot, c)) === here);
+	if (associated.length || schema === 2) {
 		return { kind: 'go', bind: !associated.some(c => c.key === key) };
-	}
-	if (associated.length) {
-		return { kind: 'unassigned' };
-	}
-	if (schema === 2) {
-		return { kind: 'adopt', folder: here };
 	}
 	const [project] = projectsBelow(here);
 	if (project) {
