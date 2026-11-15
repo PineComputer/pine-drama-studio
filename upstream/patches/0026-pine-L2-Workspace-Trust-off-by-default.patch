@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Pine Drama Studio Authors <authors@example.invalid>
 Date: Fri, 13 Nov 2026 00:40:49 -0800
-Subject: [PATCH 29/29] pine(L2): Workspace Trust off by default
+Subject: [PATCH 26/26] pine(L2): Workspace Trust off by default
 
 The Studio runs nothing from a drama folder, so Restricted Mode only puts
 its banner and status bar badge on every project. The dev launcher passes
@@ -11,7 +11,7 @@ extension's configurationDefaults cannot set. A registry default in the
 existing pine.contribution.ts: no new touchpoint.
 
 diff --git a/src/vs/workbench/contrib/pine/browser/pine.contribution.ts b/src/vs/workbench/contrib/pine/browser/pine.contribution.ts
-index b62f6abb28b..71bd313ff9a 100644
+index 157ef32f046..d37543cabe2 100644
 --- a/src/vs/workbench/contrib/pine/browser/pine.contribution.ts
 +++ b/src/vs/workbench/contrib/pine/browser/pine.contribution.ts
 @@ -26,6 +26,12 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis

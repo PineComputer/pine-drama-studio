@@ -174,7 +174,6 @@
       },
       "chat.titleBar.signIn.enabled": false,
       "chat.requestQueuing.defaultAction": "queue",
-      "chat.requestCancellation.enabled": false,
       "chat.sendToNewChat.enabled": false,
       "chat.editRequests": "none",
       "chat.persistentProgressVerbosity": "conversation",

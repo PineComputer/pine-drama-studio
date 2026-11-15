@@ -166,6 +166,10 @@ export class SdkPort implements PinePort {
 		return this.mapped(async () => turnView(await (await this.session(env, s)).agent.run(text, { idempotencyKey: key })), 'run');
 	}
 
+	async cancel(env: PineConnection, s: PineSession, turnId: string) {
+		await this.mapped(async () => (await this.session(env, s)).agent.cancel(turnId), 'none');
+	}
+
 
 	async turn(env: PineConnection, s: PineSession, turnId: string, timeoutMs: number, signal?: AbortSignal) {
 		return this.mapped(async () => turnView(await (await this.session(env, s)).agent.wait(turnId, { timeoutMs, ...(signal ? { signal } : {}) })), 'none');
@@ -234,7 +238,7 @@ export class SdkPort implements PinePort {
 				} while (pageToken);
 				return paths;
 			},
-			upload: async (path, bytes) => { await store.upload(path, new Uint8Array(bytes)); },
+			upload: async (path, bytes, signal) => { await store.upload(path, new Uint8Array(bytes), signal ? { signal } : {}); },
 			copy: async (fromComputer, path) => { await store.copy(fromComputer, path, path); },
 			read: async path => {
 				try {

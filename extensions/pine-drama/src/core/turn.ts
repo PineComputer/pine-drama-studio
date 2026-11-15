@@ -120,7 +120,7 @@ export interface TurnPlace {
  * be; every file of HEAD but a hidden one as `seed_files`, by its SHA-256 (projectHistory.ts sha256OfBlob); every file and
  * the private state the store lacks put there; then request.json, written once. Returns the request.
  */
-export async function sendTurnRequest(at: TurnPlace, turn: string, chat: string, notes: readonly Note[] = []): Promise<{ request: Request; copied: number; uploaded: number }> {
+export async function sendTurnRequest(at: TurnPlace, turn: string, chat: string, notes: readonly Note[] = [], signal?: AbortSignal): Promise<{ request: Request; copied: number; uploaded: number }> {
 	await commitFilesFoundOnDisk(at.root, `The project as found before turn ${turn}`);
 	const files = (await listFilesOfHead(at.root)).filter(f => f.path.split('/').every(part => !part.startsWith('.')));
 	// One blob at a time, each hashed once ever (sha256OfBlob): a first seed of many files never starts a process per file at once.
@@ -140,8 +140,10 @@ export async function sendTurnRequest(at: TurnPlace, turn: string, chat: string,
 	};
 	const bytes = async (key: string) => key === state ? kept(key) : blobBytes(at.root, byKey.get(key)!.blob);
 	const size = (key: string) => key === state ? keptBytes(at.kept, key)?.length ?? -1 : byKey.get(key)!.size;
-	const put = await putAll(at.store, at.computer, at.holders, [...byKey.keys(), ...state ? [state] : []], bytes, size);
-	await at.store.upload(requestKey(turn), Buffer.from(JSON.stringify(request)));
+	const put = await putAll(at.store, at.computer, at.holders, [...byKey.keys(), ...state ? [state] : []], bytes, size, signal);
+	await at.store.upload(requestKey(turn), Buffer.from(JSON.stringify(request)), signal);
+	// The last point the person's Stop keeps the turn from starting; after it the run goes, and a Stop cancels its turn.
+	signal?.throwIfAborted();
 	await at.record.sentRequest(request, at.computer, chat);
 	return { request, ...put };
 }

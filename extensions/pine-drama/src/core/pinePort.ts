@@ -187,6 +187,12 @@ export interface PinePort {
 	sessionTask(env: PineConnection, session: PineSession): Promise<string | undefined>;
 	/** Idempotent by `key`: a repeat returns the turn it admitted (SDK session.ts, AgentMode.run). */
 	run(env: PineConnection, session: PineSession, text: string, key: string): Promise<TurnView>;
+	/**
+	 * Asks Pine to cancel the turn (SDK `session.agent.cancel`, POST /v2/sessions/{name}/agent/cancel): a running turn is
+	 * `canceling` until its run unwinds, then `canceled`; a waiting question closes and its turn ends `canceled`; an
+	 * ended turn is left as it is (PineSandbox session-coordinator pkg/server/agent_turns.go, handleAgentCancelV2).
+	 */
+	cancel(env: PineConnection, session: PineSession, turnId: string): Promise<void>;
 	/** The turn once it ends, or after `timeoutMs` while it runs; 0 reads it once. */
 	turn(env: PineConnection, session: PineSession, turnId: string, timeoutMs: number, signal?: AbortSignal): Promise<TurnView>;
 	events(env: PineConnection, session: PineSession, after: number | undefined, taskId: string | undefined, signal: AbortSignal): AsyncIterable<PineEvent>;

@@ -247,3 +247,113 @@ test('a session on another Computer gets the project\'s files by Pine\'s copy fr
 		assert.equal(f.pine.calls.copy, 1, 'copied inside Pine\'s storage');
 	} finally { f.store.close(); }
 });
+
+// The person's Stop, as pineSessions.ts runs it on the request's cancellation: the reply's signal aborts and the reply
+// stops reading, while it is still waiting on its updates.
+function stop(updates: AsyncGenerator<Update>, abort: AbortController): void {
+	abort.abort();
+	void updates.return(undefined);
+}
+
+async function until(done: () => boolean, what: string): Promise<void> {
+	const end = Date.now() + 10_000;
+	while (!done()) {
+		assert.ok(Date.now() < end, what);
+		await new Promise(resolve => setTimeout(resolve, 5));
+	}
+}
+
+const requestsUp = (f: ReturnType<typeof fixture>) => [...f.pine.artifactFiles.values()].flatMap(files => [...files.keys()]).filter(k => k.endsWith('/request.json'));
+/** The state Pine holds for the Chat's last turn. */
+const lastTurnState = (f: ReturnType<typeof fixture>) => f.pine.turnState(f.store.chat('main')!.current_turn_id!);
+
+test('Stop while the Computer starts: nothing goes up, no turn starts, and nothing is left to resend', async () => {
+	const f = fixture();
+	try {
+		const release = f.pine.hold('ensureComputer');
+		const abort = new AbortController();
+		const updates = f.service.submit('main', 'draw a', 'Project Chat', f.root, abort.signal);
+		const reading = drain(updates);
+		await until(() => f.pine.calls.ensureComputer === 1, 'the Computer starts');
+		stop(updates, abort);
+		release();
+		await reading;
+		assert.equal(f.pine.calls.run, undefined, 'no turn was started');
+		assert.deepEqual(requestsUp(f), [], 'no request went up');
+		assert.deepEqual(f.store.unconfirmedSavedSends('main'), [], 'nothing waits to be resent');
+		assert.equal(f.pine.calls.cancel, undefined, 'no turn to cancel');
+	} finally { f.store.close(); }
+});
+
+test('Stop while a turn runs: Pine cancels it, what it stored lands, and the next message says it may have spent money, then goes', async () => {
+	const f = fixture();
+	try {
+		// A run cut off before its return writes none (doc/protocol.md 4.7).
+		f.pine.plans = [{ state: 'running', noReturn: true }];
+		const abort = new AbortController();
+		const updates = f.service.submit('main', 'draw a', 'Project Chat', f.root, abort.signal);
+		const reading = drain(updates);
+		await until(() => f.store.chat('main')?.state === 'running', 'the turn runs');
+		const turn = f.store.chat('main')!.current_turn_id!;
+		stop(updates, abort);
+		await reading;
+		assert.equal(f.pine.turnState(turn), 'canceled', 'cancelled while the reply waited on the turn, which sends nothing');
+		f.pine.plans = [{ state: 'completed', text: 'b is drawn' }];
+		assert.match(f.said(await f.send('draw b')), /ended before it returned[^]*may have spent money[^]*b is drawn/);
+	} finally { f.store.close(); }
+});
+
+test('a Stop that reaches the run on its way: the turn Pine started for it is cancelled, and the reply ends', async () => {
+	const f = fixture();
+	try {
+		f.pine.plans = [{ state: 'running', noReturn: true }];
+		const abort = new AbortController();
+		const run = f.pine.run.bind(f.pine);
+		f.pine.run = async (...args: Parameters<FakePine['run']>) => { abort.abort(); return run(...args); };
+		await drain(f.service.submit('main', 'draw a', 'Project Chat', f.root, abort.signal));
+		assert.equal(lastTurnState(f), 'canceled');
+	} finally { f.store.close(); }
+});
+
+test('a Stop after the turn ended cancels nothing', async () => {
+	const f = fixture();
+	try {
+		f.pine.plans = [{ state: 'completed', text: 'drawn' }];
+		const abort = new AbortController();
+		await drain(f.service.submit('main', 'draw a', 'Project Chat', f.root, abort.signal));
+		abort.abort();
+		assert.equal(f.pine.calls.cancel, undefined);
+		assert.equal(lastTurnState(f), 'completed');
+	} finally { f.store.close(); }
+});
+
+test('a return wins over how Pine ended its turn: a stop\'s question is asked, and the next message goes as a new run', async () => {
+	const f = fixture();
+	try {
+		f.pine.plans = [{ state: 'failed', text: 'lost the stream', files: made('assets/props/a', 'a'), question: 'Draw the second episode too?' }];
+		assert.match(f.said(await f.send('draw a')), /\*\*The agent asks:\*\* Draw the second episode too\?/);
+		assert.deepEqual([f.store.chat('main')?.state, f.store.chat('main')?.question_turn_id], ['idle', null], 'Pine holds no question open: the next message is a run');
+		f.pine.plans = [{ state: 'completed', text: 'both drawn' }];
+		await f.send('yes');
+		assert.equal(f.store.savedSend(f.request(1).turn_id)?.target_turn_id, null, 'the answer names no question Pine does not hold');
+	} finally { f.store.close(); }
+});
+
+test('a return that finished the work leaves the Chat idle though Pine said its turn failed', async () => {
+	const f = fixture();
+	try {
+		f.pine.plans = [{ state: 'failed', text: 'stream ended early', files: made('assets/props/a', 'a') }];
+		await f.send('draw a');
+		assert.equal(readFileSync(join(f.root, 'assets/props/a/picture.png'), 'utf8'), 'a');
+		assert.equal(f.store.chat('main')?.state, 'idle', 'the return said finished');
+	} finally { f.store.close(); }
+});
+
+test('a return\'s question that Pine\'s own words already say is said once', async () => {
+	const f = fixture();
+	try {
+		f.pine.plans = [{ state: 'completed', text: 'Approve episode two?', question: 'Approve episode two?' }];
+		const said = f.said(await f.send('go on'));
+		assert.equal(said.split('Approve episode two?').length - 1, 1, said);
+	} finally { f.store.close(); }
+});

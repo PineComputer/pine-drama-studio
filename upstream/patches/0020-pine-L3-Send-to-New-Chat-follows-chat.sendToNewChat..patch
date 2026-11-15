@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Pine Drama Studio Authors <authors@example.invalid>
 Date: Sat, 7 Nov 2026 13:33:53 -0800
-Subject: [PATCH 23/29] pine(L3): Send to New Chat follows
+Subject: [PATCH 20/26] pine(L3): Send to New Chat follows
  chat.sendToNewChat.enabled
 
 SendToNewChatAction's precondition, so its keybinding (Ctrl/Cmd+Shift+Enter) too, and the Send button's alternative
@@ -12,7 +12,7 @@ updateAltState). With the setting off the button stays Send. An extension cannot
 alternative.
 
 diff --git a/src/vs/workbench/contrib/chat/browser/actions/chatExecuteActions.ts b/src/vs/workbench/contrib/chat/browser/actions/chatExecuteActions.ts
-index f97e8888c7c..82f83dd7897 100644
+index ea71d74b261..45ea2bd3f3c 100644
 --- a/src/vs/workbench/contrib/chat/browser/actions/chatExecuteActions.ts
 +++ b/src/vs/workbench/contrib/chat/browser/actions/chatExecuteActions.ts
 @@ -236,7 +236,8 @@ export class ChatSubmitAction extends SubmitAction {

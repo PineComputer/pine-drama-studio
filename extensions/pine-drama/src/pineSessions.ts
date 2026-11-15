@@ -27,8 +27,6 @@ import { projectSessions, sessionProjectRoot, type ProjectSessions } from './cor
 import { sessionEpisodes, type RowEpisodes } from './core/sessionEpisodes';
 
 const SESSION_TYPE = 'pine-computer';
-/** Said once when a reply's view ends: the person cannot cancel the turn, and where its result will be. */
-const CANCELLATION_UNAVAILABLE = 'Cancellation is unavailable in this release: the agent keeps working, and its result comes in this conversation.';
 /** The tool name of an agent step's row; the row's words are the step's own title (core/activityRow.ts). */
 const ACTIVITY_TOOL = 'pine_activity';
 const MODEL_VENDOR = 'pine';
@@ -103,25 +101,27 @@ export function registerPineSessions(
 		}
 	};
 
-	// ---- v1 has no cancellation: the one place a reply's end in Code-OSS lands ----
+	// ---- Stop: the one place a reply's cancellation lands ----
 
 	/**
-	 * A reply's view ended in Code-OSS: it offers no cancel for these chats (chat.requestCancellation.enabled) and no Send to
-	 * New Chat (chat.sendToNewChat.enabled), so this is navigation (archiving, the chat closed, a reload). The turn goes on on Pine. This reply stops
-	 * reading, so at most one follower of the turn exists; whoever comes next follows it and shows its end: a reopened
-	 * chat, the next message's wait, or the resume at start. Said once, by notification: the
-	 * ended reply's stream is closed.
+	 * Code-OSS cancels a reply's request only for an act that stops it: its Stop, archiving the Chat, a new session, or a
+	 * send that stops the running request. A view that merely closes never does, and a message sent while a request runs
+	 * is queued (chat.requestQueuing.defaultAction, chatWidget.ts acceptInput; chatServiceImpl.ts
+	 * cancelCurrentRequestForSession and its callers, at the pinned 235ceeb5). So a cancellation is the person's Stop: it
+	 * aborts the reply's signal, with which a send not yet admitted starts no turn and a followed turn is cancelled on Pine
+	 * (core/chats.ts), and this reply stops reading, so at most one follower of the turn exists. Whoever follows next shows
+	 * how it ended: a reopened chat, the next message's wait, or the resume at start.
 	 */
-	const replyEnded = (key: string, updates: AsyncGenerator<Update>) => {
-		output.appendLine(`${new Date().toISOString()} ${key}: a reply's view ended; the turn goes on, followed by the next reply or at start (D25)`);
-		void vscode.window.showInformationMessage(CANCELLATION_UNAVAILABLE);
-		void updates.return(undefined);
-	};
-	/** A reply's updates into its stream, until its view ends (replyEnded). */
-	const reply = async (key: string, stream: vscode.ChatResponseStream, token: vscode.CancellationToken, updates: AsyncGenerator<Update>) => {
-		const ended = token.onCancellationRequested(() => replyEnded(key, updates));
+	const reply = async (key: string, stream: vscode.ChatResponseStream, token: vscode.CancellationToken, updates: (signal: AbortSignal) => AsyncGenerator<Update>) => {
+		const abort = new AbortController();
+		const replying = updates(abort.signal);
+		const ended = token.onCancellationRequested(() => {
+			output.appendLine(`${new Date().toISOString()} ${key}: Stop`);
+			abort.abort();
+			void replying.return(undefined);
+		});
 		try {
-			for await (const update of updates) {
+			for await (const update of replying) {
 				if (token.isCancellationRequested) {
 					break;
 				}
@@ -194,7 +194,7 @@ export function registerPineSessions(
 			}
 		}
 		// Files added with the chat input's own Add Context go up with the message (core/chats.ts, submitWithFiles).
-		await reply(key, stream, token, service.submitWithFiles(key, request.prompt, firstLine(request.prompt), request.references.map(chatFile), entry.folder));
+		await reply(key, stream, token, signal => service.submitWithFiles(key, request.prompt, firstLine(request.prompt), request.references.map(chatFile), entry.folder, signal));
 		return {};
 	};
 	const participant = vscode.chat.createChatParticipant(SESSION_TYPE, handler);
@@ -225,7 +225,7 @@ export function registerPineSessions(
 				// A Chat that ended but still owes the project its turn's result is followed too: attachChatToPineTurn() installs it
 				// and sends nothing to the agent.
 				...(visible && (visible.state === 'running' || service.hasUnfinishedTurnFollowUp(key)) ? {
-					activeResponseCallback: (stream: vscode.ChatResponseStream, token: vscode.CancellationToken) => reply(key, stream, token, service.attachChatToPineTurn(key)),
+					activeResponseCallback: (stream: vscode.ChatResponseStream, token: vscode.CancellationToken) => reply(key, stream, token, signal => service.attachChatToPineTurn(key, signal)),
 				} : {}),
 			};
 		},

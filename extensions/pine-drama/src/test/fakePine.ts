@@ -249,7 +249,7 @@ export class FakePine implements PinePort {
 		this.artifactFiles.set(computerId, files);
 		return {
 			list: async prefix => [...files].filter(([path]) => path.startsWith(prefix)).map(([path, bytes]) => ({ path, size: bytes.length })),
-			upload: async (path, bytes) => void files.set(path, Buffer.from(bytes)),
+			upload: async (path, bytes, signal) => { signal?.throwIfAborted(); files.set(path, Buffer.from(bytes)); },
 			copy: async (from, path) => { await this.count('copy'); const bytes = this.artifactFiles.get(from)?.get(path); if (!bytes) { throw new Error(`${from} has no ${path}`); } files.set(path, bytes); },
 			read: async path => files.get(path),
 		};
@@ -295,6 +295,19 @@ export class FakePine implements PinePort {
 		// A cumulative snapshot before the end; the final cost comes with the turn (view()).
 		session.events.push({ ...base, eventId: id(), kind: 'usage', cost: turn.cost / 10, currency: 'USD', ...(this.unscopedUsage ? { turnId: '' } : {}) });
 		return turn;
+	}
+
+	/** Pine's cancel: a running turn, or one waiting on a question, ends `canceled`; an ended one is left as it is. */
+	async cancel(_env: PineConnection, s: PineSession, turnId: string) {
+		await this.count('cancel');
+		const turn = this.sessionOf(s).turns.get(turnId);
+		if (!turn) {
+			throw new MissingError('no such turn');
+		}
+		if (turn.state === 'running' || turn.state === 'needs_input') {
+			turn.state = 'canceled';
+			turn.question = '';
+		}
 	}
 
 	async run(_env: PineConnection, s: PineSession, text: string, key: string) {

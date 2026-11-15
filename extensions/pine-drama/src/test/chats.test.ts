@@ -238,7 +238,7 @@ test('a reply whose view ended stops reading; the next message follows the turn,
 		assert.ok(Date.now() < end, 'the turn runs');
 		await first.next();
 	}
-	await first.return(undefined); // the view ended (pineSessions.ts, replyEnded)
+	await first.return(undefined); // the reply stops reading with no Stop: nothing is cancelled
 	pine.finish(store.chat(KEY)!.current_turn_id!, { state: 'completed', text: 'The drama is made.' });
 	const next = markdown(await send(service, 'and the poster'));
 	assert.match(next, /Pine Computer is still running this turn[^]*The drama is made\.[^]*done: and the poster/);

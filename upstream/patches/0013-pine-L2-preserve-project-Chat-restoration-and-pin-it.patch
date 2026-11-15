@@ -1,12 +1,12 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Pine Drama Studio Authors <authors@example.invalid>
 Date: Wed, 4 Nov 2026 21:24:28 -0800
-Subject: [PATCH 16/29] pine(L2): preserve project Chat restoration and pin its
+Subject: [PATCH 13/26] pine(L2): preserve project Chat restoration and pin its
  primary home
 
 
 diff --git a/src/vs/workbench/contrib/pine/browser/pine.contribution.ts b/src/vs/workbench/contrib/pine/browser/pine.contribution.ts
-index a767c674a61..49d9da25061 100644
+index 5103ed0bd3b..0f94641f913 100644
 --- a/src/vs/workbench/contrib/pine/browser/pine.contribution.ts
 +++ b/src/vs/workbench/contrib/pine/browser/pine.contribution.ts
 @@ -2,6 +2,7 @@
