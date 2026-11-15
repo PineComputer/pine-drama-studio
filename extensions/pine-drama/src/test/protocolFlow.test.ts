@@ -8,10 +8,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { ChatService, type Update } from '../core/chats';
-import { UnconfirmedError } from '../core/pinePort';
+import { UnconfirmedError, type PinePort } from '../core/pinePort';
 import { Store } from '../core/store';
 import { FakePine, MemoryVault } from './fakePine';
 import { testProtocol } from './protocolFixture';
+
 
 async function drain(updates: AsyncGenerator<Update>): Promise<Update[]> {
 	const all: Update[] = []; for await (const update of updates) { all.push(update); } return all;
@@ -37,13 +38,18 @@ function fixture(more: Partial<ConstructorParameters<typeof ChatService>[0]> = {
 		const value = Reflect.get(target, name, target) as unknown;
 		return typeof value === 'function' ? (value as (...a: unknown[]) => unknown).bind(target) : value;
 	} });
-	const service = new ChatService({ holdsProject: () => true, turnEndGraceMs: 0, store, port, vault: new MemoryVault(), pine: { endpoint: 'https://offline.invalid', apiKey: 'offline' },
-		files: { projectsRoot: join(dir, 'projects') }, protocol: testProtocol(dir), ...more });
+	const options = { holdsProject: () => true, turnEndGraceMs: 0, store, port, vault: new MemoryVault(), pine: { endpoint: 'https://offline.invalid', apiKey: 'offline' },
+		files: { projectsRoot: join(dir, 'projects') }, protocol: testProtocol(dir), ...more };
+	const service = new ChatService(options);
+	/** The Studio started again on the same store and vault, as after a crash; `calls` replace some of its Pine's. */
+	const restarted = (calls: Partial<PinePort> = {}) => new ChatService({ ...options, port: new Proxy(port, {
+		get: (target, name) => name in calls ? calls[name as keyof PinePort] : Reflect.get(target, name, target),
+	}) });
 	const send = (text: string, key = 'main') => drain(service.submit(key, text, key === 'main' ? 'Project Chat' : 'Session', [], root));
 	/** The drama's folder on the Computer of a Chat's session. */
 	const drama = (key = 'main') => join(pine.workdirOf(store.chat(key)!.pine_session_name!), 'drama');
 	const said = (updates: Update[]) => updates.map(u => u.text).join('\n');
-	return { root, store, pine, service, send, drama, said, control };
+	return { root, store, pine, service, send, drama, said, control, restarted };
 }
 
 test('a turn\'s message is the person\'s words, what its agent changed lands as a pine-computer commit, and the next turn starts from it', async () => {
@@ -183,6 +189,88 @@ test('at start, a turn not settled yet is settled with no message sent', async (
 		assert.equal(readFileSync(join(f.root, 'assets/props/a/picture.png'), 'utf8'), 'a');
 		assert.equal(f.pine.calls.run, runs, 'no run was sent');
 		assert.equal(f.service.hasUnfinishedTurnFollowUp('main'), false);
+	} finally { f.store.close(); }
+});
+
+// Codex's production review, item A5: startup attached only Chats owing an ended turn, so a Chat still running when the
+// Studio stopped had no collector unless the workbench happened to reopen it, and its results were never brought in.
+test('at start, a Chat whose turn still runs is followed and collected though nothing reopens it', async () => {
+	const f = fixture();
+	try {
+		f.pine.plans = [{ state: 'running' }];
+		const reply = f.service.submit('main', 'draw a', 'Project Chat', [], f.root);
+		while (f.store.chat('main')?.state !== 'running') { assert.ok(!(await reply.next()).done, 'the turn runs'); }
+		const turnId = f.store.chat('main')!.current_turn_id!;
+		// The Studio stops here: nothing reads `reply` again. Started again, nothing in the workbench opens the Chat.
+		const resumed = f.restarted().resumeUnfinishedTurnFollowUps();
+		f.pine.finish(turnId, { state: 'completed', text: 'drawn', files: made('assets/props/a', 'a') });
+		await resumed;
+		assert.equal(readFileSync(join(f.root, 'assets/props/a/picture.png'), 'utf8'), 'a');
+		assert.equal((await git(['log', '-1', '--format=%an'], f.root)).stdout.trim(), 'pine-computer');
+	} finally { f.store.close(); }
+});
+
+/** A window that sends `text` and dies while its turn runs, having read only the turn's first event; the turn's id. */
+async function diesWhileRunning(f: ReturnType<typeof fixture>, text: string): Promise<string> {
+	const reply = f.restarted({ events: async function* (env, session, after, _task, signal) {
+		for await (const event of f.pine.events(env, session, after)) { yield event; break; }
+		await new Promise(resolve => signal?.addEventListener('abort', resolve, { once: true }));
+	} }).submit('main', text, 'Project Chat', [], f.root);
+	while (f.store.chat('main')?.state !== 'running') { assert.ok(!(await reply.next()).done, 'the turn runs'); }
+	await reply.return(undefined);
+	return f.store.chat('main')!.current_turn_id!;
+}
+
+// Codex on #239, P2: a Chat's turn has one follower in a window. The workbench opening the Chat reads the follower the
+// start began, from its first update, so what that follower read before is not lost to the Chat.
+test('a Chat opened while the start follows its turn shows that turn\'s activity and cost from the turn\'s start', async () => {
+	const f = fixture();
+	try {
+		f.pine.plans = [{ state: 'running', steps: [{ id: 'a1', title: 'Drawing a', state: 'running' }] }];
+		const turnId = await diesWhileRunning(f, 'draw a');
+		const window = f.restarted();
+		const resumed = window.resumeUnfinishedTurnFollowUps();
+		const events = [...f.pine.computers.values()].flatMap(c => [...c.sessions.values()]).flatMap(s => s.events);
+		await until(() => f.store.chat('main')!.last_applied_event_id === events.at(-1)!.eventId, 'the start\'s follower read every event of the turn');
+		const opened = drain(window.attachChatToPineTurn('main'));
+		f.pine.finish(turnId, { state: 'completed', text: 'drawn a' });
+		await resumed;
+		const seen = await opened;
+		assert.ok(seen.some(u => u.kind === 'activity' && u.text === 'Drawing a'), f.said(seen));
+		assert.ok(seen.some(u => u.kind === 'usage'), f.said(seen));
+	} finally { f.store.close(); }
+});
+
+// Codex on #239, P1: the follower ends its turn in the Chat's line, as a send does, so a message sent meanwhile goes
+// after that ending, and the ending never lands on the newer turn.
+test('a turn the start\'s follower ends late is settled before the next message goes, and its ending never replaces the newer turn', async () => {
+	const f = fixture();
+	try {
+		f.pine.plans = [{ state: 'running' }];
+		const first = await diesWhileRunning(f, 'draw a');
+		// Started again, the first read of the turn is slow.
+		let entered!: () => void; const reading = new Promise<void>(resolve => { entered = resolve; });
+		let release!: () => void; const slow = new Promise<void>(resolve => { release = resolve; });
+		let held = false;
+		const window = f.restarted({ turn: async (env, session, turnId) => {
+			if (!held) { held = true; entered(); await slow; }
+			return f.pine.turn(env, session, turnId);
+		} });
+		const resumed = window.resumeUnfinishedTurnFollowUps();
+		await reading;
+		const opened = drain(window.attachChatToPineTurn('main'));
+		f.pine.finish(first, { state: 'completed', text: 'drawn a' });
+		f.pine.plans = [{ state: 'running' }];
+		const next = drain(window.submit('main', 'draw b', 'Project Chat', [], f.root));
+		// With two followers the next message went while the slow read waited: given up to 2 s to start its turn, it ends
+		// that read only then. With one follower in the Chat's line, the message waits for it, and the read ends after 2 s.
+		for (const end = Date.now() + 2000; (f.pine.calls.run ?? 0) < 2 && Date.now() < end;) { await new Promise(resolve => setTimeout(resolve, 5)); }
+		release();
+		await resumed;
+		await opened;
+		await until(() => f.store.chat('main')!.state === 'running' && f.store.chat('main')!.current_turn_id !== first, `the next message's turn runs, unreplaced: ${JSON.stringify(f.store.chat('main'))}`);
+		f.pine.finish(f.store.chat('main')!.current_turn_id!, { state: 'completed', text: 'drawn b' });
+		assert.match(f.said(await next), /drawn b/);
 	} finally { f.store.close(); }
 });
 

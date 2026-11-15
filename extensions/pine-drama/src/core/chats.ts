@@ -32,6 +32,7 @@ import { AccountError, ConnectionLostError, PINE_ACCOUNT_URL, IDLE_WAITING_SECON
 import { projectBoundaryOf, projectRootOf } from './projectPlace';
 import { entryFor, type Entry } from './binding';
 import { givenBack, refusalLine } from './refusal';
+import { Replay } from './replay';
 import { collectTurn, forgetCaptures, putTurnFiles, turnRecordOf, type ComputerSession, type SentTurn, type TurnRecord } from './turn';
 import { applyPersonChange } from './applyChange';
 import { DRAMA_FOLDER, PERSON_ATTACHMENTS_FOLDER } from './protocol';
@@ -185,6 +186,8 @@ export class ChatService {
 	private readonly vault: SecretVault;
 	private readonly log: (line: string) => void;
 	private readonly generations = new PineSessionGenerations();
+	/** Each Chat's one follower of its turn in this window, while it runs (attachChatToPineTurn). */
+	private readonly followers = new Map<string, Replay<Update>>();
 	/** The publication pass this window runs now for each Chat, ended when it settles (collect). */
 	private readonly settling = new Map<string, Promise<void>>();
 	/** Chats whose remote session this process has verified. */
@@ -443,8 +446,41 @@ export class ChatService {
 	}
 
 
-	/** Streams the turn that is running into the Chat, e.g. when a restarted Studio opens it. */
+	/**
+	 * Streams the Chat's turn into a reply, from the one follower the Chat has in this window, which this starts when none
+	 * runs. The follower runs in the Chat's line (queueExecution), so a send waits for its ending and it waits for a
+	 * send's. Every caller reads that same follower from its first update (Replay): the workbench reopening the Chat, the
+	 * start's resume, a Stop's follow-up. So none of them applies an event, a cost or an ending another took first (Codex
+	 * on #239). The person's Stop of this reply (`signal`) cancels the turn (stopTurn), and the reply goes on to its end.
+	 */
 	async *attachChatToPineTurn(key: string, signal?: AbortSignal): AsyncGenerator<Update> {
+		let follower = this.followers.get(key);
+		if (!follower) {
+			follower = new Replay(this.followInLine(key));
+			this.followers.set(key, follower);
+		}
+		const stop = () => void this.stopTurn(key).catch(error => this.log(`${key}: Stop: ${(error as Error).message}`));
+		if (signal?.aborted) { stop(); } else { signal?.addEventListener('abort', stop, { once: true }); }
+		try {
+			yield* follower.read();
+		} finally {
+			signal?.removeEventListener('abort', stop);
+		}
+	}
+
+	/** attachChatToPineTurn's follower, in the Chat's line; once it ends, the next attach starts a new one. */
+	private async *followInLine(key: string): AsyncGenerator<Update> {
+		const release = await this.queueExecution(key);
+		try {
+			yield* this.followPineTurn(key);
+		} finally {
+			this.followers.delete(key);
+			release();
+		}
+	}
+
+	/** Follows the turn running in the Chat to its end, and first collects what the Chat owes the project. */
+	private async *followPineTurn(key: string): AsyncGenerator<Update> {
 		const conv = this.store.chat(key);
 		// A Chat that is not running can still owe the folder the result of a task that ended before a restart.
 		if (!conv || (conv.state !== 'running' && !this.hasUnfinishedTurnFollowUp(key))) {
@@ -461,8 +497,8 @@ export class ChatService {
 		if (!session) {
 			return;
 		}
-		if (conv.state === 'running' && (yield* this.checkUnconfirmedSendsWithPine(key, env, epoch, session, signal))) {
-			yield* this.streamPineTurnEvents(key, env, epoch, session, signal);
+		if (conv.state === 'running' && (yield* this.checkUnconfirmedSendsWithPine(key, env, epoch, session))) {
+			yield* this.streamPineTurnEvents(key, env, epoch, session);
 		}
 	}
 
@@ -472,16 +508,14 @@ export class ChatService {
 	}
 
 	/**
-	 * At start: settles every ended turn that is not settled, in each Chat whose session is open, as main's
-	 * `unsettledTurns()` does (follow.ts:190). No message is sent. A Chat another window holds is left to it.
+	 * At start: every Chat that still runs a turn, or owes the project one, is attached at once (attachChatToPineTurn),
+	 * all of them together, so a running turn the workbench does not reopen is still followed and collected, and no
+	 * long turn holds up another Chat's. No message is sent. A Chat another window holds is left to it.
 	 */
 	async resumeUnfinishedTurnFollowUps(): Promise<void> {
-		// Not a Chat of another project: that one is its own window's (holdsElsewhere).
-		for (const conv of this.store.chats().filter(c => !this.holdsElsewhere(c.key))) {
-			// An ended session's owed turns are taken up too: each is collected or found lost, so none holds up the next.
-			if (!this.hasUnfinishedTurnFollowUp(conv.key)) {
-				continue;
-			}
+		// Not a Chat of another project: that one is its own window's (holdsElsewhere). attachChatToPineTurn itself passes
+		// over a Chat that neither runs nor owes; an ended session's owed turns are collected or found lost.
+		await Promise.all(this.store.chats().filter(c => !this.holdsElsewhere(c.key)).map(async conv => {
 			try {
 				// Not a reply the person sees: what it says is logged.
 				for await (const update of this.attachChatToPineTurn(conv.key)) {
@@ -490,9 +524,9 @@ export class ChatService {
 					}
 				}
 			} catch (error) {
-				this.log(`${conv.key}: resuming its unsettled turns failed: ${(error as Error).stack ?? error}`);
+				this.log(`${conv.key}: resuming its turn failed: ${(error as Error).stack ?? error}`);
 			}
-		}
+		}));
 	}
 
 	/**
@@ -975,14 +1009,9 @@ export class ChatService {
 	/** stopTurn's pass: the Chat's turn followed to its end and collected, in the Chat's line, logged. */
 	private followStoppedTurn(key: string): void {
 		void (async () => {
-			const release = await this.queueExecution(key);
-			try {
-				// Not a reply the person sees: what it says is in the Chat's history, and logged.
-				for await (const update of this.attachChatToPineTurn(key)) {
-					if (update.kind !== 'progress') { this.log(`${key}: after Stop: ${update.text.trim()}`); }
-				}
-			} finally {
-				release();
+			// Not a reply the person sees: what it says is in the Chat's history, and logged.
+			for await (const update of this.attachChatToPineTurn(key)) {
+				if (update.kind !== 'progress') { this.log(`${key}: after Stop: ${update.text.trim()}`); }
 			}
 		})().catch(error => this.log(`${key}: after Stop, the turn could not be followed to its end: ${(error as Error).stack ?? error}`));
 	}
@@ -1285,8 +1314,7 @@ export class ChatService {
 			}
 			const last = await ended;
 			const ending = this.composeTurnEnding(key, epoch, last);
-			// Collected as every other pass: a second follower of the same turn in this window (the resume at start and
-			// Chat's follow) waits in the line, then finds the turn settled and says only its ending.
+			// Collected as every other pass, in the Chat's line (collectResultsFromPine).
 			yield* this.collectResultsFromPine(key, env, epoch, ending);
 			yield* this.tendIdle(key, env, epoch, session);
 			return undefined;

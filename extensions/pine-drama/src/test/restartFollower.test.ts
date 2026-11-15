@@ -4,15 +4,17 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import type { Update } from '../core/chats';
-import { PineSessionReplacedError } from '../core/pineSessionGeneration';
 import { Store } from '../core/store';
 import { FakePine, MemoryVault } from './fakePine';
 import { folderOf, testService } from './protocolFixture';
 
 const drain = async (updates: AsyncGenerator<Update>): Promise<void> => { for await (const _ of updates) { /* drain */ } };
 
-for (const response of ['missing', 'missing while the old binding still answers', 'question', 'event'] as const) {
-	test(`a delayed ${response} from an old follower cannot mutate a restarted Session`, async () => {
+// A Chat has one follower in a window, in the Chat's line (Codex on #239): an old follower still waiting on an ended
+// runtime's answer keeps the person's next message waiting, and the agent is started again only once that follower has
+// ended, so nothing it does lands on the session that replaces it.
+for (const response of ['missing', 'question', 'event'] as const) {
+	test(`a message sent while an old follower waits on an ended runtime's ${response} goes once that follower ends, to the agent started again`, async () => {
 		const dir = mkdtempSync(join(tmpdir(), 'pine-restart-follower-'));
 		const store = new Store(join(dir, 'studio.sqlite'));
 		const pine = new FakePine();
@@ -24,14 +26,14 @@ for (const response of ['missing', 'missing while the old binding still answers'
 		try {
 			await drain(service.submit('main', 'fixture', 'fixture', [], folderOf(service)));
 			const op = store.db.prepare('select turn_id from saved_sends limit 1').get() as { turn_id: string };
-			// A reopened Chat may start a follower from its persisted running turn.
+			// A reopened Chat starts its follower from its persisted running turn.
 			store.updateChat('main', { state: 'running', current_turn_id: op.turn_id });
 			const original = store.chat('main')!;
 			const turn = pine.turn.bind(pine);
 			// Only the ended runtime's reads are held: the new session's own turn goes on.
 			pine.turn = async (...args) => {
 				if (args[1].name !== original.pine_session_name) { return turn(...args); }
-				const snapshot = !response.startsWith('missing') ? await turn(...args) : undefined;
+				const snapshot = response !== 'missing' ? await turn(...args) : undefined;
 				entered(); await waiting;
 				if (!snapshot) { return turn(...args); }
 				return response === 'question' ? { ...snapshot, state: 'needs_input', question: 'Old runtime question' } : snapshot;
@@ -44,39 +46,28 @@ for (const response of ['missing', 'missing while the old binding still answers'
 					yield { kind: 'progress', eventId: 99999, taskId: original.task_id!, turnId: op.turn_id, text: 'Old runtime event' };
 				};
 			}
-			const follower = drain(service.attachChatToPineTurn('main')).then(() => undefined, error => error as Error);
+			let followed = false;
+			const follower = drain(service.attachChatToPineTurn('main')).then(() => undefined, error => error as Error).finally(() => { followed = true; });
 			await started;
-			// Pine stops the Computer (an idle stop, as FakePine.stop models it). Discovery is set directly, as the session's end
-			// that ensureLivePineSession() records on Pine's evidence: this window's follower holds the running turn, so a send that
-			// would discover it queues behind that turn, which this test holds open on purpose.
+			// Pine stops the Computer (an idle stop, as FakePine.stop models it) while the follower waits on its answer.
 			const computer = pine.computers.get(original.computer_id!)!;
 			computer.state = 'stopped'; computer.sessions.clear();
-			store.updateChat('main', { pine_session_state: 'ended', computer_state: 'stopped', state: 'idle', current_turn_id: null });
-			// The person's next message finds the session ended and starts the agent again (replacePineSessionAndSend), while
-			// the old follower, attached outside the send queue, still awaits the ended runtime.
-			await drain(service.submit('main', 'continue', 'continue', [], folderOf(service)));
-			const replacement = store.chat('main')!;
-			assert.notEqual(replacement.pine_session_name, original.pine_session_name);
-			assert.equal(replacement.pine_session_state, 'open');
-			if (response === 'missing while the old binding still answers') {
-				// Pine may still answer for the old binding after the same Computer was started again: the old follower's
-				// stale MissingError then reads the Computer as running, and only the check after that call keeps it from
-				// stopping the Computer its replacement now runs on (ChatService.held).
-				pine.computerState = async () => 'running';
-			}
+			const createSession = pine.createSession.bind(pine);
+			const startedAgain: boolean[] = [];
+			pine.createSession = async (...args) => { startedAgain.push(followed); return createSession(...args); };
+			// The person's next message waits for the follower; the ended runtime answers; the message finds the session ended
+			// and starts the agent again (replacePineSessionAndSend).
+			const sent = drain(service.submit('main', 'continue', 'continue', [], folderOf(service)));
 			release();
-			const error = await follower;
+			await follower;
+			await sent;
+			assert.deepEqual(startedAgain, [true], 'the agent is started again once, after the old follower ended');
 			const after = store.chat('main')!;
+			assert.notEqual(after.pine_session_name, original.pine_session_name);
 			assert.equal(after.pine_session_state, 'open');
 			assert.equal(after.computer_state, 'running');
-			assert.equal(after.pine_session_name, replacement.pine_session_name);
-			assert.equal(after.state, 'idle');
+			assert.equal(after.state, 'idle', 'the message\'s own turn ended, and nothing after it changed the Chat');
 			assert.equal(after.question_turn_id, null);
-			assert.deepEqual([after.task_id, after.last_applied_event_id], [replacement.task_id, replacement.last_applied_event_id], 'the successor\'s own turn, untouched');
-			assert.equal(store.messages('main').some(m => m.text.includes('Old runtime')), false);
-			assert.equal(pine.calls.stopComputer ?? 0, 0, 'the old follower cannot stop the successor');
-			assert.ok(error instanceof PineSessionReplacedError, 'retired follower loses write and remote-call authority');
 		} finally { release(); store.close(); }
 	});
 }
-
