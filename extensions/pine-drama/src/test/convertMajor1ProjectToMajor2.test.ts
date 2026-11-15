@@ -3,7 +3,8 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
-import { convertMajor1ProjectToMajor2, LAST_MAJOR_1_STUDIO, major1ConversionPending, RefusedWithUpgradeInstructions } from '../core/convertMajor1ProjectToMajor2';
+import { convertMajor1ProjectToMajor2, LAST_MAJOR_1_STUDIO, major1ConversionPending } from '../core/convertMajor1ProjectToMajor2';
+import { RefusedWithUpgradeInstructions } from '../core/protocol';
 import { git } from '../core/git';
 import { readProjectMajor } from '../core/project';
 import { listHistoryOfShownFile } from '../core/projectHistory';

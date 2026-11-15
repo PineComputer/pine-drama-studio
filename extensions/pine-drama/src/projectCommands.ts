@@ -5,7 +5,8 @@ import { commitPathsToHistory, runInProjectWriteQueue } from './core/projectHist
 import { writeProjectMarker } from './core/project';
 import { PROJECT_MARKER_FILE } from './core/protocol';
 import { projectAt, ProjectOfAnotherMajorError, ProjectsInsideError } from './core/projectEntry';
-import { convertMajor1ProjectToMajor2, LAST_MAJOR_1_STUDIO, RefusedWithUpgradeInstructions } from './core/convertMajor1ProjectToMajor2';
+import { convertMajor1ProjectToMajor2, LAST_MAJOR_1_STUDIO } from './core/convertMajor1ProjectToMajor2';
+import { RefusedWithUpgradeInstructions } from './core/protocol';
 
 export const NEW_PROJECT_COMMAND = 'pineDrama.newProject';
 export const CONVERT_MAJOR_1_PROJECT_COMMAND = 'pineDrama.convertMajor1Project';
@@ -25,10 +26,16 @@ export function registerProjectCommands(context: vscode.ExtensionContext, output
 		output.appendLine(`project entry: ${detail}`);
 		void vscode.window.showErrorMessage(`Pine: ${detail}`);
 	};
+	/** A refusal for another major (core/protocol.ts, refuseWithUpgradeInstructions), with its download when it names one. */
+	const showRefusal = async (error: RefusedWithUpgradeInstructions) => {
+		output.appendLine(`project entry: ${error.message}`);
+		if (await vscode.window.showWarningMessage(`Pine: ${error.message}`, ...error.downloadLabel ? [error.downloadLabel] : [])) { await vscode.env.openExternal(vscode.Uri.parse(error.downloadUrl!)); }
+	};
 	// One project inside the chosen folder: offer it; opening it runs Open Project. A major-1 drama opens as its folder,
 	// whose Project view offers its conversion there, under that window's project lock (core/projectWindowLock.ts).
 	const failedOrInside = async (error: unknown) => {
-		if (error instanceof ProjectOfAnotherMajorError && error.schema === 1) { await open(error.folder); return; }
+		if (error instanceof ProjectOfAnotherMajorError) { await open(error.folder); return; }
+		if (error instanceof RefusedWithUpgradeInstructions) { await showRefusal(error); return; }
 		if (!(error instanceof ProjectsInsideError && error.projects.length === 1)) { failed(error); return; }
 		const inner = error.projects[0];
 		output.appendLine(`project entry: ${error.message}`);
@@ -71,10 +78,7 @@ export function registerProjectCommands(context: vscode.ExtensionContext, output
 			output.appendLine(`conversion: ${root} is major 2; its backup is ${backup}`);
 			void vscode.window.showInformationMessage(`Pine: ${basename(root)} is converted. The folder as it was is kept as ${basename(backup)}.`);
 		} catch (error) {
-			if (!(error instanceof RefusedWithUpgradeInstructions)) { failed(error); return; }
-			output.appendLine(`conversion: ${error.message}`);
-			const download = `Download Studio ${error.studioVersion}`;
-			if (await vscode.window.showWarningMessage(`Pine: ${error.message}`, download) === download) { await vscode.env.openExternal(vscode.Uri.parse(error.downloadUrl)); }
+			if (error instanceof RefusedWithUpgradeInstructions) { await showRefusal(error); } else { failed(error); }
 		}
 	};
 	context.subscriptions.push(

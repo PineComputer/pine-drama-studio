@@ -5,6 +5,7 @@ import { join, relative } from 'node:path';
 import { test } from 'node:test';
 import { readProjectMajor } from '../core/project';
 import { projectAt, ProjectOfAnotherMajorError, ProjectsInsideError } from '../core/projectEntry';
+import { RefusedWithUpgradeInstructions, STUDIO_RELEASES_URL } from '../core/protocol';
 import { projectIdentity, projectPlaceOf, owningChat } from '../core/projectPlace';
 import { entryFor } from '../core/binding';
 import { Store } from '../core/store';
@@ -98,7 +99,8 @@ test('a drama of another format is never taken for a new one: a format-1 folder 
 	const newer = temp();
 	writeFileSync(join(newer, 'pine-drama-project.json'), '{"schema":3}\n');
 	assert.equal(readProjectMajor(newer), 3);
-	await assert.rejects(projectAt(newer), /format 3/);
+	await assert.rejects(projectAt(newer), (error: unknown) => error instanceof RefusedWithUpgradeInstructions && /newer Pine Drama Studio.*format 3/.test(error.message)
+		&& error.downloadUrl === STUDIO_RELEASES_URL, 'its refusal offers the Studio\'s download');
 	assert.equal(readProjectMajor(temp()), undefined, 'a folder with neither is no drama');
 	const blank = temp();
 	writeFileSync(join(blank, 'pine-drama-project.json'), '{}\n');

@@ -9,6 +9,27 @@ import addFormats from 'ajv-formats';
 /** The one major this client speaks (doc/protocol.md, section 6.1). */
 export const MAJOR = 2;
 
+/** Where every Pine Drama Studio is downloaded: the product's pineReleasesUrl (upstream/product.package.json), which the extension cannot read. */
+export const STUDIO_RELEASES_URL = 'https://github.com/PineComputer/pine-drama-studio/releases';
+
+/**
+ * A refusal of a project, a document or a Pine Computer of a major this Studio cannot work with (doc/protocol.md,
+ * sections 7 and 8): what the person is told, and the Studio to use and where to get it when the refusal knows them.
+ */
+export class RefusedWithUpgradeInstructions extends Error {
+	constructor(message: string, readonly studioVersion?: string, readonly downloadUrl?: string) { super(message); }
+
+	/** The words of its download, wherever it is offered: a button, a link. Undefined without one. */
+	get downloadLabel(): string | undefined {
+		return this.downloadUrl && `Download Pine Drama Studio${this.studioVersion ? ` ${this.studioVersion}` : ''}`;
+	}
+}
+
+/** The one refusal for every major mismatch: a newer project or document, an older Pine Computer, a major-1 project's conversion. */
+export function refuseWithUpgradeInstructions(message: string, studio: { readonly version?: string; readonly downloadUrl?: string } = {}): never {
+	throw new RefusedWithUpgradeInstructions(message, studio.version, studio.downloadUrl);
+}
+
 // The file names of protocol major 2, each spelled here only: every module that reads or writes one imports it.
 
 /** The marker of a Pine Drama project of major 2, `{"schema": 2}` at its folder's root (doc/protocol.md 2.1, `$defs/projectMarker`). */
@@ -70,6 +91,7 @@ export interface ProtocolError {
 	readonly code: string;
 	readonly message: string;
 	readonly action?: string;
+	/** On a refusal of another major: the lowest client version that reads it, and where to download it (section 7). */
 }
 
 /** `turns/<turn id>/return.json` (doc/protocol.md 4.6, `$defs/return`), written last. */
@@ -97,11 +119,18 @@ export interface PaidCallState {
 
 /**
  * A document of protocol major 2 as it was read (`raw`, parsed JSON), named `name` for the person: one of another major
- * is refused whole, since a client applies nothing of a major it does not speak (doc/protocol.md section 7).
+ * is refused whole, since a client applies nothing of a major it does not speak (doc/protocol.md section 7), by
+ * `refuse` when its caller knows what the major means, and otherwise as a document this Studio does not read, a newer
+ * one with the Studio's update.
  */
-export function majorTwo(name: string, raw: unknown): Record<string, any> {
+export function majorTwo(name: string, raw: unknown, refuse = (schema: unknown): never => {
+	const unread = `${name} is a document of protocol major ${JSON.stringify(schema)}, which this Studio does not read`;
+	return typeof schema === 'number' && schema > MAJOR
+		? refuseWithUpgradeInstructions(`${unread}. Update Pine Drama Studio to its newest version.`, { downloadUrl: STUDIO_RELEASES_URL })
+		: refuseWithUpgradeInstructions(unread);
+}): Record<string, any> {
 	const document = Object(raw);
-	if (document.schema !== MAJOR) { throw new Error(`${name} is a document of protocol major ${JSON.stringify(document.schema)}, which this Studio does not read`); }
+	if (document.schema !== MAJOR) { refuse(document.schema); }
 	return document;
 }
 

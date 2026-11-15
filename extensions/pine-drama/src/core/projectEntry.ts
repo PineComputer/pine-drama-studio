@@ -4,7 +4,7 @@ import { basename, join } from 'node:path';
 import { DramaProject, readProjectMajor } from './project';
 import { projectIdentity } from './projectPlace';
 import { projectsBelow } from './binding';
-import { PROJECT_MARKER_FILE } from './protocol';
+import { PROJECT_MARKER_FILE, refuseWithUpgradeInstructions, STUDIO_RELEASES_URL } from './protocol';
 
 /**
  * New Project's and Open Project's choice: the chosen folder is the project. A folder that is a project
@@ -18,14 +18,17 @@ export async function projectAt(folder: string): Promise<{ readonly root: string
 	const here = projectIdentity(folder);
 	// A drama of another major is never written (doc/protocol.md, section 7): it is not used as a new one.
 	const schema = readProjectMajor(here);
-	if (schema !== undefined) { throw new ProjectOfAnotherMajorError(here, schema); }
+	if (schema === 1) { throw new ProjectOfAnotherMajorError(here, schema); }
+	if (schema !== undefined) {
+		refuseWithUpgradeInstructions(`${folder} was made by a newer Pine Drama Studio, which writes projects of format ${schema}. Update the Studio to open it; nothing was written.`, { downloadUrl: STUDIO_RELEASES_URL });
+	}
 	const inside = projectsBelow(here);
 	if (inside.length) { throw new ProjectsInsideError(folder, inside); }
 	if (existsSync(join(here, PROJECT_MARKER_FILE))) { throw new Error(`${join(here, PROJECT_MARKER_FILE)} is not a file, so ${folder} is neither a drama nor a folder for a new one. Nothing was written.`); }
 	return { root: here, initialized: false };
 }
 
-/** The chosen folder is a drama of another major (doc/protocol.md, section 7): never opened or written as it is. */
+/** The chosen folder is a drama of major 1 (doc/protocol.md, section 8): it opens as its folder, which offers its conversion. */
 export class ProjectOfAnotherMajorError extends Error {
 	constructor(readonly folder: string, readonly schema: number) {
 		super(`${folder} is a drama of format ${schema}, which this Studio does not open. Nothing was written.`);

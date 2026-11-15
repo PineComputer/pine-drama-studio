@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { lineageMessage } from '../core/canvasMessage';
 import { onBoard } from '../core/canvasLayout';
+import { RefusedWithUpgradeInstructions, STUDIO_RELEASES_URL } from '../core/protocol';
 import { DramaProject, episodeOfNode, fileAddressByVersion, objectTitle, readProjectFromFolder } from '../core/project';
 import { decomposition } from '../core/threeSteps';
 
@@ -96,13 +97,15 @@ test("an object's name for the person: a variant after its asset, an episode's o
 	assert.equal(objectTitle(drama, 'assets/props/kettle'), 'kettle', 'an object the project does not hold, by its folder');
 });
 
-test('a document of another protocol major in the project is refused whole, an object or a receipt', async () => {
+test('a document of another protocol major in the project is refused whole, an object or a receipt; a newer one with the Studio\'s update', async () => {
 	const object = copy('full');
 	writeFileSync(join(object, 'assets/props/umbrella/object.json'), JSON.stringify({ schema: 3, type: 'prop', name: 'Umbrella', shown_file: null }));
-	await assert.rejects(readProjectFromFolder(object), /assets\/props\/umbrella\/object\.json is a document of protocol major 3/);
+	await assert.rejects(readProjectFromFolder(object), (error: unknown) => error instanceof RefusedWithUpgradeInstructions && error.downloadUrl === STUDIO_RELEASES_URL
+		&& /assets\/props\/umbrella\/object\.json is a document of protocol major 3, which this Studio does not read\. Update Pine Drama Studio/.test(error.message));
 	const receipt = copy('full');
 	writeFileSync(join(receipt, 'assets/props/umbrella/picture.png.receipt.json'), JSON.stringify({ schema: 1 }));
-	await assert.rejects(readProjectFromFolder(receipt), /picture\.png\.receipt\.json is a document of protocol major 1/);
+	await assert.rejects(readProjectFromFolder(receipt), (error: unknown) => error instanceof RefusedWithUpgradeInstructions && error.downloadUrl === undefined
+		&& /picture\.png\.receipt\.json is a document of protocol major 1, which this Studio does not read$/.test(error.message));
 });
 
 test("a file's webview address changes when the file does, since a result overwrites it in place", async () => {

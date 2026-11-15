@@ -3,6 +3,8 @@
 // same actions, and a second display prevents nothing; no paragraph and no stream
 // buttons. The message itself comes back in the line, quoted, for the person to send again. No vscode import.
 
+import { STUDIO_RELEASES_URL } from './protocol';
+
 /** The commands a refusal's actions run. */
 export interface RefusalCommands {
 	readonly openFolder: string;
@@ -89,7 +91,8 @@ export function refusalOf(situation: Situation, commands: RefusalCommands, messa
 			};
 		case 'otherFormat':
 			return {
-				line: `Not sent: this folder is a drama of format ${situation.schema}, which this Studio does not open. Nothing is touched.${kept(BELOW)}`,
+				line: `Not sent: ${situation.schema === 1 ? `this folder is a drama of format 1, which this Studio does not open`
+					: `this folder was made by a newer Pine Drama Studio, which writes projects of format ${situation.schema}; [download the newest Pine Drama Studio](${STUDIO_RELEASES_URL}) to open it`}. Nothing is touched.${kept(BELOW)}`,
 				actions: [...situation.schema === 1 ? [{ label: 'Convert This Project…', command: commands.convertMajor1Project, args: [] }] : [], ...folderActions], ...given,
 			};
 	}

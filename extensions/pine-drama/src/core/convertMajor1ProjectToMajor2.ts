@@ -11,7 +11,7 @@ import { CHOICES_FILE, dramaRecordOf, dramaRecordsOf, publishKeptTurns, readChoi
 import { readProjectMajor, writeProjectMarker } from './project';
 import { commitPathsToHistory, listHistory, runInProjectWriteQueue } from './projectHistory';
 import { sha256OfFile } from './sha256';
-import { DESCRIPTION_FILE, OBJECT_FILE, PROJECT_MARKER_FILE, PROMPT_FILE, RECEIPT_SUFFIX, type Edge } from './protocol';
+import { DESCRIPTION_FILE, type Edge, OBJECT_FILE, PROJECT_MARKER_FILE, PROMPT_FILE, RECEIPT_SUFFIX, refuseWithUpgradeInstructions, STUDIO_RELEASES_URL } from './protocol';
 
 const TABLE = require('../../protocol/v2/major1-to-major2-conversion.json') as ConversionTable;
 
@@ -53,17 +53,7 @@ interface ConversionTable {
 }
 
 /** The last Studio that reads major 1: where a person goes back to for what this one cannot do with a major-1 project. */
-export const LAST_MAJOR_1_STUDIO = { version: '0.2.6', downloadUrl: 'https://github.com/PineComputer/pine-drama-studio/releases/tag/v0.2.6' } as const;
-
-/** A refusal that names the Studio version to use and where to download it (doc/protocol.md, section 7). */
-export class RefusedWithUpgradeInstructions extends Error {
-	constructor(message: string, readonly studioVersion: string, readonly downloadUrl: string) { super(message); }
-}
-
-/** The one refusal for a project or Computer of a major this Studio cannot work with (doc/protocol.md, sections 7 and 8). */
-export function refuseWithUpgradeInstructions(message: string, studio: { readonly version: string; readonly downloadUrl: string }): never {
-	throw new RefusedWithUpgradeInstructions(message, studio.version, studio.downloadUrl);
-}
+export const LAST_MAJOR_1_STUDIO = { version: '0.2.6', downloadUrl: `${STUDIO_RELEASES_URL}/tag/v0.2.6` } as const;
 
 const AUTHOR = 'client-found-changes-on-disk';
 const NAMES = TABLE.version_folders.version_folder_name_patterns.map(p => new RegExp(p));

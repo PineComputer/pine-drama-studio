@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { ChatService, type Update } from '../core/chats';
-import type { Request } from '../core/protocol';
+import { STUDIO_RELEASES_URL, type Request } from '../core/protocol';
 import { sha256 } from '../core/sha256';
 import { Store } from '../core/store';
 import { changeKey, fileKey, paidCallsPrefix } from '../core/taskArtifacts';
@@ -133,6 +133,33 @@ test('a running turn\'s changes land as they are stored, and what its paid calls
 		await pumping;
 		assert.deepEqual([...f.service.makingNow(f.root)], ['assets/scenes/street'], 'a call whose outcome is not learned is still making after its turn (4.5)');
 		assert.equal(readFileSync(join(f.root, 'assets/props/umbrella/picture.png'), 'utf8'), 'umbrella');
+	} finally { f.store.close(); }
+});
+
+test('a turn whose results hold a document of a newer major is said once with the download, and shows nothing more as being made', async () => {
+	const f = fixture({ changePollMs: 10 });
+	try {
+		f.pine.plans = [{ state: 'running' }];
+		const reply = f.service.submit('main', 'draw lin', 'Project Chat', f.root);
+		const until = async (what: string, done: () => boolean) => {
+			for (const end = Date.now() + 10_000; !done(); await new Promise(resolve => setTimeout(resolve, 10))) { assert.ok(Date.now() < end, what); }
+		};
+		const updates: Update[] = [];
+		const pumping = (async () => { for await (const update of reply) { updates.push(update); } })();
+		await until('the turn runs', () => f.store.chat('main')?.state === 'running');
+		const turn = f.request(0).turn_id;
+		const store = [...f.pine.artifactFiles.values()][0];
+		const call = (id: string, schema: number) => store.set(`${paidCallsPrefix(turn)}${id}/pine_computer_sent_request_to_provider.json`, Buffer.from(JSON.stringify({ schema,
+			paid_call_id: id, object_id: 'assets/characters/lin', state: 'pine_computer_sent_request_to_provider', state_written_at: '2026-11-14T10:00:00Z' })));
+		call('call-1', 2);
+		await until('Lin shows as being made', () => f.service.makingNow(f.root).has('assets/characters/lin'));
+		call('call-2', 3);
+		f.pine.finish(f.store.chat('main')!.current_turn_id!, { state: 'completed', text: 'drawn' });
+		await pumping;
+		assert.match(f.said(updates), /newer Pine Computer side/);
+		assert.ok(f.said(updates).includes(`[Download Pine Drama Studio](${STUDIO_RELEASES_URL})`), f.said(updates));
+		assert.doesNotMatch(f.said(updates), /tried again/, 'resolved: never read again');
+		assert.deepEqual([...f.service.makingNow(f.root)], []);
 	} finally { f.store.close(); }
 });
 

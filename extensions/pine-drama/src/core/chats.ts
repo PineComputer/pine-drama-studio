@@ -1698,6 +1698,11 @@ export class ChatService {
 				// Running no more: what it still makes is its record's now (TurnRecord.stillMaking).
 				this.setMaking(key, task, root, new Set());
 				if (resolved.kind === 'no return') { tell(NO_RETURN, true); continue; }
+				if (resolved.kind === 'refused with upgrade instructions') {
+					const { refusal } = resolved;
+					tell(refusal.downloadLabel ? `${refusal.message} [${refusal.downloadLabel}](${refusal.downloadUrl})` : refusal.message);
+					continue;
+				}
 				const { ret } = resolved;
 				outcome = ret;
 				if (ret.state === 'pine_computer_refused_the_turn_before_running') {

@@ -8,6 +8,7 @@ import { git } from '../core/git';
 import { writeWhole } from '../core/placement';
 import { sha256 } from '../core/sha256';
 import { changeKey, fileKey, Holders, paidCallsPrefix, privateStateKey, putAll, requestKey, returnKey, type ArtifactStore } from '../core/taskArtifacts';
+import { RefusedWithUpgradeInstructions, STUDIO_RELEASES_URL } from '../core/protocol';
 import { applyStoredChanges, objectsBeingMade, resolveTurn, sendTurnRequest, turnMessage, turnRecordOf, type TurnPlace } from '../core/turn';
 
 // A turn on the Studio's side, protocol major 2 (core/turn.ts, doc/protocol.md section 4), over a store in memory, on the
@@ -127,6 +128,28 @@ test('a turn with no return keeps what it stored and the private state before it
 	const head = (await git(['rev-parse', 'HEAD'], at.root)).stdout;
 	assert.equal((await resolveTurn(at, 'turn-2')).kind, 'returned');
 	assert.equal((await git(['rev-parse', 'HEAD'], at.root)).stdout, head);
+	assert.equal(at.record.unresolved('main').length, 0);
+});
+
+test('a Pine Computer of another major is known by a document it wrote, and refused with what to use, once: an older side or a newer one', async () => {
+	const at = place();
+	const refused = async (turn: string, documents: Record<string, object>) => {
+		await sendTurnRequest(at, turn, 'main');
+		for (const [path, document] of Object.entries(documents)) { at.store.files.set(path, Buffer.from(JSON.stringify(document))); }
+		const resolution = await resolveTurn(at, turn);
+		assert.ok(resolution.kind === 'refused with upgrade instructions', resolution.kind);
+		assert.equal(at.record.resolved(turn)?.state, 'pine_computer_refused_the_turn_before_running', 'resolved: never read again');
+		return resolution.refusal;
+	};
+	const older = await refused('turn-1', { [changeKey('turn-1', 1)]: { schema: 1, turn_id: 'turn-1', change_number: 1 } });
+	assert.match(older.message, /older Pine Computer side.*A new session starts on a current one/);
+	assert.deepEqual([older.studioVersion, older.downloadUrl], [undefined, undefined]);
+	const newerSide = (refusal: RefusedWithUpgradeInstructions) => {
+		assert.match(refusal.message, /newer Pine Computer side/);
+		assert.equal(refusal.downloadUrl, STUDIO_RELEASES_URL);
+	};
+	newerSide(await refused('turn-2', { [changeKey('turn-2', 1)]: { schema: 3, turn_id: 'turn-2', change_number: 1 } }));
+	newerSide(await refused('turn-3', { [`${paidCallsPrefix('turn-3')}call-1/pine_computer_sent_request_to_provider.json`]: { schema: 3, paid_call_id: 'call-1' } }));
 	assert.equal(at.record.unresolved('main').length, 0);
 });
 

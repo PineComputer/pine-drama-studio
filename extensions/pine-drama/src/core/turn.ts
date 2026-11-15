@@ -9,7 +9,7 @@ import { applyChangeToProjectFolder } from './applyChange';
 import { writeWhole } from './placement';
 import { projectIdentity } from './projectPlace';
 import { blobBytes, commitFilesFoundOnDisk, listFilesOfHead, sha256OfBlob } from './projectHistory';
-import { majorTwo, type Change, type Note, type PaidCallState, type Request, type Return } from './protocol';
+import { majorTwo, RefusedWithUpgradeInstructions, refuseWithUpgradeInstructions, STUDIO_RELEASES_URL, type Change, type Note, type PaidCallState, type Request, type Return } from './protocol';
 import { sha256 } from './sha256';
 import { changeKey, fetchKept, fileKey, Holders, keptBytes, MissingArtifact, paidCallsPrefix, privateStateKey, putAll, requestKey, returnKey, type ArtifactStore } from './taskArtifacts';
 
@@ -164,7 +164,7 @@ export async function applyStoredChanges(at: TurnPlace, turn: string, read: Chan
 	let { next, previous } = read;
 	const written = new Set<string>();
 	for (let bytes = await at.store.read(changeKey(turn, next)); bytes; bytes = await at.store.read(changeKey(turn, next))) {
-		const change = majorTwo(changeKey(turn, next), JSON.parse(bytes.toString('utf8'))) as Change;
+		const change = computerDocument(changeKey(turn, next), JSON.parse(bytes.toString('utf8'))) as Change;
 		if (change.previous_change_sha256 !== previous) { throw new Error(`${changeKey(turn, next)} does not follow the change before it`); }
 		const files = change.files_after_change;
 		for (const path of Object.keys(files)) { written.add(path); }
@@ -183,43 +183,62 @@ export async function applyStoredChanges(at: TurnPlace, turn: string, read: Chan
 	return { next, previous, files: [...written] };
 }
 
+/**
+ * A document the Pine Computer stored for a turn, read. One of another major is refused with what to use (doc/protocol.md
+ * 7): major 1 is an older Pine Computer side's; a newer one, a newer side's.
+ */
+function computerDocument(path: string, raw: unknown): Record<string, any> {
+	return majorTwo(path, raw, schema => schema === 1
+		? refuseWithUpgradeInstructions('This session\'s Pine Computer runs an older Pine Computer side, which cannot run this Studio\'s turns. A new session starts on a current one.')
+		: refuseWithUpgradeInstructions('This turn\'s results are from a newer Pine Computer side, which this Studio cannot read. Update Pine Drama Studio to its newest version.', { downloadUrl: STUDIO_RELEASES_URL }));
+}
+
 /** How a turn was resolved, for the Chat to say (doc/protocol.md 4.6, 4.7). */
 export type Resolution =
 	| { readonly kind: 'returned'; readonly ret: Return; readonly applied: number }
 	/** No return.json at the turn's end: what was stored is applied, and the run may have spent money (4.7). */
-	| { readonly kind: 'no return'; readonly applied: number };
+	| { readonly kind: 'no return'; readonly applied: number }
+	/** A document of another major among its results (computerDocument): resolved, so it is said once and never read again. */
+	| { readonly kind: 'refused with upgrade instructions'; readonly refusal: RefusedWithUpgradeInstructions };
 
 /**
  * Resolves turn `turn` at its end (doc/protocol.md 4.6, 4.7): its return read and its changes applied up to `last_change`,
  * its private state kept; with no return, every stored change up to the first gap, the private state as it was. A change
- * the return names that the store lacks leaves the turn unresolved, to be tried again.
+ * the return names that the store lacks leaves the turn unresolved, to be tried again; a document of another major
+ * resolves it refused, with what to use.
  */
 export async function resolveTurn(at: TurnPlace, turn: string): Promise<Resolution> {
-	const bytes = await at.store.read(returnKey(turn));
-	// What its calls are still making is read before the turn is recorded resolved, so nothing is read after it (4.5).
-	const making = async () => [...await objectsBeingMade(at.store, turn)];
-	if (!bytes) {
-		const { next, files } = await applyStoredChanges(at, turn);
-		await at.record.resolve(turn, { state: null, files, making: await making() });
-		return { kind: 'no return', applied: next - 1 };
+	try {
+		const bytes = await at.store.read(returnKey(turn));
+		// What its calls are still making is read before the turn is recorded resolved, so nothing is read after it (4.5).
+		const making = async () => [...await objectsBeingMade(at.store, turn)];
+		if (!bytes) {
+			const { next, files } = await applyStoredChanges(at, turn);
+			await at.record.resolve(turn, { state: null, files, making: await making() });
+			return { kind: 'no return', applied: next - 1 };
+		}
+		const ret = computerDocument(returnKey(turn), JSON.parse(bytes.toString('utf8'))) as Return;
+		if (ret.state === 'pine_computer_refused_the_turn_before_running') {
+			await at.record.resolve(turn, { state: ret.state, files: [], making: [] });
+			return { kind: 'returned', ret, applied: 0 };
+		}
+		const last = ret.last_change?.change_number ?? 0;
+		const { next, previous, files } = await applyStoredChanges(at, turn);
+		if (next <= last) { throw new MissingArtifact(changeKey(turn, next)); }
+		// The return names its last change by its bytes' hash (4.6): a later one stored, or another in its place, is not this turn's.
+		if (next - 1 !== last || (last > 0 && previous !== ret.last_change!.sha256)) { throw new Error(`${returnKey(turn)} names change ${last}, which is not the last one stored`); }
+		const privateState = ret.session_private_state ?? null;
+		if (privateState) {
+			await fetchKept(at.store, at.kept, privateStateKey(privateState), privateState);
+			await at.holders.set([privateState], at.computer);
+		}
+		await at.record.resolve(turn, { state: ret.state, files, making: await making() }, privateState);
+		return { kind: 'returned', ret, applied: last };
+	} catch (error) {
+		if (!(error instanceof RefusedWithUpgradeInstructions)) { throw error; }
+		await at.record.resolve(turn, { state: 'pine_computer_refused_the_turn_before_running', files: [], making: [] });
+		return { kind: 'refused with upgrade instructions', refusal: error };
 	}
-	const ret = majorTwo(returnKey(turn), JSON.parse(bytes.toString('utf8'))) as Return;
-	if (ret.state === 'pine_computer_refused_the_turn_before_running') {
-		await at.record.resolve(turn, { state: ret.state, files: [], making: [] });
-		return { kind: 'returned', ret, applied: 0 };
-	}
-	const last = ret.last_change?.change_number ?? 0;
-	const { next, previous, files } = await applyStoredChanges(at, turn);
-	if (next <= last) { throw new MissingArtifact(changeKey(turn, next)); }
-	// The return names its last change by its bytes' hash (4.6): a later one stored, or another in its place, is not this turn's.
-	if (next - 1 !== last || (last > 0 && previous !== ret.last_change!.sha256)) { throw new Error(`${returnKey(turn)} names change ${last}, which is not the last one stored`); }
-	const privateState = ret.session_private_state ?? null;
-	if (privateState) {
-		await fetchKept(at.store, at.kept, privateStateKey(privateState), privateState);
-		await at.holders.set([privateState], at.computer);
-	}
-	await at.record.resolve(turn, { state: ret.state, files, making: await making() }, privateState);
-	return { kind: 'returned', ret, applied: last };
 }
 
 /**
@@ -231,7 +250,7 @@ export async function objectsBeingMade(store: ArtifactStore, turn: string): Prom
 	for (const { path } of await store.list(paidCallsPrefix(turn))) {
 		const bytes = await store.read(path);
 		if (!bytes) { throw new MissingArtifact(path); }
-		const state = majorTwo(path, JSON.parse(bytes.toString('utf8'))) as PaidCallState;
+		const state = computerDocument(path, JSON.parse(bytes.toString('utf8'))) as PaidCallState;
 		byCall.set(state.paid_call_id, [...byCall.get(state.paid_call_id) ?? [], state]);
 	}
 	const terminal = new Set<PaidCallState['state']>(['provider_returned_output_to_pine_computer', 'provider_reported_failure_to_pine_computer', 'pine_computer_cancelled_call_after_person_pressed_stop']);

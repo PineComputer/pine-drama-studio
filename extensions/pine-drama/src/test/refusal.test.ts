@@ -1,5 +1,6 @@
 import { strict as assert } from 'node:assert';
 import { test } from 'node:test';
+import { STUDIO_RELEASES_URL } from '../core/protocol';
 import { chatLine, codeSpan, commandLink, enabledCommands, givenBack, quoted, refusalLine, refusalOf, type RefusalCommands } from '../core/refusal';
 
 // A refused send is one line in the chat with its actions as links: no modal over it, no paragraph,
@@ -83,8 +84,10 @@ test('unassigned project history names missing admission without fabricating run
 	assert.deepEqual(enabledCommands(refusal), []);
 });
 
-test('a message sent in a drama of major 1 offers its conversion first; one of another major offers only the folder actions', () => {
+test('a message sent in a drama of major 1 offers its conversion first; one of a newer major offers the folder actions and the Studio to download', () => {
 	const old = refusalOf({ kind: 'otherFormat', folder: '/old', schema: 1 }, COMMANDS, 'go');
 	assert.deepEqual(old.actions.map(a => [a.label, a.command, a.args]), [['Convert This Project…', 'x.convert', []], ['Open Folder…', 'x.openFolder', []], ['New Folder…', 'x.newFolder', []]]);
-	assert.deepEqual(refusalOf({ kind: 'otherFormat', folder: '/newer', schema: 3 }, COMMANDS, 'go').actions.map(a => a.label), ['Open Folder…', 'New Folder…']);
+	const newer = refusalOf({ kind: 'otherFormat', folder: '/newer', schema: 3 }, COMMANDS, 'go');
+	assert.deepEqual(newer.actions.map(a => a.label), ['Open Folder…', 'New Folder…']);
+	assert.ok(newer.line.includes(`newer Pine Drama Studio, which writes projects of format 3; [download the newest Pine Drama Studio](${STUDIO_RELEASES_URL}) to open it.`), newer.line);
 });
