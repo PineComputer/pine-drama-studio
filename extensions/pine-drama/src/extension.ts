@@ -9,7 +9,7 @@ import { commitFilesFoundOnDisk } from './core/projectHistory';
 import { endpointHost, type SecretVault } from './core/pinePort';
 import { setAsideNotice, Store } from './core/store';
 import { lockProjectWindow, type ProjectWindowLock } from './core/projectWindowLock';
-import { ownerOf, sessionProjectRoot } from './core/projectSessions';
+import { sessionProjectRoot } from './core/projectSessions';
 import { configLine, notSetUpText, pineConfig, type PineConfig } from './pineConfig';
 import { registerPineSessions, windowFileFolders } from './pineSessions';
 import { registerEpisodeCanvas } from './episodeCanvas';
@@ -20,11 +20,8 @@ import { registerSegEditor } from './segEditor';
 /** Two views refreshed as one. */
 const both = (a: { refresh(): void }, b: { refresh(): void }) => ({ refresh: () => { a.refresh(); b.refresh(); } });
 import { registerProjectViews, type ProjectViews } from './projectViews';
-import { episodeIn, type OutlineNode } from './core/project';
-import { owningChat } from './core/projectPlace';
 import { SdkPort } from './sdkPort';
-import { showInChatView, startInChatView } from './chatView';
-import { startEpisodeRequest } from './core/threeSteps';
+import { showInChatView } from './chatView';
 import { statusText, waitingItems, type WaitingItem } from './core/attention';
 import { openProjectChat, projectWindowRestorer, type RestoredProjectChat } from './projectChatNavigation';
 
@@ -64,9 +61,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
 	// The project views read files only: they register first, whatever happens to the Chat store below.
 	// The project may arrive later: a session bound to an empty folder receives its config at the first publication
-	// (core/projectFinder.ts). The parts that read it register once, when it first appears, and then meet the session.
+	// (core/projectFinder.ts). The parts that read it register once, when it first appears.
 	let opened: { views: ProjectViews; canvas: { refresh(): void }; galleries: ReturnType<typeof registerGalleries> } | undefined;
-	let projectOpened: (() => void) | undefined;
 	let protocolStorage: string | undefined;
 	const projects = await registerProjectViews(context, output, views => {
 		const root = views.project.root;
@@ -86,7 +82,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 			canvas: both(registerEpisodeCanvas(context, views, output, cardActions(context, root)), registerSegEditor(context, views, output)),
 			galleries: registerGalleries(context, views, output),
 		};
-		projectOpened?.();
 		// Whatever the folder holds that no commit records, changed by hand or by a Studio stopped mid-change, is committed
 		// once as client-found-changes-on-disk (core/projectHistory.ts): from here on, each change the Studio makes is its own commit.
 		void commitFilesFoundOnDisk(root, 'Changes found on disk when the project opened')
@@ -135,7 +130,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	};
 	let sessions: ReturnType<typeof registerPineSessions> | undefined;
 	let onChanged: (() => void) | undefined;
-	let chatsChanged: (() => void) | undefined;
 	const service = new ChatService({
 		store,
 		port: new SdkPort(),
@@ -151,7 +145,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 		onChange: key => {
 			sessions?.refresh(key);
 			onChanged?.();
-			chatsChanged?.();
 			// A stop this window settled may have initialized the project's root; the watcher sees it too, later.
 			projects.possibleChange();
 		},
@@ -162,10 +155,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	const titleOf = (key: string) => service.chat(key)?.label;
 	sessions = registerPineSessions(context, output, config, service);
 
-	// A session's project is its locally published folder,
-	// matched by the root the Project view chose. The stops may be
-	// settled by another window (the Chat's), so this window watches the folder rather than its own service.
-	const projectsRoot = join(connectionRoot, 'projects');
 	const titled = (conv: { key: string; label: string }) => titleOf(conv.key) ?? conv.label;
 	const tabs = {
 		active: () => vscode.window.tabGroups.activeTabGroup.activeTab,
@@ -173,39 +162,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 		close: (tab: vscode.Tab) => vscode.window.tabGroups.close(tab),
 	};
 	const showInChat = (key: string) => showInChatView((command, ...args) => vscode.commands.executeCommand(command, ...args), tabs, vscode.Uri.parse(key));
-	// The window shows the drama of its folder: the session bound to it, whether or not its project has come back yet.
-	// A folder that was empty at activation is bound by its first message,
-	// so the session is looked up again when the project arrives (wireProject).
-	const windowFolders = (vscode.workspace.workspaceFolders ?? []).filter(folder => folder.uri.scheme === 'file').map(folder => folder.uri.fsPath);
-	const projectSession = () => owningChat(service.chats(), projectsRoot, opened ? [opened.views.project.root] : windowFolders);
-	let session = projectSession();
-	/**
-	 * Meets the window's project with its session, once both are known: at activation, when the project arrives, or when
-	 * a Chat binds the folder later (ChatService's onChange, after `bound to`). Code-OSS's git extension does the same with
-	 * its folders: it runs one handler at start for the folders it has and again on each change event
-	 * (extensions/git/src/model.ts:295, :325, Code-OSS 1.145.0).
-	 */
-	let wired = false;
-	const wireProject = () => {
-		if (!opened || wired) {
-			return;
-		}
-		const { views, canvas } = opened;
-		session = projectSession();
-		if (!session) {
-			return; // a local project: no session's lineage, arrivals or Chat
-		}
-		wired = true;
-		const owner = session;
-		const title = titled(owner);
-		const label = `Pine · ${title}`;
-		views.setOrigin(label);
-		canvas.refresh();
-		log(`project: ${owner.label}'s project (${views.project.root})`);
-	};
-	projectOpened = wireProject;
-	chatsChanged = wireProject;
-	wireProject();
 
 	const openProjectWindow = (key: string) => openProjectChat(key, {
 		scope: () => sessions?.scope(),
@@ -215,38 +171,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 		clear: token => studioStore.clearChatReveal(token),
 		open: async root => { await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(root), { forceNewWindow: true }); },
 	});
-	// A named row opens its own project first; the palette uses this project's main entry. Neither dispatches work.
+	// A named row opens its own project first; the palette opens a project. Neither dispatches work.
 	context.subscriptions.push(vscode.commands.registerCommand('pineDrama.openSessionProject', async (row?: vscode.ChatSessionItem | string) => {
-		const key = typeof row === 'string' ? row : row?.resource?.toString() ?? sessions?.scope()?.mainKey;
+		const key = typeof row === 'string' ? row : row?.resource?.toString();
 		if (!key) { await vscode.commands.executeCommand('pineDrama.openProject'); return; }
 		try { await openProjectWindow(key); }
 		catch (error) {
 			log(`project destination ${key}: ${(error as Error).stack ?? error}`);
 			void vscode.window.showErrorMessage(`Pine: ${(error as Error).message}`);
 		}
-	}));
-
-	// Generate and Start Episode put their request, unsent, in the input of the session that owns the item (ownerOf): an
-	// episode's one session, or the Project Chat for a shared item; asking again opens the same session.
-	const askOwner = async (id: string, query: string) => {
-		const project = sessions?.scope();
-		if (!project) { return; }
-		await startInChatView((command, ...args) => vscode.commands.executeCommand(command, ...args), tabs,
-			sessions!.newSession(ownerOf(project, id)).resource, query);
-	};
-	context.subscriptions.push(vscode.commands.registerCommand('pineDrama.askOwner', askOwner));
-	// Start Episode (B8): a Script episode with no breakdown asks its episode's session to make it. An episode is a peer
-	// of the Project Chat, which must exist first: a first send without it would make this session the Project Chat
-	// (projectSessions.ts).
-	context.subscriptions.push(vscode.commands.registerCommand('pineDrama.startEpisode', async (node?: OutlineNode) => {
-		const project = sessions?.scope();
-		const episode = node?.episode && episodeIn(node.episode);
-		if (!project || !episode) { return; }
-		if (!project.main) {
-			void vscode.window.showInformationMessage('Pine: start the project in its Project Chat first; episodes come after its assets.');
-			return;
-		}
-		await askOwner(`episodes/${episode}`, startEpisodeRequest(episode));
 	}));
 
 	// The Chats list is upstream's Agent Sessions view inside Chat; this opens Chat and shows it.
@@ -274,8 +207,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	}));
 	const restoreWindow = projectWindowRestorer({
 		scope: () => sessions?.scope(),
-		// The private window API reports Local only; L2 awaits native extension-session restoration.
-		prepare: key => Promise.resolve(vscode.commands.executeCommand<RestoredProjectChat | undefined>('pine.workbench.prepareProjectChat', key)),
+		// The private window API reports Local only; L2 awaits native extension-session restoration. No Chat is named, so none is pinned.
+		prepare: () => Promise.resolve(vscode.commands.executeCommand<RestoredProjectChat | undefined>('pine.workbench.prepareProjectChat', '')),
+		// Code-OSS's Chat: New Chat (chatActions.ts, ACTION_ID_NEW_CHAT).
+		fresh: () => Promise.resolve(vscode.commands.executeCommand('workbench.action.chat.newChat')),
 		takeRequested: root => studioStore.takeChatReveal(root, 60_000),
 		show: showInChat,
 		failed: error => {

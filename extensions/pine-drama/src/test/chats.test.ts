@@ -12,7 +12,6 @@ import type { PineConnection } from '../core/pinePort';
 import { PineSessionReplacedError } from '../core/pineSessionGeneration';
 import { setAsideNotice, Store } from '../core/store';
 import { FakePine, MemoryVault } from './fakePine';
-import { owningChat, projectFolder } from '../core/projectPlace';
 
 const ENV: PineConnection = { endpoint: 'http://lvh.me:18080', apiKey: 'pk_test_secret', controlHost: 'api.lvh.me:18080' };
 const KEY = 'pine-computer:/local-1';
@@ -49,7 +48,7 @@ test('a database of another schema is set aside with its journal files, once, an
 	assert.deepEqual(store.setAside, { schema: 2, path: aside });
 	assert.deepEqual(readFileSync(`${aside}-wal`), wal, 'its -wal goes with it, unchanged');
 	assert.equal(existsSync(`${aside}-shm`), true);
-	assert.equal(setAsideNotice(store.setAside!), `Earlier Chat history from an older version of Pine Drama Studio was set aside at ${aside}. Open your project folder and continue in its pinned session: your work is in the folder.`);
+	assert.equal(setAsideNotice(store.setAside!), `Earlier Chat history from an older version of Pine Drama Studio was set aside at ${aside}. Open your project folder and continue in a chat: your work is in the folder.`);
 	store.insertChat({ key: 'k', env: 'dev', endpoint: 'https://pine.test', label: 'k', secret_ref: 'k' });
 	store.close();
 	held.close();
@@ -469,20 +468,6 @@ test('second re-review P2: the meaning of a message is bound before the first wa
 	assert.match(markdown(updates), /What your message was written for changed while it waited/);
 	const sent = store.db.prepare("select text from saved_sends where text like 'faster please%'").get()!;
 	assert.equal(sent.text, `faster please\n\n${CHANGED_TARGET_NOTE}`);
-});
-
-test("a window belongs to the session bound to its folder, or to an older session whose stored folder is open", () => {
-	const chats = [
-		{ key: 'pine-computer:/local-1', label: 'one', folder: null },
-		{ key: 'pine-computer:/local-2', label: 'two', folder: null },
-		{ key: 'pine-computer:/local-3', label: 'bound', folder: '/Users/x/Pine Drama Studio/Night Ward' },
-	];
-	const root = projectFolder('/projects', 'pine-computer:/local-2');
-	assert.equal(owningChat(chats, '/projects', [root])?.label, 'two', 'a session made before binding, by its folder under the storage');
-	assert.equal(owningChat(chats, '/projects', ['/Users/x/Pine Drama Studio/Night Ward/'])?.label, 'bound', 'a bound session, by its folder');
-	assert.equal(owningChat(chats, '/projects', ['/Users/x/Pine Drama Studio/Night Ward/drama'])?.label, undefined, 'the drama/ inside is not the folder');
-	assert.equal(owningChat(chats, '/projects', ['/elsewhere/drama']), undefined);
-	assert.equal(owningChat(chats, '/projects', []), undefined, 'a window with no folder belongs to no session');
 });
 
 const idleOf = (pine: FakePine) => [...pine.computers.values()][0].idleTimeout;

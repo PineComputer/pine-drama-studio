@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, realpathSync, renameSync, symlinkSync, unlinkSy
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { ownerOf, projectSessions, sessionProjectRoot } from '../core/projectSessions';
+import { projectSessions, sessionProjectRoot } from '../core/projectSessions';
 import { Store } from '../core/store';
 import { ChatService } from '../core/chats';
 import { FakePine, MemoryVault } from './fakePine';
@@ -21,9 +21,9 @@ function fixture() {
 }
 
 for (const existing of [false, true]) {
-	test(`first Project Chat send survives synchronous UI refresh${existing ? ' after an interrupted unbound insertion' : ''}`, async () => {
+	test(`a project's first send survives synchronous UI refresh${existing ? ' after an interrupted unbound insertion' : ''}`, async () => {
 		const { dir, root, store } = fixture();
-		const key = projectSessions(root, store.chats()).mainKey;
+		const key = 'pine-computer:/session-first';
 		if (existing) { store.insertChat({ key, env: 'offline', endpoint: 'http://pine.test', label: 'First send', secret_ref: 'offline' }); }
 		const pine = new FakePine(); pine.plans = [{ state: 'completed' }];
 		const seen: string[] = [];
@@ -33,7 +33,6 @@ for (const existing of [false, true]) {
 			files: { projectsRoot: join(dir, 'projects') }, protocol: testProtocol(dir),
 			onChange: () => {
 				// The real extension refreshes scoped Sessions synchronously on every service notification.
-				assert.equal(projectSessions(root, store.chats()).mainKey, key);
 				const current = store.chat(key);
 				if (current?.folder) { assert.equal(current.folder, root); seen.push(current.folder); }
 				else if (current) { unboundNotifications++; }
@@ -43,22 +42,22 @@ for (const existing of [false, true]) {
 		try {
 			assert.doesNotThrow(() => projectSessions(root, store.chats()));
 			for await (const _update of service.submitWithFiles(key, 'Read the script', 'First send', [{ kind: 'file', path: script }], root)) { /* drain fake transport */ }
-			assert(seen.length > 0); assert.equal(store.chat(key)!.project_role, 'main');
+			assert(seen.length > 0); assert.equal(store.chat(key)!.folder, root);
 			if (!existing) { assert.equal(unboundNotifications, 0, 'new-row notification follows folder admission'); }
-			assert.equal(store.projectChat(root)?.key, key); assert.equal(pine.calls.run, 1);
+			assert.deepEqual(projectSessions(root, store.chats()).chats.map(c => c.key), [key]); assert.equal(pine.calls.run, 1);
 		} finally { store.close(); }
 	});
 }
 
-test('an unbound reserved entry is not project history, but an entry bound elsewhere remains a conflict', () => {
+test('an unbound row is not project history, and a row bound elsewhere is that project\'s', () => {
 	const { root, other, store } = fixture();
-	const key = projectSessions(root, store.chats()).mainKey;
+	const key = 'pine-computer:/session-pending';
 	store.insertChat({ key, env: 'offline', endpoint: 'http://pine.test', label: 'Pending', secret_ref: 'offline' });
 	try {
-		const scope = projectSessions(root, store.chats());
-		assert.equal(scope.mainKey, key); assert.equal(scope.main, undefined); assert.deepEqual(scope.chats, []);
-		associateProject(store, key, other, { kind: 'main' });
-		assert.throws(() => projectSessions(root, store.chats()), /belongs to another/);
+		assert.deepEqual(projectSessions(root, store.chats()).chats, []);
+		associateProject(store, key, other);
+		assert.deepEqual(projectSessions(root, store.chats()).chats, []);
+		assert.deepEqual(projectSessions(other, store.chats()).chats.map(c => c.key), [key]);
 	} finally { store.close(); }
 });
 
@@ -67,61 +66,27 @@ test('empty/multiple-folder windows have no project session scope', () => {
 	assert.equal(sessionProjectRoot(['/one', '/two']), undefined);
 });
 
-test('Generate and Start Episode ask the session that owns the item: its episode\'s one session, else the Project Chat', () => {
-	const { dir, root, other, store } = fixture();
-	const before = projectSessions(sessionProjectRoot([root])!, store.chats());
-	associateProject(store, 'main', root, { kind: 'main' });
-	const after = projectSessions(sessionProjectRoot([root])!, store.chats());
-	const ep6 = ownerOf(after, 'episodes/EP006');
-	// B2: a second Start Episode, sent or not, in this window or another, opens the same session, before the Project
-	// Chat exists as after. B6: the seg editor's and the canvas's Generate on the episode's items ask it too.
-	for (const id of ['episodes/EP006', 'episodes/EP006/seg01', 'episodes/EP006/seg01/shot01/keyframe']) {
-		assert.equal(ownerOf(after, id), ep6, id);
-		assert.equal(ownerOf(before, id), ep6, `${id} before the Project Chat`);
-	}
-	const alias = join(dir, 'alias'); symlinkSync(root, alias);
-	assert.equal(ownerOf(projectSessions(sessionProjectRoot([alias])!, store.chats()), 'episodes/EP006'), ep6, 'another window of the project');
-	// Another episode, the Project Chat and another project's EP006 are other sessions.
-	assert.equal(new Set([ep6, ownerOf(after, 'episodes/EP007/seg01'), after.mainKey, ownerOf(projectSessions(sessionProjectRoot([other])!, store.chats()), 'episodes/EP006')]).size, 4);
-	// B6, case 3: a shared item asks the Project Chat.
-	assert.equal(ownerOf(after, 'assets/characters/mia'), 'main');
-	assert.equal(ownerOf(before, 'assets/characters/mia'), before.mainKey);
-	store.close();
-});
-
 test('refresh preserves the pinned root through alias retargeting and local folder loss', () => {
 	const { dir, root, other, store } = fixture();
 	const alias = join(dir, 'alias'); symlinkSync(root, alias);
-	associateProject(store, 'main', root, { kind: 'main' });
-	associateProject(store, 'other', other, { kind: 'main' });
+	associateProject(store, 'main', root);
+	associateProject(store, 'other', other);
 	const pinned = sessionProjectRoot([alias])!;
 	unlinkSync(alias); symlinkSync(other, alias);
-	assert.equal(projectSessions(pinned, store.chats()).mainKey, 'main');
+	assert.deepEqual(projectSessions(pinned, store.chats()).chats.map(c => c.key), ['main']);
 	assert.equal(sessionProjectRoot([alias]), other, 'only explicit entry retargets the alias');
 	unlinkSync(alias); symlinkSync(root, alias);
 	renameSync(root, root + '-moved');
-	assert.equal(projectSessions(pinned, store.chats()).mainKey, 'main', 'saved history stays readable');
+	assert.deepEqual(projectSessions(pinned, store.chats()).chats.map(c => c.key), ['main'], 'saved history stays readable');
 	assert.throws(() => sessionProjectRoot([alias]), /missing|ENOENT/, 'explicit re-entry validates the root');
 	store.close();
 });
 
-test('missing primary metadata does not make the oldest session the Project Chat; labels name the role once', () => {
-	const { root, store } = fixture();
-	associateProject(store, 'ep1', root, null);
-	const scope = projectSessions(root, store.chats());
-	assert.notEqual(scope.mainKey, 'ep1');
-	assert.equal(scope.main, undefined);
-	associateProject(store, 'main', root, { kind: 'main' });
-	assert.equal(projectSessions(root, store.chats()).mainKey, 'main');
-	store.close();
-});
-
-
 test('named Chat reveal is project-qualified, single-consumer and starts nothing', () => {
 	const { root, other, store, dir } = fixture();
-	associateProject(store, 'main', root, { kind: 'main' });
-	associateProject(store, 'ep1', root, null);
-	associateProject(store, 'other', other, { kind: 'main' });
+	associateProject(store, 'main', root);
+	associateProject(store, 'ep1', root);
+	associateProject(store, 'other', other);
 	const second = new Store(join(dir, 'studio.sqlite'));
 	store.requestChatReveal('main'); store.requestChatReveal('other'); store.requestChatReveal('ep1');
 	assert.equal(second.takeChatReveal(root, 60_000), 'ep1');
@@ -137,12 +102,12 @@ test('named Chat reveal is project-qualified, single-consumer and starts nothing
 
 test('named Chat requests expire, reject clock reversal and cannot be erased by a failed earlier open', () => {
 	const { root, store } = fixture();
-	associateProject(store, 'main', root, { kind: 'main' });
-	associateProject(store, 'ep1', root, null);
+	associateProject(store, 'main', root);
+	associateProject(store, 'ep1', root);
 	let now = 1000;
 	const timed = new Store(':memory:', () => now);
 	for (const c of store.chats().filter(c => c.folder)) {
-		timed.insertChat(c); associateProject(timed, c.key, root, c.project_role === 'main' ? { kind: 'main' } : null);
+		timed.insertChat(c); associateProject(timed, c.key, root);
 	}
 	const earlier = timed.requestChatReveal('main');
 	timed.requestChatReveal('ep1'); timed.requestChatReveal('main');

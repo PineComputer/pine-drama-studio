@@ -47,9 +47,9 @@ export interface RowFile {
  * A group with nothing to open has no command, so clicking its label expands it.
  */
 export function rowCommand(node: OutlineNode, initialized = true, file?: RowFile): vscode.Command | undefined {
-	// An empty Script's next action: the project's main Chat, where the screenplay and brief are attached.
+	// An empty Script's next action: a chat, where the screenplay and brief are attached (Code-OSS's Chat: Open).
 	if (node.id === NOTE_ATTACH || node.id === NOTE_INTAKE) {
-		return { command: 'pineDrama.openSessionProject', title: 'Open the project Chat' };
+		return { command: 'workbench.action.chat.open', title: 'Open the chat' };
 	}
 	// In the empty New Project folder only the next action opens something: the galleries and pages register once the
 	// project's config exists (extension.ts), so the other rows are labels until then.
@@ -188,10 +188,6 @@ class ProjectProvider implements vscode.TreeDataProvider<OutlineNode> {
 			item.description = !object || object.shownFile ? undefined : notMadeText(object.type, object.makingNow);
 			item.tooltip = [node.stagePath, item.description].filter(Boolean).join('\n');
 		}
-		if (node.role === 'script-episode') {
-			// No breakdown at all, not even one in review: Start Episode opens a session to make it (B8).
-			item.contextValue = `${item.contextValue} startable`;
-		}
 		if (node.role === 'script') {
 			// Open Bible: the bible has no row of its own; its file is one click from Script.
 			item.contextValue = `${item.contextValue} scriptStep`;
@@ -281,8 +277,6 @@ export interface ProjectViews {
 	readonly followActive: () => void;
 	/** The Project view's selected node. */
 	readonly selection: () => OutlineNode | undefined;
-	/** Says where the project's files come from, in the view's description. */
-	readonly setOrigin: (text: string) => void;
 	/** The project's files changed (a stop was settled): read them again. */
 	readonly refresh: () => void;
 }
@@ -454,7 +448,6 @@ export async function registerProjectViews(context: vscode.ExtensionContext, out
 			output.appendLine(`project: ${project.root}`);
 			first = {
 				project, inspect, follow: source => void sources.push(source), followActive: follow, selection: selected,
-				setOrigin: text => { projectView.description = text; },
 				refresh: () => { projectTree.invalidate(); follow(); },
 			};
 			projectTree.refresh();

@@ -26,7 +26,7 @@ test('in the empty New Project folder only the next action opens something; the 
 	assert.equal(rowCommand(group('#assets', 'assets'), false), undefined);
 	assert.equal(rowCommand(group('assets/characters', 'characters'), false), undefined);
 	const next = { id: 'note:script-attach', label: 'Attach', kind: 'group', role: 'note', hasChildren: false } as const;
-	assert.equal(rowCommand(next, false)?.command, 'pineDrama.openSessionProject');
+	assert.equal(rowCommand(next, false)?.command, 'workbench.action.chat.open');
 	assert.equal(rowCommand(group('assets/characters', 'characters'), true)?.command, 'pineDrama.openGallery');
 });
 

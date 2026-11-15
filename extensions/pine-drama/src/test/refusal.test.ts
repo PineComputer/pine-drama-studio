@@ -76,14 +76,6 @@ test('the message given back ends with a blank line, after the attachments to ad
 	assert.equal(givenBack('hello', ['a.txt']), '_These attachments need adding again: `a.txt`._\n\n```text\nhello\n```\n\n');
 });
 
-test('unassigned project history names missing admission without fabricating runtime state or execution actions', () => {
-	const refusal = refusalOf({ kind: 'unassigned' }, COMMANDS, 'continue', ['unreadable.pdf']);
-	assert.equal(refusal.line, `Not sent: this project has no admitted executor. Its files remain available for inspection. ${BELOW} These attachments need adding again: \`unreadable.pdf\`.`);
-	assert.doesNotMatch(refusal.line, /session.*ended|Computer.*stopped/);
-	assert.deepEqual(refusal.actions, []);
-	assert.deepEqual(enabledCommands(refusal), []);
-});
-
 test('a message sent in a drama of major 1 offers its conversion first; one of a newer major offers the folder actions and the Studio to download', () => {
 	const old = refusalOf({ kind: 'otherFormat', folder: '/old', schema: 1 }, COMMANDS, 'go');
 	assert.deepEqual(old.actions.map(a => [a.label, a.command, a.args]), [['Convert This Project…', 'x.convert', []], ['Open Folder…', 'x.openFolder', []], ['New Folder…', 'x.newFolder', []]]);

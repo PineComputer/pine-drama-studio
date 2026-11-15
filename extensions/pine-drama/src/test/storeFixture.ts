@@ -3,8 +3,8 @@
 import { projectIdentity } from '../core/projectPlace';
 import type { Chat, Store } from '../core/store';
 
-/** Makes `key` the Project Chat of `project` (`{ kind: 'main' }`) or another session of it (null). */
-export function associateProject(store: Store, key: string, project: string, role: { kind: 'main' } | null): Chat {
-	store.db.prepare('update chats set folder = ?, project_role = ? where key = ?').run(projectIdentity(project), role?.kind ?? null, key);
+/** Binds `key` to `project`, as its first send would. */
+export function associateProject(store: Store, key: string, project: string): Chat {
+	store.db.prepare('update chats set folder = ? where key = ?').run(projectIdentity(project), key);
 	return store.chat(key)!;
 }

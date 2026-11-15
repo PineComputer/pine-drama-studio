@@ -6,7 +6,7 @@ import { randomUUID } from 'node:crypto';
 import { existsSync, renameSync } from 'node:fs';
 import { entryFor } from './binding';
 import { DatabaseSync } from 'node:sqlite';
-import { assertProjectRoot, projectIdentity } from './projectPlace';
+import { projectIdentity } from './projectPlace';
 
 export type ComputerState = 'none' | 'creating' | 'running' | 'stopped' | 'missing_credentials';
 export type PineSessionState = 'none' | 'open' | 'ended';
@@ -37,11 +37,6 @@ export interface Chat {
 	 * per-Chat storage for the existing unbound core path. This field alone grants no execution authority.
 	 */
 	folder: string | null;
-	/**
-	 * 'main' for the project's pinned Project Chat, set when the project is admitted (bindFolder, admitExistingProject).
-	 * Null for every other session of the project.
-	 */
-	project_role: 'main' | null;
 	created_at: string;
 	updated_at: string;
 }
@@ -68,7 +63,7 @@ export interface Message {
 	at: string;
 }
 
-const SCHEMA_VERSION = 18;
+const SCHEMA_VERSION = 19;
 const SCHEMA = `
 create table if not exists chats (
   key text primary key,               -- the chat session resource
@@ -87,13 +82,9 @@ create table if not exists chats (
   current_turn_id text,
   question_turn_id text,
   folder text,                        -- the drama's folder the session is bound to; null: its folder under the extension's storage
-  project_role text check (project_role in ('main')), -- main: the pinned Project Chat; null: another session of the project
   created_at text not null,
-  updated_at text not null,
-  check (folder is not null or project_role is null)
+  updated_at text not null
 );
--- Canonical folders and explicit roles: no title, insertion order or runtime observation chooses a Project Chat.
-create unique index if not exists project_main_chat on chats(folder) where project_role = 'main';
 -- Every send, saved before it is sent; id is the idempotency key of a run.
 create table if not exists saved_sends (
   id text primary key,
@@ -160,7 +151,7 @@ function asidePath(path: string, schema: number, at: Date): string {
 
 /** What the person is told when an older database was set aside: plain words, and where it is. */
 export function setAsideNotice(aside: { path: string }): string {
-	return `Earlier Chat history from an older version of Pine Drama Studio was set aside at ${aside.path}. Open your project folder and continue in its pinned session: your work is in the folder.`;
+	return `Earlier Chat history from an older version of Pine Drama Studio was set aside at ${aside.path}. Open your project folder and continue in a chat: your work is in the folder.`;
 }
 
 
@@ -256,18 +247,6 @@ export class Store {
 			values (?, ?, ?, ?, ?, 'none', 'none', 'idle', ?, ?)`).run(c.key, c.env, c.endpoint, c.label, c.secret_ref, at, at);
 	}
 
-	/** Exact associations only; reading them starts no runtime and never picks a Chat by title or age. */
-	projectChats(project: string): Chat[] {
-		return this.db.prepare('select * from chats where folder = ? order by created_at, key')
-			.all(projectIdentity(project)) as unknown as Chat[];
-	}
-
-	/** The project's pinned Project Chat, once the project is admitted. */
-	projectChat(project: string): Chat | undefined {
-		return this.db.prepare(`select * from chats where folder = ? and project_role = 'main'`).get(projectIdentity(project)) as Chat | undefined;
-	}
-
-
 	/** Missing folder metadata is not proof that earlier runtime work belongs to a newly selected project. */
 	private assertUnboundHistory(conv: Chat): void {
 		if (conv.folder) { return; }
@@ -279,7 +258,7 @@ export class Store {
 		}
 	}
 
-	/** First production admission, atomically: an empty root's first Chat becomes its Project Chat, a later one a session. */
+	/** A Chat's first send binds it to its project, atomically: every Chat of a project is a peer. */
 	bindFolder(key: string, folder: string): boolean {
 		return this.tx(() => {
 			const conv = this.chat(key);
@@ -288,39 +267,15 @@ export class Store {
 			const root = projectIdentity(folder);
 			const entry = entryFor(this.chats(), '', key, root);
 			if (entry.kind !== 'go' || !entry.bind) { return false; }
-			this.db.prepare('update chats set folder = ?, project_role = ?, updated_at = ? where key = ?')
-				.run(root, this.projectChat(root) ? null : 'main', this.iso(), key);
+			this.db.prepare('update chats set folder = ?, updated_at = ? where key = ?').run(root, this.iso(), key);
 			return true;
 		});
 	}
 
-	/** First explicit send after CLI validation. Recheck authority atomically; navigation never calls this. */
-	admitExistingProject(key: string, root: string): void {
-		this.tx(() => {
-			assertProjectRoot(root, root);
-			const conv = this.chat(key);
-			if (!conv) { throw new Error('The project conversation no longer exists.'); }
-			this.assertUnboundHistory(conv);
-			if (entryFor(this.chats(), '', key, root).kind !== 'adopt') {
-				throw new Error('Project admission changed during validation. Reopen its Project Chat and retry.');
-			}
-			// No Project Chat is not evidence that old work finished. This path admits pristine Chats only;
-			// attributable recovery/handoff must reconcile retained runtime history separately.
-			for (const associated of [conv, ...this.projectChats(root).filter(c => c.key !== key)]) {
-				const work = this.db.prepare('select 1 from saved_sends where chat_key = ? limit 1').get(associated.key);
-				if (work || associated.computer_state !== 'none' || associated.pine_session_state !== 'none' || associated.computer_id || associated.task_id || associated.state !== 'idle') {
-					throw new Error('This project has execution history without its Project Chat. Reconcile its original runtime before continuing.');
-				}
-			}
-			this.db.prepare(`update chats set folder = ?, project_role = 'main',
-				updated_at = ? where key = ?`).run(root, this.iso(), key);
-		});
-	}
-
-	updateChat(key: string, patch: Partial<Omit<Chat, 'key' | 'created_at' | 'updated_at' | 'folder' | 'project_role'>>): void {
+	updateChat(key: string, patch: Partial<Omit<Chat, 'key' | 'created_at' | 'updated_at' | 'folder'>>): void {
 		const entries = Object.entries(patch);
-		if (entries.some(([key]) => ['folder', 'project_role'].includes(key))) {
-			throw new Error('Project association and the Project Chat require explicit admission.');
+		if (entries.some(([key]) => key === 'folder')) {
+			throw new Error('A Chat is bound to its project only by its first send.');
 		}
 		if (entries.length === 0) {
 			return;

@@ -3,42 +3,38 @@ import { assertProjectRoot } from './core/projectPlace';
 import type { ProjectSessions } from './core/projectSessions';
 import type { Chat } from './core/store';
 
-/** Native prepareProjectChat reply: draft eligibility is derived by the workbench, before first-send materialization. */
+/** Native prepareProjectChat reply: the Chat the window restored, and whether it is a draft not sent yet. */
 export interface RestoredProjectChat {
 	readonly resource: string;
 	readonly isUntitledDraft: boolean;
 }
 
-/** A named destination wins; otherwise preserve a related restored Chat and default only when none is selected. */
-export function initialProjectChat(project: ProjectSessions | undefined, restored?: RestoredProjectChat, requested?: string): string | undefined {
-	if (!project) { return undefined; }
-	const contains = (key: string | undefined) => key === project.mainKey || project.chats.some(c => c.key === key);
-	if (requested && contains(requested)) { return requested; }
-	return restored?.isUntitledDraft || contains(restored?.resource) ? undefined : project.mainKey;
-}
-
-/** One window's startup/focus sequence: the restored or default Chat, then a named destination. */
+/**
+ * One window's startup/focus sequence. The native Chat view restores the window's own last Chat (prepare). A draft or a
+ * Chat of this project stays; another project's would leave the window on a Chat it cannot send from, so a fresh one
+ * opens instead. No Chat is chosen by default: every Chat is a peer. A named destination is shown on every focus that
+ * brings one.
+ */
 export function projectWindowRestorer(window: {
 	scope(): ProjectSessions | undefined;
-	prepare(mainKey: string): Promise<RestoredProjectChat | undefined>;
+	prepare(): Promise<RestoredProjectChat | undefined>;
+	fresh(): Promise<unknown>;
 	takeRequested(root: string): string | undefined;
 	show(key: string): Promise<unknown>;
 	failed(error: unknown): void;
 }): () => Promise<void> {
-	// What must not repeat is the default selection, not a successful startup: it is consumed when chosen, before
-	// show, so a later failure is reported and never re-applies it, as a Code-OSS window passes
-	// LifecyclePhase.Restored once (lifecycle.ts:188-216 at the pin). A named request is still honoured on every focus.
-	let defaultChosen = false;
+	let prepared = false;
 	let pending = Promise.resolve();
 	return () => {
 		pending = pending.then(async () => {
-			let project = window.scope();
-			const restored = !defaultChosen && project ? await window.prepare(project.mainKey) : undefined;
-			project = window.scope();
-			const requested = project && window.takeRequested(project.root);
-			const key = defaultChosen ? undefined : initialProjectChat(project, restored);
-			defaultChosen = true;
-			if (!requested && key) { await window.show(key); }
+			if (!window.scope()) { return; }
+			const restored = prepared ? undefined : await window.prepare();
+			prepared = true;
+			// Read again: the window's folders may have changed while the native view restored.
+			const project = window.scope();
+			if (!project) { return; }
+			if (restored && !restored.isUntitledDraft && !project.chats.some(c => c.key === restored.resource)) { await window.fresh(); }
+			const requested = window.takeRequested(project.root);
 			if (requested) { await window.show(requested); }
 		}).catch(window.failed);
 		return pending;
@@ -54,8 +50,7 @@ export async function openProjectChat(key: string, navigation: {
 	open(root: string): Promise<void>;
 }): Promise<void> {
 	const project = navigation.scope();
-	if (project && (project.mainKey === key || project.chats.some(c => c.key === key))) {
-		// The unsent main entry is valid here without fabricating a persisted Chat.
+	if (project?.chats.some(c => c.key === key)) {
 		await navigation.show(key);
 		return;
 	}

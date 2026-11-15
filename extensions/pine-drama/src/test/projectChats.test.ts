@@ -1,5 +1,5 @@
-// S1: local Chat identity: one Project Chat per project and its peer sessions, which work in it once it has one.
-// Temporary projects and FakePine only; no project generation, credentials or network.
+// S1: local Chat identity: a project's Chats are peers, each bound to it by its first send.
+// Temporary projects only; no project generation, credentials or network.
 import { strict as assert } from 'node:assert';
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -7,9 +7,8 @@ import { tmpdir } from 'node:os';
 import { test } from 'node:test';
 import { Store } from '../core/store';
 import { entryFor } from '../core/binding';
-import { owningChat } from '../core/projectPlace';
-import { ChatService } from '../core/chats';
-import { FakePine, MemoryVault } from './fakePine';
+import { projectIdentity, projectRootOf } from '../core/projectPlace';
+import { projectSessions } from '../core/projectSessions';
 import { associateProject } from './storeFixture';
 
 function fixture() {
@@ -23,77 +22,52 @@ function fixture() {
 	return { dir, root, path, store };
 }
 
-test('one canonical project has its Project Chat and peer sessions; each session works in it, a Chat outside it does not (D48)', () => {
+test('one canonical project has any number of peer Chats; each works in it, a Chat outside it does not (D48)', () => {
 	const { dir, root, store } = fixture();
 	assert.equal(store.bindFolder('main', root), true);
 	writeFileSync(join(root, 'pine-drama-project.json'), '{"schema":2}\n');
 	const alias = join(dir, 'alias'); symlinkSync(root, alias);
-	associateProject(store, 'ep1', alias, null);
-	associateProject(store, 'ep2', root, null);
-	assert.equal(store.projectChat(alias)?.key, 'main');
-	assert.deepEqual(store.projectChats(alias).map(c => c.key).sort(), ['ep1', 'ep2', 'main']);
-	assert.deepEqual(store.projectChats(root).filter(c => c.project_role === 'main').map(c => c.key), ['main']);
+	associateProject(store, 'ep1', alias);
+	associateProject(store, 'ep2', root);
+	assert.deepEqual(projectSessions(projectIdentity(alias), store.chats()).chats.map(c => c.key).sort(), ['ep1', 'ep2', 'main']);
 	assert.equal(store.chat('ep1')?.computer_id, null, 'association starts no runtime');
 	assert.equal(readFileSync(join(root, 'pine-drama-project.json'), 'utf8'), '{"schema":2}\n');
-	assert.deepEqual(entryFor(store.chats(), dir, 'ep1', alias), { kind: 'go', bind: false }, 'a session works in its project');
+	assert.deepEqual(entryFor(store.chats(), dir, 'ep1', alias), { kind: 'go', bind: false }, 'a Chat works in its project');
 	assert.deepEqual(entryFor(store.chats().reverse(), dir, 'main', root), { kind: 'go', bind: false });
 	assert.deepEqual(entryFor(store.chats(), dir, 'history', root), { kind: 'go', bind: true }, 'a Chat of no project joins it on its first send');
-	assert.equal(owningChat(store.chats().reverse(), dir, [alias])?.key, 'main', 'the Project Chat, not row order');
 	store.close();
 });
 
-test('explicit Project Chat assignments persist and remain idempotent through reopen without runtime or title inference', () => {
+test('a drama made or converted before any Chat is joined by whichever Chat sends first, as a peer of every later one', () => {
+	const { root, store } = fixture();
+	writeFileSync(join(root, 'pine-drama-project.json'), '{"schema":2}\n');
+	assert.deepEqual(entryFor(store.chats(), '', 'ep1', root), { kind: 'go', bind: true });
+	assert.equal(store.bindFolder('ep1', root), true);
+	assert.deepEqual(entryFor(store.chats(), '', 'ep2', root), { kind: 'go', bind: true });
+	assert.equal(store.bindFolder('ep2', root), true);
+	assert.deepEqual(projectSessions(projectIdentity(root), store.chats()).chats.map(c => c.key).sort(), ['ep1', 'ep2']);
+	store.close();
+});
+
+test('a binding persists through reopen, and no ordinary update moves a Chat to another project', () => {
 	const { root, path, store } = fixture();
-	associateProject(store, 'history', root, null);
-	assert.equal(store.projectChat(root), undefined, 'oldest row is not a Project Chat');
-	assert.deepEqual(entryFor(store.chats(), '', 'history', root), { kind: 'unassigned' }, 'a project without its Project Chat admits nothing');
-	assert.equal(owningChat([...store.chats(), { key: 'second', folder: root, project_role: null }], '', [root]), undefined, 'several histories and no Project Chat: no guess');
-	associateProject(store, 'ep1', root, null);
-	associateProject(store, 'main', root, { kind: 'main' });
-	const original = store.chat('main')!;
-	assert.deepEqual(associateProject(store, 'main', root, { kind: 'main' }), original);
-	assert.equal(owningChat(store.chats(), '', [root])?.key, 'main');
+	associateProject(store, 'ep1', root);
+	// Deliberately untyped JSON verifies the runtime boundary as well as the TypeScript patch type.
+	assert.throws(() => store.updateChat('ep1', JSON.parse('{"folder":"/another"}')), /first send/);
+	store.updateChat('ep1', { computer_id: 'retained-computer', computer_state: 'stopped', pine_session_state: 'ended' });
 	store.close();
 	const reopened = new Store(path);
-	assert.equal(reopened.projectChat(root)?.key, 'main');
-	assert.equal(reopened.chat('ep1')?.project_role, null);
-	assert.equal(reopened.chat('main')?.computer_state, 'none');
+	assert.equal(reopened.chat('ep1')?.folder, root);
+	assert.equal(reopened.chat('ep1')?.computer_state, 'stopped');
 	reopened.close();
 });
 
-test('database constraints and normal updates cannot disguise another Project Chat as runtime metadata', () => {
-	const { root, store } = fixture();
-	assert.equal(store.bindFolder('main', root), true);
-	associateProject(store, 'ep1', root, null);
-	assert.throws(() => store.db.prepare("update chats set project_role = 'main' where key = 'ep1'").run(), /UNIQUE/);
-	assert.throws(() => store.db.prepare("update chats set project_role = 'episode' where key = 'ep1'").run(), /CHECK/);
-	assert.throws(() => store.db.prepare("update chats set project_role = 'main' where key = 'history'").run(), /CHECK/, 'no Project Chat without a folder');
-	// Deliberately untyped JSON verifies the runtime boundary as well as the TypeScript patch type.
-	assert.throws(() => store.updateChat('ep1', JSON.parse('{"project_role":"main"}')), /explicit admission/);
-	assert.throws(() => store.updateChat('ep1', JSON.parse('{"folder":"/another"}')), /explicit admission/);
-	store.updateChat('main', { computer_id: 'retained-computer', computer_state: 'stopped', pine_session_state: 'ended' });
-	assert.equal(store.projectChat(root)?.key, 'main', 'Stop is not an implicit project handoff');
+// Codex on the first head: counting an unbound Chat's storage folder as an association let a send there skip bindFolder,
+// and so its execution-history refusal.
+test('an unbound Chat\'s storage folder is no binding: a send there still goes through bindFolder', () => {
+	const { dir, store } = fixture();
+	const fallback = projectRootOf(dir, store.chat('history')!); mkdirSync(fallback, { recursive: true });
+	const entry = entryFor(store.chats(), dir, 'history', fallback);
+	assert.deepEqual([entry.kind, entry.kind === 'go' && entry.bind], ['go', true]);
 	store.close();
 });
-
-test('a session of a project that has no Project Chat cannot provision or submit, even without a supplied window folder', async () => {
-	const { root, store, dir } = fixture();
-	associateProject(store, 'ep1', root, null);
-	const pine = new FakePine();
-	const service = new ChatService({ holdsProject: () => true, turnEndGraceMs: 0, store, port: pine, vault: new MemoryVault(), log: () => undefined,
-		pine: { endpoint: 'https://pine.test', apiKey: 'pk_fixture', controlHost: 'api.pine.test' },
-		files: { projectsRoot: join(dir, 'projects') } });
-	for (const folder of [root, undefined]) {
-		const updates = [];
-		for await (const update of service.submit('ep1', 'continue EP001', 'episode', folder)) { updates.push(update); }
-		assert.ok(updates.some(u => u.kind === 'unsent' && u.text.includes('Not sent:')));
-		assert.ok(updates.some(u => u.kind === 'unsent' && u.text.includes('```text\ncontinue EP001\n```')), 'the message is given back (D72)');
-		assert.ok(updates.every(u => u.kind !== 'markdown' || !u.text.includes('has ended')), 'no fabricated runtime state');
-	}
-	for await (const update of service.startNewSession('ep1')) { assert.match(update.kind === 'markdown' ? update.text : '', /not admitted/); }
-	assert.deepEqual(pine.calls, {}, 'refusal precedes every Pine call');
-	assert.equal(store.chat('ep1')?.computer_state, 'none');
-	store.close();
-});
-
-

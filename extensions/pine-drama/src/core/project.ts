@@ -276,12 +276,12 @@ function variantParent(drama: { readonly edges: readonly { readonly from: string
 
 /**
  * The notes an empty step shows, its next action. Their ids are what the view maps
- * to a command: `NOTE_ATTACH` and `NOTE_INTAKE` open the project's main Chat.
+ * to a command: `NOTE_ATTACH` and `NOTE_INTAKE` open the chat.
  */
 export const NOTE_ATTACH = 'note:script-attach';
 export const NOTE_INTAKE = 'note:script-intake';
 const NOTES: Record<string, string> = {
-	[NOTE_ATTACH]: 'Attach the screenplay and brief in the Project Chat',
+	[NOTE_ATTACH]: 'Attach the screenplay and brief in a chat',
 	[NOTE_INTAKE]: 'The chat turns the screenplay into Fountain; it appears here for your review',
 };
 function note(id: keyof typeof NOTES & string): OutlineNode {
@@ -322,7 +322,7 @@ export class DramaProject {
 
 	/**
 	 * `awaiting`: the empty folder New Project opened, which awaits its first request (core/projectEntry.ts): the three
-	 * steps show, and Script's next action is attaching the screenplay in the Project Chat.
+	 * steps show, and Script's next action is attaching the screenplay in a chat.
 	 */
 	constructor(readonly root: string, private readonly awaiting = false) { }
 

@@ -334,26 +334,13 @@ export class ChatService {
 		// Checked again here, as the window's check and this send are not one step (another window may have bound the folder).
 		const project = folder ?? conv?.folder ?? undefined;
 		const entry = project ? this.entry(key, project) : undefined;
-		if (entry && entry.kind !== 'go' && entry.kind !== 'adopt') {
+		if (entry && entry.kind !== 'go') {
 			// One line, and the message given back under it.
 			yield { kind: 'unsent', text: `_${refusalLine(entry.kind === 'moved' ? { kind: 'rootChanged' } : entry)} Your message is below, to send again._\n\n${givenBack(text, attachedNames(files))}` };
 			return;
 		}
 		if (!conv) {
 			this.store.tx(() => this.store.insertChat({ key, env: PINE_ENV, endpoint: env.endpoint, label, secret_ref: secretRef(key) }));
-		}
-		if (entry?.kind === 'adopt') {
-			try {
-				this.store.admitExistingProject(key, entry.folder);
-				this.changed(key);
-			} catch (error) {
-				if (error instanceof PineSessionReplacedError) { throw error; }
-				const detail = (error as Error).message;
-				this.log(`${key}: project ${entry.folder}: continuation refused: ${detail}`);
-				yield unsentLine(text, files, 'the existing project could not be admitted');
-				yield { kind: 'markdown', text: `**Project continuation was not started:** ${detail}` };
-				return;
-			}
 		}
 		if (folder && entry?.kind === 'go' && entry.bind) {
 			if (!this.store.bindFolder(key, folder)) {

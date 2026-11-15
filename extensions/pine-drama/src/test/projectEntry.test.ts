@@ -6,7 +6,7 @@ import { test } from 'node:test';
 import { readProjectMajor } from '../core/project';
 import { projectAt, ProjectOfAnotherMajorError, ProjectsInsideError } from '../core/projectEntry';
 import { RefusedWithUpgradeInstructions, STUDIO_RELEASES_URL } from '../core/protocol';
-import { projectIdentity, projectPlaceOf, owningChat } from '../core/projectPlace';
+import { projectIdentity, projectPlaceOf } from '../core/projectPlace';
 import { entryFor } from '../core/binding';
 import { Store } from '../core/store';
 
@@ -104,14 +104,13 @@ test('binding is atomic across windows, canonicalizes aliases, creates no wrappe
 	const path = join(dir, 'studio.sqlite'); const a = new Store(path); const b = new Store(path);
 	for (const key of ['a', 'b']) { a.insertChat({ key, env: 'test', endpoint: 'http://test', label: key, secret_ref: key }); }
 	assert.equal(a.bindFolder('a', alias), true);
-	// The later Chat joins as a session; the project keeps one Project Chat.
+	// The later Chat joins as a peer.
 	assert.equal(b.bindFolder('b', root), true);
-	assert.deepEqual([a.chat('a')!.project_role, a.chat('b')!.project_role, a.chat('b')!.folder], ['main', null, projectIdentity(root)]);
+	assert.equal(a.chat('b')!.folder, projectIdentity(root));
 	assert.equal(a.chat('a')!.folder, projectIdentity(root));
-	assert.equal(owningChat(a.chats(), dir, [alias])?.key, 'a');
 	assert.deepEqual(projectPlaceOf(dir, a.chat('a')!), { root, boundary: root });
 	assert.deepEqual(readdirSync(root), []);
-	assert.equal(a.db.prepare('pragma user_version').get()!.user_version, 18);
+	assert.equal(a.db.prepare('pragma user_version').get()!.user_version, 19);
 	a.close(); b.close();
 });
 

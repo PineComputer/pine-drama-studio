@@ -145,15 +145,14 @@ export function registerEpisodeCanvas(context: vscode.ExtensionContext, views: P
 				await send(panel, episode);
 				await panel.webview.postMessage(await detailReply(panel.webview, episode, { stageId: message.stageId, file: null }));
 			} else if (message?.type === 'generate') {
-				// Put in the input of the session that owns the item (pineDrama.askOwner) for the person to send, never sent
-				// from here: an asset's picture or a keyframe's is drawn; a take is shot, asked as the seg editor's
-				// Generate asks it (segEditor.ts; shootRequest; amended 2026-11-11). Sending it is the person's explicit
+				// Put in the open chat's input for the person to send, never sent from here: an asset's picture or a
+				// keyframe's is drawn; a take is shot, asked as the seg editor's Generate asks it (segEditor.ts; shootRequest; amended 2026-11-11). Sending it is the person's explicit
 				// action, and the skill's budget (no cap on Pine, skills/drama-workflow) has the agent spend without asking
 				// about cost.
 				const object = (await project.drama()).objects.get(message.stageId);
 				const ep = episodeIn(message.stageId);
 				const query = object?.type === 'take' && ep && object.segment ? shootRequest(ep, object.segment, false) : `Draw ${object?.name ?? message.stageId} (${message.stageId}).`;
-				await vscode.commands.executeCommand('pineDrama.askOwner', message.stageId, query);
+				await vscode.commands.executeCommand('workbench.action.chat.open', { query, isPartialQuery: true });
 			} else if (message?.type === 'failed') {
 				output.appendLine(`canvas ${episode}: webview: ${message.message}`);
 			}
