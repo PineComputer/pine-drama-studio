@@ -3,7 +3,8 @@
 // Errors map to the port's kinds: UnconfirmedError (a send may have arrived), MissingError (the remote resource is
 // gone) and ConnectionLostError (a read got no answer); everything else passes through.
 
-import { AccountError, ConnectionLostError, MissingError, NoSuchFileError, START_WAIT_SECONDS, StartNotConfirmedError, StartTimeoutError, UnconfirmedError, type IdlePolicy, type PineConnection, type PineEvent, type PinePort, type PineSession, type TurnView } from './core/pinePort';
+import { AccountError, ConnectionLostError, MissingError, NoSuchFileError, StartNotConfirmedError, StartTimeoutError, UnconfirmedError, type IdlePolicy, type PineConnection, type PineEvent, type PinePort, type PineSession, type TurnView } from './core/pinePort';
+import { START_WAIT_SECONDS } from './core/tuning';
 
 const importSdk = () => import('@pinesandbox/computer');
 type Sdk = Awaited<ReturnType<typeof importSdk>>;

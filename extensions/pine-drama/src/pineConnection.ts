@@ -4,6 +4,7 @@ import { Client } from '@pinesandbox/computer';
 import { connectKey, keyProblem, PINE_KEY_SECRET } from './core/pineConnection';
 import { keyPrefix, type PineConfig } from './pineConfig';
 import type { SecretVault } from './core/pinePort';
+import { KEY_CHECK_LIMIT_MS } from './core/tuning';
 
 export const CONNECTION_COMMAND = 'pineDrama.connection';
 
@@ -33,7 +34,7 @@ export function registerPineConnection(context: vscode.ExtensionContext, config:
 			} else {
 				const key = await vscode.window.showInputBox({ title: 'Connect to Pine Computer', prompt: 'Paste your Pine project key. Connecting checks access without starting a Computer or generating content.', password: true, ignoreFocusOut: true, placeHolder: 'pk_…', validateInput: keyProblem });
 				if (key === undefined) { return; }
-				await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: 'Checking Pine project access…' }, () => connectKey(vault, key, pine => new Client(pine).projectPolicy({ signal: AbortSignal.timeout(15_000) })));
+				await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: 'Checking Pine project access…' }, () => connectKey(vault, key, pine => new Client(pine).projectPolicy({ signal: AbortSignal.timeout(KEY_CHECK_LIMIT_MS) })));
 			}
 			changed();
 			log('Pine connection credentials changed; reload required.');

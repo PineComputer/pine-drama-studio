@@ -2,6 +2,7 @@
 // here. No vscode import, no DOM.
 
 import { isPath, readEntryAction, type EntryAction } from './galleryProtocol';
+import { FAILED_MESSAGE_MAX } from './tuning';
 
 export const CANVAS_PROTOCOL = 1;
 
@@ -221,7 +222,7 @@ export function readFromCanvas(value: unknown): FromCanvas | undefined {
 		return { v: CANVAS_PROTOCOL, type: 'segEditor', seg: message.seg };
 	}
 	if (message.type === 'failed' && typeof message.message === 'string') {
-		return { v: CANVAS_PROTOCOL, type: 'failed', message: message.message.slice(0, 2000) };
+		return { v: CANVAS_PROTOCOL, type: 'failed', message: message.message.slice(0, FAILED_MESSAGE_MAX) };
 	}
 	if (message.type === 'generate' && isPath(message.stageId)) {
 		return { v: CANVAS_PROTOCOL, type: 'generate', stageId: message.stageId };

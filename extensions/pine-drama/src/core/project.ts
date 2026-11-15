@@ -9,7 +9,7 @@ import { join } from 'node:path';
 import { CHOICES_FILE } from './major1';
 import { noFileThere, throughNoLink, writeWhole } from './placement';
 import { projectIdentity } from './projectPlace';
-import { BIBLE_STORY_FILE, DESCRIPTION_FILE, OBJECT_FILE, PAID_CALL_ATTEMPT, PAID_CALL_LEDGER, PAID_CALL_LEDGER_BEFORE, PAID_CALL_UNDER_WAY, PINE_COMPUTER_RECORDS, PROJECT_MARKER_FILE, PROMPT_FILE, RECEIPT_SUFFIX, majorTwo, type Edge, type ObjectType } from './protocol';
+import { BIBLE_STORY_FILE, DESCRIPTION_FILE, OBJECT_FILE, PAID_CALL_ATTEMPT, PAID_CALL_LEDGER, PAID_CALL_LEDGER_BEFORE, PAID_CALL_UNDER_WAY, PINE_COMPUTER_RECORDS, PROJECT_MARKER_FILE, PROMPT_FILE, RECEIPT_SUFFIX, MAJOR, majorTwo, type Edge, type ObjectType } from './protocol';
 
 
 
@@ -324,7 +324,7 @@ const fileAt = (path: string) => statSync(path, { throwIfNoEntry: false })?.isFi
 
 /** Makes `root` a drama of major 2: its pine-drama-project.json, written whole (doc/protocol.md 2.1). New Project writes it, a conversion last. */
 export function writeProjectMarker(root: string): Promise<void> {
-	return writeWhole(join(root, PROJECT_MARKER_FILE), `${JSON.stringify({ schema: 2 })}\n`);
+	return writeWhole(join(root, PROJECT_MARKER_FILE), `${JSON.stringify({ schema: MAJOR })}\n`);
 }
 
 export class DramaProject {
@@ -345,7 +345,7 @@ export class DramaProject {
 	}
 
 	static async isProject(dir: string): Promise<boolean> {
-		return readProjectMajor(dir) === 2;
+		return readProjectMajor(dir) === MAJOR;
 	}
 
 	/** The project as its folder says now (readProjectFromFolder); read once until `forget`, which a change of the folder calls. */

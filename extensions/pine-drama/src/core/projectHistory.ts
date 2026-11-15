@@ -13,6 +13,7 @@ import { pipeline } from 'node:stream/promises';
 import { git, gitStream } from './git';
 import { projectIdentity } from './projectPlace';
 import { OBJECT_FILE } from './protocol';
+import { GIT_PATHS_PER_CALL } from './tuning';
 
 /**
  * A commit's author (doc/protocol.md 2.1): a turn's result, the person's own change through the Studio, or what the
@@ -70,7 +71,7 @@ export async function commitPathsToHistory(projectRoot: string, author: CommitAu
 	// A batch at a time, as stagePaths stages them, so no command line is too long.
 	const listed = async (args: string[]) => {
 		const found: string[] = [];
-		for (let i = 0; i < paths.length; i += 200) { found.push(...(await run(projectRoot, author, [...args, '--', ...paths.slice(i, i + 200)])).split('\0').filter(Boolean)); }
+		for (let i = 0; i < paths.length; i += GIT_PATHS_PER_CALL) { found.push(...(await run(projectRoot, author, [...args, '--', ...paths.slice(i, i + GIT_PATHS_PER_CALL)])).split('\0').filter(Boolean)); }
 		return found;
 	};
 	const files = new Set([...await listed(['ls-files', '-z']), ...await hasHead(projectRoot) ? await listed(['ls-tree', '-r', '-z', '--name-only', 'HEAD']) : []]);
@@ -118,8 +119,8 @@ export async function stagePaths(projectRoot: string, paths: readonly string[]):
 	await ensureRepository(projectRoot);
 	const there = paths.filter(path => existsSync(join(projectRoot, path)));
 	const gone = paths.filter(path => !existsSync(join(projectRoot, path)));
-	for (let i = 0; i < there.length; i += 200) { await run(projectRoot, 'person', ['add', '-A', '--force', '--', ...there.slice(i, i + 200)]); }
-	for (let i = 0; i < gone.length; i += 200) { await run(projectRoot, 'person', ['rm', '-r', '-q', '--cached', '--ignore-unmatch', '--', ...gone.slice(i, i + 200)]); }
+	for (let i = 0; i < there.length; i += GIT_PATHS_PER_CALL) { await run(projectRoot, 'person', ['add', '-A', '--force', '--', ...there.slice(i, i + GIT_PATHS_PER_CALL)]); }
+	for (let i = 0; i < gone.length; i += GIT_PATHS_PER_CALL) { await run(projectRoot, 'person', ['rm', '-r', '-q', '--cached', '--ignore-unmatch', '--', ...gone.slice(i, i + GIT_PATHS_PER_CALL)]); }
 }
 
 /**

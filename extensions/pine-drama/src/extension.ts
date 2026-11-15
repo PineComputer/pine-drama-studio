@@ -24,6 +24,7 @@ import { SdkPort } from './sdkPort';
 import { showInChatView } from './chatView';
 import { statusText, waitingItems, type WaitingItem } from './core/attention';
 import { openProjectChat, projectWindowRestorer, type RestoredProjectChat } from './projectChatNavigation';
+import { CHAT_REVEAL_MAX_AGE_MS, FOLDER_REFRESH_MS } from './core/tuning';
 
 // Wires the Studio's parts to the workbench: business state in SQLite
 // under the extension's global storage, credentials in VS Code SecretStorage, Pine through the SDK.
@@ -67,12 +68,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	const projects = await registerProjectViews(context, output, views => {
 		const root = views.project.root;
 		// Every view reads the folder's files, so a change of them refreshes the tree, the galleries and the canvases a
-		// second after the last one (Code-OSS's FileSystemWatcher).
+		// moment after the last one (FOLDER_REFRESH_MS).
 		let timer: NodeJS.Timeout | undefined;
 		const watcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(vscode.Uri.file(root), '**/*'));
 		const changed = () => {
 			clearTimeout(timer);
-			timer = setTimeout(() => { views.refresh(); opened?.galleries.refresh(); opened?.canvas.refresh(); }, 1000);
+			timer = setTimeout(() => { views.refresh(); opened?.galleries.refresh(); opened?.canvas.refresh(); }, FOLDER_REFRESH_MS);
 		};
 		context.subscriptions.push(watcher, watcher.onDidCreate(changed), watcher.onDidChange(changed), watcher.onDidDelete(changed), { dispose: () => clearTimeout(timer) });
 		opened = {
@@ -211,7 +212,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 		prepare: () => Promise.resolve(vscode.commands.executeCommand<RestoredProjectChat | undefined>('pine.workbench.prepareProjectChat', '')),
 		// Code-OSS's Chat: New Chat (chatActions.ts, ACTION_ID_NEW_CHAT).
 		fresh: () => Promise.resolve(vscode.commands.executeCommand('workbench.action.chat.newChat')),
-		takeRequested: root => studioStore.takeChatReveal(root, 60_000),
+		takeRequested: root => studioStore.takeChatReveal(root, CHAT_REVEAL_MAX_AGE_MS),
 		show: showInChat,
 		failed: error => {
 			log(`window navigation: ${(error as Error).stack ?? error}`);

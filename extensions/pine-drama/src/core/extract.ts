@@ -15,6 +15,7 @@ import { execFile } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, extname, join } from 'node:path';
+import { EXTRACTED_TEXT_MAX_BYTES } from './tuning';
 
 /** Word, PDF and RTF files, whose text is read with a parser (a legacy .doc and an .rtf by macOS's textutil). */
 export const EXTRACTED = /\.(docx|pdf|doc|rtf)$/i;
@@ -29,7 +30,7 @@ export const tools = {
 			reject(new Error('reading a .doc or .rtf needs macOS (textutil)'));
 			return;
 		}
-		execFile('/usr/bin/textutil', ['-convert', 'txt', '-encoding', 'UTF-8', '-stdout', path], { maxBuffer: 64 * 1024 * 1024 }, (error, stdout) => {
+		execFile('/usr/bin/textutil', ['-convert', 'txt', '-encoding', 'UTF-8', '-stdout', path], { maxBuffer: EXTRACTED_TEXT_MAX_BYTES }, (error, stdout) => {
 			if (error) {
 				reject(error);
 			} else {

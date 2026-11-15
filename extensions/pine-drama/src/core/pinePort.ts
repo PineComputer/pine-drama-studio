@@ -1,6 +1,8 @@
 // The narrow surface of Pine the Chat service needs. The SDK
 // implementation is extensions/pine-drama/src/sdkPort.ts; tests use a fake. No vscode import.
 
+import { START_WAIT_SECONDS } from './tuning';
+
 /** The one Pine environment the Studio connects to: no name, only its endpoint and key. */
 export interface PineConnection {
 	readonly endpoint: string;
@@ -16,20 +18,6 @@ export interface ComputerSecrets {
 	/** The session's working directory, as its shell printed it before any turn (PineSession.workdir). */
 	workdir?: string;
 }
-
-/**
- * Idle timeouts (open-pinedrama docs/PROPOSAL.md section 5.3, src/engine/config.ts). Work keeps a Computer running;
- * a question waiting for the person does not, so a waiting Computer gets longer.
- */
-export const IDLE_WORKING_SECONDS = 60 * 60;
-export const IDLE_WAITING_SECONDS = 3 * 60 * 60;
-
-/**
- * How long a start waits for Pine to give the Computer (the SDK's `readyTimeoutMs`, passed rather than assumed; its
- * default is the same 300 000 ms). Pine waits for capacity meanwhile when it has none free (PineSandbox
- * specs/computer-api.yaml; lines 663-666; S1).
- */
-export const START_WAIT_SECONDS = 5 * 60;
 
 /**
  * What the environment's project allows of a Computer's idle timeout (SDK `client.projectPolicy()`): without a lifetime

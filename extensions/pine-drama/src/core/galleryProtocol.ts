@@ -1,5 +1,6 @@
 // The messages between the extension and a gallery or detail page (AGENTS.md). No vscode import.
 
+import { FAILED_MESSAGE_MAX } from './tuning';
 
 /**
  * The longest name and description a card's draft sends (Create New, + Variant): the draft fields stop there
@@ -98,7 +99,7 @@ export function readFromGallery(value: unknown): FromGallery | undefined {
 		return action && { v: GALLERY_PROTOCOL, type: 'entry', ...action };
 	}
 	if (m.type === 'failed' && typeof m.message === 'string') {
-		return { v: GALLERY_PROTOCOL, type: 'failed', message: m.message.slice(0, 2000) };
+		return { v: GALLERY_PROTOCOL, type: 'failed', message: m.message.slice(0, FAILED_MESSAGE_MAX) };
 	}
 	return undefined;
 }

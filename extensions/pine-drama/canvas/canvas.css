@@ -106,7 +106,7 @@ button.labeled:disabled { opacity: 0.5; cursor: default; }
 .react-flow.tool-hand :is(.react-flow__pane, .react-flow__node) { cursor: grab; }
 .react-flow:has(.react-flow__pane.dragging) :is(.react-flow__pane, .react-flow__node) { cursor: grabbing; }
 
-/* The card's footer (FOOT_H): a name of up to two lines, then its state, in canvas units read zoomed out. */
+/* The card's footer (CARD_FOOTER_HEIGHT): a name of up to two lines, then its state, in canvas units read zoomed out. */
 .card .card-foot { height: 84px; box-sizing: border-box; padding-top: 4px; display: flex; flex-direction: column; min-width: 0; }
 .card .card-name { font-size: 24px; line-height: 28px; font-weight: 600; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
 .card .card-status { font-size: 18px; line-height: 22px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--vscode-descriptionForeground); }

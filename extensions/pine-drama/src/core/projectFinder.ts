@@ -2,12 +2,10 @@
 
 import { DramaProject } from './project';
 import { PROJECT_MARKER_FILE } from './protocol';
+import { PROJECT_RESCAN_MS } from './tuning';
 
 /** The files whose arrival or removal can change a folder's project, relative to the folder (DramaProject.rootIn). */
 export const PROJECT_FILES = PROJECT_MARKER_FILE;
-
-/** How long a burst of file events settles before the folders are looked at again: git's debounce. */
-const RESCAN_MS = 500;
 
 export class ProjectFinder {
 	private root: string | undefined;
@@ -24,7 +22,7 @@ export class ProjectFinder {
 		private readonly folders: () => readonly string[],
 		private readonly changed: (root: string | undefined) => void | Promise<void>,
 		private readonly failed: (error: Error) => void,
-		private readonly delayMs = RESCAN_MS,
+		private readonly delayMs = PROJECT_RESCAN_MS,
 	) { }
 
 	/** Looks at the folders now: the first that holds a project, the selected root only (DramaProject.rootIn). */

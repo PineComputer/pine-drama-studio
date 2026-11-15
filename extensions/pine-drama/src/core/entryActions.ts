@@ -10,7 +10,7 @@ import type { CardRequest } from './galleryProtocol';
 import { unusedName } from './placement';
 import { ASSET_GROUPS, readObjectFile } from './project';
 import { listHistoryOfShownFile, readChangeOfObject, readFileAtCommit } from './projectHistory';
-import { DESCRIPTION_FILE, OBJECT_FILE, PROMPT_FILE, RECEIPT_SUFFIX } from './protocol';
+import { DESCRIPTION_FILE, MAJOR, OBJECT_FILE, PROMPT_FILE, RECEIPT_SUFFIX } from './protocol';
 
 /** A card action, by the protocol's object ids (core/galleryProtocol.ts, where the pages read it too). */
 export type { CardRequest } from './galleryProtocol';
@@ -77,7 +77,7 @@ export async function runCardAction(root: string, request: CardRequest, ask: Ent
 				const id = newFolder(root, parent, request.name, request.type);
 				return [
 					[`${id}/${OBJECT_FILE}`, json({
-						schema: 2, type: request.type, name: request.name, shown_file: null,
+						schema: MAJOR, type: request.type, name: request.name, shown_file: null,
 						...request.type === 'variant' ? { variant_of: request.from, objects_sent_by_draw_request: [request.from] } : {},
 						...request.setting ? { setting: request.setting } : {},
 					})],

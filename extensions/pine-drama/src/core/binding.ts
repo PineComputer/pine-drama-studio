@@ -4,6 +4,7 @@ import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { projectIdentity, projectRootOf } from './projectPlace';
 import { readProjectMajor } from './project';
+import { MAJOR } from './protocol';
 
 export type Entry =
 	/** The session is bound to this folder already, or is new and will be bound on this message (`note`, said once). */
@@ -54,7 +55,7 @@ export function entryFor(chats: readonly Conv[], projectsRoot: string, key: stri
 	const here = projectIdentity(folder);
 	// A drama of another major is never written (doc/protocol.md, section 7), whichever Chat worked in it before.
 	const schema = readProjectMajor(here);
-	if (schema !== undefined && schema !== 2) {
+	if (schema !== undefined && schema !== MAJOR) {
 		return { kind: 'otherFormat', folder: here, schema };
 	}
 	const own = chats.find(c => c.key === key);
@@ -67,7 +68,7 @@ export function entryFor(chats: readonly Conv[], projectsRoot: string, key: stri
 	// (bindFolder, which refuses a Chat with execution history), and so does the first Chat of a drama made or converted
 	// before any Chat. Only an explicit binding counts: an unbound Chat's storage folder is no association.
 	const associated = chats.filter(c => c.folder && projectIdentity(projectRootOf(projectsRoot, c)) === here);
-	if (associated.length || schema === 2) {
+	if (associated.length || schema === MAJOR) {
 		return { kind: 'go', bind: !associated.some(c => c.key === key) };
 	}
 	const [project] = projectsBelow(here);

@@ -25,6 +25,7 @@ import { basename } from 'node:path';
 import { assertProjectRoot } from './core/projectPlace';
 import { projectSessions, sessionProjectRoot, type ProjectSessions } from './core/projectSessions';
 import { sessionEpisodes } from './core/sessionEpisodes';
+import { CHAT_LABEL_MAX } from './core/tuning';
 
 const SESSION_TYPE = 'pine-computer';
 /** The tool name of an agent step's row; the row's words are the step's own title (core/activityRow.ts). */
@@ -400,7 +401,7 @@ function toHistory(all: readonly Message[], showCost: boolean): (vscode.ChatRequ
 }
 
 function firstLine(text: string): string {
-	return text.split('\n')[0].slice(0, 80);
+	return text.split('\n')[0].slice(0, CHAT_LABEL_MAX);
 }
 
 /** Code-OSS's own Reload Window command (ReloadWindowAction.ID, src/vs/workbench/browser/actions/windowActions.ts:372 at 235ceeb5). */

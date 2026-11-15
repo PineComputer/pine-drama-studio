@@ -3,7 +3,8 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { CANVAS_PROTOCOL, readFromCanvas, type CanvasCard, type Point, type Size } from '../core/canvasProtocol';
-import { cardSize, CARD_W, FOOT_H, layoutAssets, layoutEpisode, layoutOf, onBoard, openingViewport, positionsFor } from '../core/canvasLayout';
+import { cardSize, layoutAssets, layoutEpisode, layoutOf, onBoard, openingViewport, positionsFor } from '../core/canvasLayout';
+import { CARD_FOOTER_HEIGHT, CARD_WIDTH } from '../core/tuning';
 
 /** A real episode's board, its cards as the extension sends them (test-fixtures/canvas/README.md). */
 const BOARD = JSON.parse(readFileSync(join(__dirname, '..', '..', 'test-fixtures', 'canvas', 'double-life-EP001.json'), 'utf8')) as { sections: string[]; cards: CanvasCard[] };
@@ -26,9 +27,9 @@ function frameBox(title: string, all: CanvasCard[], positions: Record<string, Po
 }
 
 test("a card is as tall as its own picture at drama-cli's width, plus its footer, the same on both canvases", () => {
-	assert.deepEqual(cardSize({ w: 720, h: 1280 }), { w: CARD_W, h: 533 + FOOT_H });
-	assert.deepEqual(cardSize({ w: 2048, h: 1152 }), { w: CARD_W, h: 169 + FOOT_H });
-	assert.deepEqual(cardSize(undefined), { w: CARD_W, h: 290 + FOOT_H }, 'unknown size: a default picture');
+	assert.deepEqual(cardSize({ w: 720, h: 1280 }), { w: CARD_WIDTH, h: 533 + CARD_FOOTER_HEIGHT });
+	assert.deepEqual(cardSize({ w: 2048, h: 1152 }), { w: CARD_WIDTH, h: 169 + CARD_FOOTER_HEIGHT });
+	assert.deepEqual(cardSize(undefined), { w: CARD_WIDTH, h: 290 + CARD_FOOTER_HEIGHT }, 'unknown size: a default picture');
 });
 
 test("drama-cli's groups and order, four to a row; the references in a band on top, the segments side by side in order, the cut last; text off the board", () => {
@@ -143,7 +144,7 @@ test("a take new to an arranged board goes right of the columns it is made from,
 		const others = all.filter(c => c.section === take.section && c.id !== take.id && placed[c.id]);
 		const earlier = others.filter(c => c.column < take.column);
 		assert.ok(earlier.length > 0);
-		assert.ok(placed[take.id].x >= Math.max(...earlier.map(c => placed[c.id].x + CARD_W)), `${take.id} is right of columns 1-5`);
+		assert.ok(placed[take.id].x >= Math.max(...earlier.map(c => placed[c.id].x + CARD_WIDTH)), `${take.id} is right of columns 1-5`);
 		others.forEach(c => assert.ok(!overlap({ ...placed[take.id], ...size[take.id] }, { ...placed[c.id], ...size[c.id] }), `${take.id} / ${c.id}`));
 	}
 	// A second card of the column goes under the first; a card the person left in its way is stepped over.

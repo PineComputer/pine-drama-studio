@@ -28,11 +28,12 @@ import { sha256 } from './sha256';
 
 import { CHANGED_TARGET_NOTE } from './instructions';
 import { randomUUID } from 'node:crypto';
-import { AccountError, ConnectionLostError, PINE_ACCOUNT_URL, IDLE_WAITING_SECONDS, IDLE_WORKING_SECONDS, MissingError, NoPineError, OtherPineError, START_WAIT_SECONDS, StartNotConfirmedError, StartTimeoutError, UnconfirmedError, endpointHost, type ComputerSecrets, type IdlePolicy, type PineConnection, type PineEvent, type PinePort, type SecretVault, type PineSession, type TurnView } from './pinePort';
+import { AccountError, ConnectionLostError, PINE_ACCOUNT_URL, MissingError, NoPineError, OtherPineError, StartNotConfirmedError, StartTimeoutError, UnconfirmedError, endpointHost, type ComputerSecrets, type IdlePolicy, type PineConnection, type PineEvent, type PinePort, type SecretVault, type PineSession, type TurnView } from './pinePort';
 import { projectBoundaryOf, projectRootOf } from './projectPlace';
 import { entryFor, type Entry } from './binding';
 import { givenBack, refusalLine } from './refusal';
 import { Replay } from './replay';
+import { COLLECT_EVERY_MS, IDLE_WAITING_SECONDS, IDLE_WORKING_SECONDS, RECONNECT_LIMIT_MS, RECONNECT_WAITS_MS, START_WAIT_SECONDS, TURN_END_GRACE_MS, TURN_WAIT_MS } from './tuning';
 import { collectTurn, forgetCaptures, putTurnFiles, turnRecordOf, type ComputerSession, type SentTurn, type TurnRecord } from './turn';
 import { applyPersonChange } from './applyChange';
 import { DRAMA_FOLDER, PERSON_ATTACHMENTS_FOLDER } from './protocol';
@@ -113,24 +114,6 @@ export interface ChatServiceOptions {
 type SendResult = { kind: 'sent'; turn: TurnView } | { kind: 'unknown' } | { kind: 'failed' } | { kind: 'ended' };
 
 const LABEL = 'pine-drama-studio';
-/** How long one wait for a turn's end lasts before the generation is checked and the wait repeats. */
-const TURN_WAIT_MS = 10_000;
-/** The event stream's time to deliver what it has left once a turn has ended (since M0). */
-const TURN_END_GRACE_MS = 500;
-/**
- * How often a running turn's files are collected into the project folder (turn.ts collectTurn): each collection is one
- * exec, which Pine runs beside the agent's own commands and counts as the Computer's activity (PineSandbox
- * session-coordinator pkg/server/exec.go:85).
- */
-const COLLECT_EVERY_MS = 15_000;
-/**
- * A follower that lost Pine tries again after these pauses, the last one repeating: VS Code's own reconnection schedule
- * for a lost remote, in seconds [0, 5, 5, 10, 10, 10, 10, 10, 30] (src/vs/platform/remote/common/remoteAgentConnection.ts:660
- * at the pinned 235ceeb5).
- */
-const RECONNECT_WAITS_MS = [0, 5, 5, 10, 10, 10, 10, 10, 30].map(seconds => seconds * 1000);
-/** How long it keeps trying: VS Code's ReconnectionGraceTime, 3 hours (src/vs/base/parts/ipc/common/ipc.net.ts:304). */
-const RECONNECT_LIMIT_MS = 3 * 60 * 60 * 1000;
 
 /** A moment as a chat line states it: UTC to the second, "04:59:29Z", as the Output channel's times are. */
 function utcTime(at: Date): string {

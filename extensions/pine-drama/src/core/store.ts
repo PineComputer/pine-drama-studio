@@ -7,6 +7,7 @@ import { existsSync, renameSync } from 'node:fs';
 import { entryFor } from './binding';
 import { DatabaseSync } from 'node:sqlite';
 import { projectIdentity } from './projectPlace';
+import { STORE_BUSY_TIMEOUT_MS } from './tuning';
 
 export type ComputerState = 'none' | 'creating' | 'running' | 'stopped' | 'missing_credentials';
 export type PineSessionState = 'none' | 'open' | 'ended';
@@ -156,7 +157,7 @@ export class Store {
 			this.setAside = { schema: version, path: aside };
 			this.db = new DatabaseSync(path);
 		}
-		this.db.exec('pragma journal_mode = wal; pragma busy_timeout = 5000; pragma foreign_keys = on;');
+		this.db.exec(`pragma journal_mode = wal; pragma busy_timeout = ${STORE_BUSY_TIMEOUT_MS}; pragma foreign_keys = on;`);
 		this.db.exec(SCHEMA);
 		this.db.exec(`pragma user_version = ${SCHEMA_VERSION}`);
 	}

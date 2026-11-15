@@ -18,7 +18,8 @@ import '@vscode/codicons/dist/codicon.css';
 import './canvas.css';
 import { NAME_MAX, TEXT_MAX, type EntryAction } from '../src/core/galleryProtocol';
 import { ASSETS_CANVAS, CANVAS_PROTOCOL, notMadeText, type CanvasCard, type CanvasCommand, type CanvasPicture, type CanvasViewport, type FromCanvas, type Point, type Size, type ToCanvas } from '../src/core/canvasProtocol';
-import { CANVAS_WAIT_LIMIT_S, waitingText } from '../src/core/canvasWait';
+import { waitingText } from '../src/core/canvasWait';
+import { CANVAS_WAIT_LIMIT_SECONDS, GROUP_PAD } from '../src/core/tuning';
 import { PictureRef, RequestView } from './requestView';
 import { cardSize, layoutAssets, layoutEpisode, layoutOf, onBoard, openingViewport, positionsFor } from '../src/core/canvasLayout';
 
@@ -49,7 +50,6 @@ window.addEventListener(ACTION_ENDED, event => {
 	if (stageId && generateOnceSaved.delete(key) && !error) { post({ v: CANVAS_PROTOCOL, type: 'generate', stageId }); }
 });
 type DetailMessage = Extract<ToCanvas, { type: 'detail' }>;
-/** The zoom a board opens at, its frames' top-left corner near the top-left of the pane: readable, not fitted to dots. A starting value (open-pinedrama used 0.55). */
 type Layout = Record<string, Point>;
 /** A picture's own size, or why it could not be read. */
 type Loaded = { size: Size } | { error: string };
@@ -156,8 +156,8 @@ function nodesFor(message: Lineage, loaded: Record<string, Loaded>, place: Layou
 		if (!members.length) {
 			continue;
 		}
-		const w = Math.max(...members.map(c => place[c.id].x + sizes[c.id].w)) + 20;
-		const h = Math.max(...members.map(c => place[c.id].y + sizes[c.id].h)) + 20;
+		const w = Math.max(...members.map(c => place[c.id].x + sizes[c.id].w)) + GROUP_PAD;
+		const h = Math.max(...members.map(c => place[c.id].y + sizes[c.id].h)) + GROUP_PAD;
 		nodes.push({ id: frameId, type: 'frame', position: place[frameId], data: { title: message.titles?.[title] ?? title }, width: w, height: h, style: { width: w, height: h }, zIndex: 0 });
 		for (const card of members) {
 			nodes.push({ id: card.id, type: 'card', parentId: frameId, position: place[card.id], data: { card, loaded: loaded[card.id] }, width: sizes[card.id].w, height: sizes[card.id].h, zIndex: 1 });
@@ -727,8 +727,8 @@ function App() {
 		const timer = setInterval(() => {
 			const seconds = Math.floor((Date.now() - started) / 1000);
 			setWaited(seconds);
-			if (seconds === CANVAS_WAIT_LIMIT_S) {
-				post({ v: CANVAS_PROTOCOL, type: 'failed', message: `no lineage came within ${CANVAS_WAIT_LIMIT_S} s of asking` });
+			if (seconds === CANVAS_WAIT_LIMIT_SECONDS) {
+				post({ v: CANVAS_PROTOCOL, type: 'failed', message: `no lineage came within ${CANVAS_WAIT_LIMIT_SECONDS} s of asking` });
 			}
 		}, 1000);
 		return () => clearInterval(timer);
