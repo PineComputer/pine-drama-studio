@@ -70,13 +70,16 @@ export function registerProjectCommands(context: vscode.ExtensionContext, output
 		const today = new Date().toISOString().slice(0, 10);
 		const go = 'Back Up and Convert';
 		const asked = await vscode.window.showWarningMessage(`${basename(root)} was made by Pine Drama Studio ${LAST_MAJOR_1_STUDIO.version} or earlier. To open it here, the Studio converts it to its own format.`,
-			{ modal: true, detail: `First the folder is copied beside itself as ${basename(root)}.backup-${today}, which Studio ${LAST_MAJOR_1_STUDIO.version} still opens. Then each card keeps the version it showed before; the earlier versions stay in the backup.` }, go);
+			{ modal: true, detail: `First the folder is copied beside itself as a backup, ${basename(root)}.backup-${today} or the next free name, which Studio ${LAST_MAJOR_1_STUDIO.version} still opens. Then each card keeps the version it showed before; the earlier versions stay in the backup.` }, go);
 		if (asked !== go) { return; }
 		try {
-			const backup = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: `Converting ${basename(root)}…` },
+			const { backup, unsettled } = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: `Converting ${basename(root)}…` },
 				() => convertMajor1ProjectToMajor2(root, context.globalStorageUri.fsPath, today));
-			output.appendLine(`conversion: ${root} is major 2; its backup is ${backup}`);
-			void vscode.window.showInformationMessage(`Pine: ${basename(root)} is converted. The folder as it was is kept as ${basename(backup)}.`);
+			output.appendLine(`conversion: ${root} is major 2; its backup is ${backup}${unsettled.length ? `; not settled: ${unsettled.join(', ')}` : ''}`);
+			const done = `Pine: ${basename(root)} is converted. The folder as it was is kept as ${basename(backup)}.`;
+			// Pine's new tools cannot settle a major-1 call or return a major-1 turn, so their results are gone; Pine may have charged for them.
+			void (unsettled.length ? vscode.window.showWarningMessage(`${done} These had not settled in Studio ${LAST_MAJOR_1_STUDIO.version}, and their results can't be recovered; Pine may already have charged for them: ${unsettled.join(', ')}.`)
+				: vscode.window.showInformationMessage(done));
 		} catch (error) {
 			if (error instanceof RefusedWithUpgradeInstructions) { await showRefusal(error); } else { failed(error); }
 		}

@@ -6,7 +6,7 @@
 import { constants, existsSync, readdirSync, readFileSync } from 'node:fs';
 import { cp, mkdir, readFile, rm } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
-import { copyWhole, writeWhole } from './placement';
+import { copyWhole, unusedName, writeWhole } from './placement';
 import { CHOICES_FILE, dramaRecordsOf, publishKeptTurns, readChoices, readVersions, currentVersion, scopedSnapshots, snapshotState, tasksOf, turnsOf, versionRecordOf, type Choices, type VersionRecord } from './major1';
 import { readProjectMajor, writeProjectMarker } from './project';
 import { commitPathsToHistory, runInProjectWriteQueue } from './projectHistory';
@@ -149,32 +149,43 @@ function readVersion(root: string, object: string, id: string): Major1Version {
 	};
 }
 
+/** What a conversion made: the backup's path, and what major 1 left unsettled, whose results the conversion cannot keep. */
+export interface Converted {
+	readonly backup: string;
+	/** Each 0.2.6 turn with no return (`turn <id>`), and each version whose paid call is not settled (`<object>/<version> (<state>)`). */
+	readonly unsettled: readonly string[];
+}
+
 /**
  * Converts the window's major-1 project at `projectRoot` (doc/protocol.md, section 7), as one write in its queue. It
- * refuses while a major-1 turn is owed a return or a paid call is not settled, or when the folder has no snapshot to give
- * its objects. It backs the folder up beside itself, writes each object at its major-1 current version, removes the
+ * refuses only when the folder has no snapshot to give its objects. A turn with no return and a paid call not settled can
+ * no longer settle once Pine runs the major-2 tools, so they are converted as found and named in the result. It backs
+ * the folder up beside itself under the first free name, writes each object at its major-1 current version, removes the
  * major-1 folders, writes the project marker and records the result as one commit. Earlier versions are in the backup
- * only. Returns the backup's path.
+ * only.
  */
-export function convertMajor1ProjectToMajor2(projectRoot: string, globalStorage: string, today: string): Promise<string> {
+export function convertMajor1ProjectToMajor2(projectRoot: string, globalStorage: string, today: string): Promise<Converted> {
 	return runInProjectWriteQueue(projectRoot, async () => {
 		if (readProjectMajor(projectRoot) !== 1) { throw new Error(`${projectRoot} is not a major-1 project; nothing was changed.`); }
-		if (dramaRecordsOf(globalStorage, projectRoot).some(r => r.requests().some(t => !r.handled(t.request.turn)))) {
-			refuseWithUpgradeInstructions(`Nothing was changed. A turn sent from Pine Drama Studio ${LAST_MAJOR_1_STUDIO.version} has not returned yet: finish or stop it there, then open this project here again.`, LAST_MAJOR_1_STUDIO);
-		}
-		refuseWhileAPaidCallIsNotSettled(projectRoot);
-		const backup = join(dirname(projectRoot), `${basename(projectRoot)}.backup-${today}`);
-		if (existsSync(backup)) { throw new Error(`${backup} already exists beside the project, so it cannot be its backup; nothing was changed. If a conversion of this folder was cut off, put that backup back in the folder's place; otherwise rename or move it. Then convert again.`); }
+		// A turn is unreturned when this profile sent it, dealt with no return of it, and the folder holds no turn of it.
+		const turns = turnsOf(projectRoot);
+		const returned = new Set(turns.map(t => t.task));
+		const unreturned = dramaRecordsOf(globalStorage, projectRoot).flatMap(r => r.requests().map(t => t.request.turn).filter(turn => !r.handled(turn) && !returned.has(turn)));
+		const versions = findMajor1Versions(projectRoot);
+		const unsettled = [...unreturned.map(turn => `turn ${turn}`),
+			...versions.filter(v => v.job && !SETTLED.states.includes(String(v.job[SETTLED.field]))).map(v => `${v.object}/${v.id} (${String(v.job![SETTLED.field])})`)];
 		// The snapshots come from the folder's turns/, else from this Studio profile's own returns (the table's snapshots.read_from).
-		const fromProfile = turnsOf(projectRoot).length === 0;
-		if (!scopedSnapshots(fromProfile ? dramaRecordsOf(globalStorage, projectRoot).flatMap(r => r.keptReturns()) : turnsOf(projectRoot)).length) {
+		const fromProfile = turns.length === 0;
+		if (!scopedSnapshots(fromProfile ? dramaRecordsOf(globalStorage, projectRoot).flatMap(r => r.keptReturns()) : turns).length) {
 			refuseWithUpgradeInstructions(`Nothing was changed. This project has no record of its turns: open it once in Pine Drama Studio ${LAST_MAJOR_1_STUDIO.version}, which writes them, then open it here again.`, LAST_MAJOR_1_STUDIO);
 		}
+		// The first free name beside the folder, `<name>.backup-<today>`, else `-2`, `-3`…; cp refuses a target made meanwhile (errorOnExist).
+		const base = `${basename(projectRoot)}.backup-${today}`;
+		const backup = join(dirname(projectRoot), unusedName(dirname(projectRoot), base, n => `${base}-${n}`));
 		// A clone where the file system has them (APFS clonefile), a plain copy otherwise (Node fs.cp, mode COPYFILE_FICLONE).
 		await cp(projectRoot, backup, { recursive: true, errorOnExist: true, force: false, preserveTimestamps: true, mode: constants.COPYFILE_FICLONE });
 		// Into turns/ as a Studio of major 1 writes them there itself on opening it, so the snapshots are read from one place.
 		if (fromProfile) { await publishKeptTurns(globalStorage, projectRoot); }
-		const versions = findMajor1Versions(projectRoot);
 		const removed = await (await Conversion.of(projectRoot, versions, await readChoices(projectRoot))).writeCurrent();
 		const major1Folders = [...versions.map(v => `${v.object}/${v.id}`), ...new Set(versions.map(v => v.object).filter(o => stageOf(o))),
 			...TABLE.objects_dropped, CONFIG.folder, ...TABLE.not_version_folders.dropped.filter(path => path !== CHOICES_FILE), ...foldersNamed(projectRoot, DROPPED_BY_NAME)];
@@ -187,19 +198,8 @@ export function convertMajor1ProjectToMajor2(projectRoot: string, globalStorage:
 		// The folder's own entries by name, so that a .gitignore of the folder's keeps none of them out (an explicit path is
 		// added with --force), and what was removed, which a repository the folder already was still holds.
 		await commitPathsToHistory(projectRoot, AUTHOR, [...entriesOf(projectRoot), ...gone], 'Converted from major 1');
-		return backup;
+		return { backup, unsettled };
 	});
-}
-
-/**
- * Refuses the conversion while a version's paid call is not settled (the table's paid_call_settled): its record goes with
- * its version folder, so a redraw would pay again, and a take still running would never be collected.
- */
-function refuseWhileAPaidCallIsNotSettled(projectRoot: string): void {
-	const unsettled = findMajor1Versions(projectRoot).filter(v => v.job && !SETTLED.states.includes(String(v.job[SETTLED.field]))).map(v => `${v.object}/${v.id}`);
-	if (unsettled.length) {
-		refuseWithUpgradeInstructions(`Nothing was changed. These paid calls have not settled yet: ${unsettled.join(', ')}. Open this project once in Pine Drama Studio ${LAST_MAJOR_1_STUDIO.version}, which settles them, then open it here again.`, LAST_MAJOR_1_STUDIO);
-	}
 }
 
 /** What the conversion reads of the major-1 folder, and the major-2 files it writes from it. */

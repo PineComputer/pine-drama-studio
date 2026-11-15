@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
-import { convertMajor1ProjectToMajor2, LAST_MAJOR_1_STUDIO } from '../core/convertMajor1ProjectToMajor2';
+import { convertMajor1ProjectToMajor2 } from '../core/convertMajor1ProjectToMajor2';
 import { RefusedWithUpgradeInstructions } from '../core/protocol';
 import { git } from '../core/git';
 import { readProjectMajor } from '../core/project';
@@ -105,7 +105,7 @@ const out = async (dir: string, ...args: string[]) => {
 
 test('a major-1 project becomes major 2 by the table: backed up, each object at its major-1 current, and one commit', async () => {
 	const { root, storage } = majorOneProject();
-	const backup = await convertMajor1ProjectToMajor2(root, storage, '2026-11-14');
+	const { backup } = await convertMajor1ProjectToMajor2(root, storage, '2026-11-14');
 
 	assert.equal(backup, `${root}.backup-2026-11-14`);
 	assert.ok(existsSync(join(backup, 'choices.json')) && existsSync(join(backup, ANN, 'v2', 'image-1.png')), 'the backup is the folder as it was');
@@ -164,7 +164,7 @@ test("drama-cli's major-1 records go wherever they are, and a folder that alread
 	await out(root, 'init', '-q');
 	await out(root, '-c', 'user.name=person', '-c', 'user.email=person@localhost', 'add', '-A');
 	await out(root, '-c', 'user.name=person', '-c', 'user.email=person@localhost', 'commit', '-q', '-m', 'the person\'s own');
-	const backup = await convertMajor1ProjectToMajor2(root, storage, '2026-11-14');
+	const { backup } = await convertMajor1ProjectToMajor2(root, storage, '2026-11-14');
 	for (const gone of ['understanding', 'episodes/EP001/understanding', 'episodes/EP001/asset-library', `${RAIN}/understanding`]) {
 		assert.ok(!existsSync(join(root, gone)) && existsSync(join(backup, gone)), `${gone} is gone, and in the backup`);
 	}
@@ -179,34 +179,25 @@ test("a description's receipt is the describe call its entry names, though a lat
 	assert.equal(readJson(root, `${ANN}/description.md.receipt.json`).paid_call_id, 'att-describe-v1');
 });
 
-test('a major-1 turn still owed a return refuses the conversion, naming the Studio to finish it in; nothing is changed', async () => {
+test('a 0.2.6 turn with no return and paid calls not settled are converted as found and named; settled ones are not', async () => {
 	const { root, storage } = majorOneProject();
-	// A request a Studio of major 1 sent, as its record keeps it (major1.ts, DramaRecord.sentTask).
-	const sent = dramaRecordOf(join(storage, 'protocol'), root).requestPath('task-3');
-	mkdirSync(dirname(sent), { recursive: true });
-	writeFileSync(sent, JSON.stringify({ sent: '2026-11-13T10:00:00Z', computer: 'computer', chat: 'chat', request: { turn: 'task-3' } as Request }));
-	await assert.rejects(convertMajor1ProjectToMajor2(root, storage, '2026-11-14'), (error: unknown) =>
-		error instanceof RefusedWithUpgradeInstructions && error.studioVersion === LAST_MAJOR_1_STUDIO.version && error.downloadUrl === LAST_MAJOR_1_STUDIO.downloadUrl
-		&& /Nothing was changed/.test(error.message));
-	assert.ok(!existsSync(`${root}.backup-2026-11-14`) && !existsSync(join(root, '.git')) && readProjectMajor(root) === 1);
-});
-
-test('a paid call not settled refuses the conversion, naming its objects and the Studio that settles them; nothing is changed', async () => {
-	const { root, storage } = majorOneProject();
-	// A take still running at its provider and a picture whose outcome is unknown: deleting their job.json would pay again on a redraw.
+	// A request a Studio of major 1 sent and dealt with no return of (major1.ts, DramaRecord.sentTask), and one the folder's turns/ holds.
+	for (const task of ['task-3', 'task-1']) {
+		const sent = dramaRecordOf(join(storage, 'protocol'), root).requestPath(task);
+		mkdirSync(dirname(sent), { recursive: true });
+		writeFileSync(sent, JSON.stringify({ sent: '2026-11-13T10:00:00Z', computer: 'computer', chat: 'chat', request: { turn: task } as Request }));
+	}
+	// A take still running at its provider and a picture whose outcome is unknown; settled ones: not charged, and counted as charged with its output gone.
 	version(root, 'episodes/EP001/segments/seg01', 't01', '2026-11-02T10:00:00Z', { 'take.mp4': 'take' }, { job: 'running' });
 	version(root, CUP, 'v9', '2026-11-02T11:00:00Z', { 'image-1.png': 'cup' }, { job: 'unknown' });
-	// Settled ones refuse nothing: not charged, and counted as charged with its output gone.
 	version(root, CUP, 'v8', '2026-11-02T09:00:00Z', { 'image-1.png': 'cup refused' }, { job: 'rejected' });
 	version(root, CUP, 'v7', '2026-11-02T08:00:00Z', { 'image-1.png': 'cup lost' }, { job: 'lost' });
-	await assert.rejects(convertMajor1ProjectToMajor2(root, storage, '2026-11-14'), (error: unknown) =>
-		error instanceof RefusedWithUpgradeInstructions && error.studioVersion === LAST_MAJOR_1_STUDIO.version && error.downloadUrl === LAST_MAJOR_1_STUDIO.downloadUrl
-		&& /Nothing was changed/.test(error.message) && error.message.includes(`${CUP}/v9`) && error.message.includes('episodes/EP001/segments/seg01/t01')
-		&& !error.message.includes(`${CUP}/v8`) && !error.message.includes(`${CUP}/v7`));
-	assert.ok(!existsSync(`${root}.backup-2026-11-14`) && !existsSync(join(root, '.git')) && readProjectMajor(root) === 1);
+	const { backup, unsettled } = await convertMajor1ProjectToMajor2(root, storage, '2026-11-14');
+	assert.deepStrictEqual([...unsettled].sort(), ['episodes/EP001/segments/seg01/t01 (running)', `${CUP}/v9 (unknown)`, 'turn task-3'].sort());
+	assert.ok(readProjectMajor(root) === 2 && existsSync(join(backup, CUP, 'v9')));
 });
 
-test('a folder with no snapshot to give its objects, or a backup name already taken, refuses the conversion; nothing is changed', async () => {
+test('a folder with no snapshot to give its objects refuses the conversion; a backup name already taken gives the next free one', async () => {
 	const { root, storage } = majorOneProject();
 	writeFileSync(join(root, 'turns/task-1.json'), JSON.stringify({ ...readJson(root, 'turns/task-1.json'), snapshot: null }));
 	writeFileSync(join(root, 'turns/task-2.json'), JSON.stringify({ ...readJson(root, 'turns/task-2.json'), snapshot: null }));
@@ -214,8 +205,8 @@ test('a folder with no snapshot to give its objects, or a backup name already ta
 	assert.ok(!existsSync(join(root, '.git')) && !existsSync(`${root}.backup-2026-11-14`));
 	const other = majorOneProject();
 	mkdirSync(`${other.root}.backup-2026-11-14`);
-	await assert.rejects(convertMajor1ProjectToMajor2(other.root, other.storage, '2026-11-14'), /already exists beside the project/);
-	assert.ok(!existsSync(join(other.root, '.git')) && readProjectMajor(other.root) === 1);
+	const { backup } = await convertMajor1ProjectToMajor2(other.root, other.storage, '2026-11-14');
+	assert.ok(backup === `${other.root}.backup-2026-11-14-2` && readProjectMajor(other.root) === 2 && existsSync(join(backup, 'choices.json')));
 });
 
 test('an object whose every version was discarded keeps none of their files: its card is empty, and the backup keeps them', async () => {
@@ -223,7 +214,7 @@ test('an object whose every version was discarded keeps none of their files: its
 	const choices = readJson(root, 'choices.json');
 	choices.objects[SHOT] = { discarded: ['v1'] };
 	writeFileSync(join(root, 'choices.json'), JSON.stringify(choices));
-	const backup = await convertMajor1ProjectToMajor2(root, storage, '2026-11-14');
+	const { backup } = await convertMajor1ProjectToMajor2(root, storage, '2026-11-14');
 	assert.ok(!existsSync(join(root, `${SHOT}/image-1.jpg`)) && !existsSync(join(root, `${SHOT}/image-1.jpg.receipt.json`)));
 	assert.equal(readJson(root, `${SHOT}/object.json`).shown_file, null);
 	assert.equal(read(backup, `${SHOT}/v1/image-1.jpg`), 'shot');
