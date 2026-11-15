@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { strict as assert } from 'node:assert';
-import { chmodSync, existsSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -70,6 +70,36 @@ test('nothing of the person\'s change is written when a name is not a path of th
 	assert.equal(readFileSync(join(dir, LOOK), 'utf8'), 'one');
 });
 
+test('while the turn runs, an output whose receipt waits for a folder in its way waits with it, staged nowhere', async () => {
+	const dir = project();
+	await person(dir, { [LOOK]: 'one', 'notes.txt': 'old' });
+	mkdirSync(join(dir, RECEIPT), { recursive: true });
+	writeFileSync(join(dir, RECEIPT, 'in the way'), 'a folder where the receipt goes');
+	const blobOf = async (text: string) => (await git(['hash-object', '-w', '--stdin'], dir, { stdin: text })).stdout.trim();
+	const { landed } = await landTurnFiles(dir, { computer: 'pc-1', session: 's-1', turn: 'turn-1' }, [
+		{ path: LOOK, mode: '100644', blob: await blobOf('two') },
+		{ path: RECEIPT, mode: '100644', blob: await blobOf('{"paid_call_id":"call-0002"}') },
+		{ path: 'notes.txt', mode: '100644', blob: await blobOf('new') },
+	], false, {});
+	assert.deepEqual(landed, ['notes.txt']);
+	assert.equal(readFileSync(join(dir, LOOK), 'utf8'), 'one');
+	assert.deepEqual((await git(['diff', '--cached', '--name-only'], dir)).stdout.trim().split('\n'), ['notes.txt']);
+});
+
+test('while the turn runs, a receipt whose output the person edited waits with it', async () => {
+	const dir = project();
+	await person(dir, { [LOOK]: 'one', [RECEIPT]: '{"paid_call_id":"call-0001"}' });
+	writeFileSync(join(dir, LOOK), 'edited by hand');
+	const blobOf = async (text: string) => (await git(['hash-object', '-w', '--stdin'], dir, { stdin: text })).stdout.trim();
+	const { landed } = await landTurnFiles(dir, { computer: 'pc-1', session: 's-1', turn: 'turn-1' }, [
+		{ path: LOOK, mode: '100644', blob: await blobOf('two') },
+		{ path: RECEIPT, mode: '100644', blob: await blobOf('{"paid_call_id":"call-0002"}') },
+	], false, {});
+	assert.deepEqual(landed, []);
+	assert.equal(readFileSync(join(dir, RECEIPT), 'utf8'), '{"paid_call_id":"call-0001"}');
+	assert.equal((await git(['diff', '--cached', '--name-only'], dir)).stdout.trim(), '');
+});
+
 test("the person's change takes nothing else staged, and a file whose name is words and spaces keeps its history", async () => {
 	const dir = project();
 	await person(dir, { [LOOK]: 'one', 'a blob 1000': 'x' });
@@ -113,4 +143,22 @@ test("a person's change first records the hand edit it writes over, so history k
 	assert.deepEqual(shown.map(line => line.split(' ')[0]), ['person', 'client-found-changes-on-disk', 'person']);
 	assert.equal(await out(dir, 'show', `HEAD~1:${prompt}`), 'B');
 	assert.equal(readFileSync(join(dir, prompt), 'utf8'), 'C');
+});
+
+// The flexibility cuts, item 17: a receipt that could not be written was left out, and its output still landed, so the
+// project held an output with no receipt, or with an older one's (doc/protocol.md 2.3: a receipt goes with its output).
+test('an output whose receipt cannot be written is left out with it, and the rest of the turn lands', async () => {
+	const dir = project();
+	await person(dir, { [LOOK]: 'one', 'notes.txt': 'old' });
+	mkdirSync(join(dir, RECEIPT), { recursive: true });
+	writeFileSync(join(dir, RECEIPT, 'in the way'), 'a folder where the receipt goes');
+	const blobOf = async (text: string) => (await git(['hash-object', '-w', '--stdin'], dir, { stdin: text })).stdout.trim();
+	const { landed, leftOut } = await landTurnFiles(dir, { computer: 'pc-1', session: 's-1', turn: 'turn-1' }, [
+		{ path: LOOK, mode: '100644', blob: await blobOf('two') },
+		{ path: RECEIPT, mode: '100644', blob: await blobOf('{"paid_call_id":"call-0002"}') },
+		{ path: 'notes.txt', mode: '100644', blob: await blobOf('new') },
+	], true, {});
+	assert.deepEqual(landed, ['notes.txt']);
+	assert.deepEqual(Object.fromEntries(leftOut), { [RECEIPT]: 'in the way of a folder or a file', [LOOK]: 'its receipt was left out' });
+	assert.equal(readFileSync(join(dir, LOOK), 'utf8'), 'one');
 });

@@ -63,7 +63,7 @@ export function applyPersonChange(projectRoot: string, commitMessage: string,
 
 /** Why a path of a turn's result was left out of the project, said to the person. */
 export type LeftOut = 'no path of the project' | 'a link' | 'the same name as another but for case' | 'reached through a link' | 'in the way of a folder or a file'
-	| 'not allowed to write there' | 'a name too long for this disk';
+	| 'not allowed to write there' | 'a name too long for this disk' | 'its receipt was left out';
 
 /**
  * Brings what a turn changed into the project folder, in its write queue, path by path, so no one path keeps the rest
@@ -104,7 +104,9 @@ export function landTurnFiles(projectRoot: string, ids: PineTurnIds, entries: re
 				: byKey.get(path.toLowerCase())!.size > 1 ? 'the same name as another but for case' : undefined;
 			if (why) { leftOut.set(path, why); }
 		}
-		const landing = entries.filter(e => !leftOut.has(e.path) && (last || !edited.includes(e.path)));
+		// While the turn runs, an edited path waits for the end, and so does the other half of its receipt and output (2.3).
+		const pairOf = (path: string) => path.endsWith(RECEIPT_SUFFIX) ? path.slice(0, -RECEIPT_SUFFIX.length) : `${path}${RECEIPT_SUFFIX}`;
+		const landing = entries.filter(e => !leftOut.has(e.path) && (last || ![e.path, pairOf(e.path)].some(p => edited.includes(p))));
 		const landed: string[] = [];
 		for (const entry of landing.filter(e => e.blob === null)) {
 			try {
@@ -118,9 +120,11 @@ export function landTurnFiles(projectRoot: string, ids: PineTurnIds, entries: re
 			landed.push(entry.path);
 		}
 		// Each write's destination is judged once the deletions are done, as the folder then is (placement.ts throughNoLink).
+		// Receipts go first, and an output whose receipt this turn changed but could not write is left out with it (2.3).
 		const receiptsFirst = (a: TreeEntry, b: TreeEntry) => Number(!a.path.endsWith(RECEIPT_SUFFIX)) - Number(!b.path.endsWith(RECEIPT_SUFFIX));
 		for (const entry of landing.filter(e => e.blob !== null).sort(receiptsFirst)) {
 			const file = join(projectRoot, entry.path);
+			if (leftOut.has(`${entry.path}${RECEIPT_SUFFIX}`)) { leftOut.set(entry.path, 'its receipt was left out'); continue; }
 			try {
 				if (!throughNoLink(projectRoot, entry.path)) { leftOut.set(entry.path, 'reached through a link'); continue; }
 				await mkdir(dirname(file), { recursive: true });
