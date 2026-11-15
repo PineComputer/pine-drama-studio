@@ -141,12 +141,19 @@ const PART_BYTES = 64 * 1024 * 1024;
 
 /**
  * Makes the drama's folder on the Computer hold what the tar `archive` holds, and not `remove`: the tar goes up in parts
- * under the session's attachments/, and one exec removes `remove` first, so a file never stands where a folder of the
- * archive goes, then extracts the parts there and removes them, so the agent is never told of them.
+ * under the session's attachments/, and one exec removes `remove` first, with the folders that leaves empty (as git does,
+ * dir.c remove_path), so a file and a folder can change places on one path; then it extracts the parts there and
+ * removes them, so the agent is never told of them.
  */
 async function putFiles(at: ComputerSession, archive: string | undefined, remove: readonly string[]): Promise<void> {
 	const steps: string[] = [`mkdir -p ${DRAMA_FOLDER}`];
-	if (remove.length) { steps.push(`(cd ${DRAMA_FOLDER} && rm -f -- ${remove.map(shellWord).join(' ')})`); }
+	if (remove.length) {
+		// Every folder above a removed file, deepest first, each removed only if it is left empty (GNU rmdir); one that is
+		// not there (gone, or a name the listing printed escaped) is skipped, so it never stops the put.
+		const folders = [...new Set(remove.flatMap(path => path.split('/').slice(0, -1).map((_, i, parts) => parts.slice(0, i + 1).join('/'))))]
+			.sort((a, b) => b.split('/').length - a.split('/').length);
+		steps.push(`(cd ${DRAMA_FOLDER} && rm -f -- ${remove.map(shellWord).join(' ')}${folders.length ? ` && for d in ${folders.map(shellWord).join(' ')}; do if [ -d "$d" ]; then rmdir --ignore-fail-on-non-empty -- "$d"; fi; done` : ''})`);
+	}
 	if (archive) {
 		const parts: string[] = [];
 		const file = await open(archive);

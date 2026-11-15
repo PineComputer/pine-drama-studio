@@ -84,6 +84,16 @@ test('before the agent runs, the drama\'s folder holds every file of the project
 	writeFileSync(join(root, 'references/a.txt'), 'the person\'s');
 	await putTurnFiles(at, root, 'turn-5');
 	assert.equal(readFileSync(join(drama, 'references/a.txt'), 'utf8'), 'the person\'s');
+	// And back: the project's folder becomes a file of that name, and the Computer's emptied folder goes first.
+	rmSync(join(root, 'references'), { recursive: true });
+	writeFileSync(join(root, 'references'), 'a file again');
+	await putTurnFiles(at, root, 'turn-6');
+	assert.equal(readFileSync(join(drama, 'references'), 'utf8'), 'a file again');
+	// A folder of the agent's whose name the listing prints escaped (a backslash) is no folder the put can name: skipped.
+	agent(drama, { 'we\\ird/x.txt': 'the agent\'s' });
+	writeFileSync(join(root, 'inputs-brief.md'), 'the brief, once more');
+	assert.equal((await putTurnFiles(at, root, 'turn-7')).put, 1);
+	assert.equal(readFileSync(join(drama, 'inputs-brief.md'), 'utf8'), 'the brief, once more');
 });
 
 test('a put larger than one attachment goes up in parts, and names that start with @ or - or hold quotes go up and come back', async () => {
