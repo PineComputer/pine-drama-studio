@@ -53,6 +53,7 @@
             "character_face",
             "scene",
             "scene_floor_plan",
+            "scene_view",
             "prop",
             "variant",
             "breakdown",

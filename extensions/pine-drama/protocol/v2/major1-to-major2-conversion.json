@@ -123,7 +123,22 @@
       "prompt.json",
       "entry.json"
     ],
-    "also_copies_note": "a key matches a v1 object id, * standing for one path segment; technical-check.json is written after artifact.json, so artifact.json does not list it"
+    "also_copies_note": "a key matches a v1 object id, * standing for one path segment; technical-check.json is written after artifact.json, so artifact.json does not list it",
+    "skip_outputs_by_object": {
+      "assets/scenes/*": [
+        "front.*",
+        "back.*",
+        "left.*",
+        "right.*"
+      ],
+      "assets/scenes/*/variants/*": [
+        "front.*",
+        "back.*",
+        "left.*",
+        "right.*"
+      ],
+      "note": "a scene node's copies of its views are not copied: each view is its own scene_view object (pictures_that_become_objects)"
+    }
   },
   "receipt_rule": {
     "when": "the version folder holds records_in_a_version_folder.paid_call",
@@ -191,6 +206,14 @@
       "type": "scene_floor_plan",
       "name": "<the scene's name> floor plan"
     },
-    "note": "a key matches a major-1 object folder, * standing for one path segment; <the character's name> and <the scene's name> are the owner asset's object.json name; shown_file and objects_sent_by_draw_request follow object_json's rules like any object"
+    "note": "a key matches a major-1 object folder, * standing for one path segment; <the character's name>, <the scene's name> and <the variant's name> are the owner's object.json name, and <side> is the last path segment; shown_file and objects_sent_by_draw_request follow object_json's rules like any object",
+    "assets/scenes/*/views/*": {
+      "type": "scene_view",
+      "name": "<the scene's name> <side> view"
+    },
+    "assets/scenes/*/variants/*/views/*": {
+      "type": "scene_view",
+      "name": "<the variant's name> <side> view"
+    }
   }
 }

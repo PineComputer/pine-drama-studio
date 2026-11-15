@@ -57,7 +57,7 @@ An object is a folder holding **`object.json`** (`$defs/object`):
 
 | Field | Meaning |
 |---|---|
-| `type` | `episode`, `screenplay`, `bible`, `character`, `character_face`, `scene`, `scene_floor_plan`, `prop`, `variant`, `breakdown`, `storyboard`, `keyframe`, `video_prompts`, `take`, `cut` or `subtitles`, in pipeline order. Writers write only these. A client shows an object of a type it does not know as a plain card, and refuses nothing for it. |
+| `type` | `episode`, `screenplay`, `bible`, `character`, `character_face`, `scene`, `scene_floor_plan`, `scene_view`, `prop`, `variant`, `breakdown`, `storyboard`, `keyframe`, `video_prompts`, `take`, `cut` or `subtitles`, in pipeline order. Writers write only these. A client shows an object of a type it does not know as a plain card, and refuses nothing for it. |
 | `name` | Its name for the person. |
 | `shown_file` | The object's shown file, relative to its folder (image, video or text), or `null` before it has one. Such an object is a planned, empty card. |
 | `variant_of` | For a variant: the object id it derives from. |
@@ -70,8 +70,15 @@ An object is a folder holding **`object.json`** (`$defs/object`):
 - **Every drawn picture is an object.** A picture other pictures are drawn from has a folder with `object.json` of its own:
   - `character_face`, at `assets/characters/<id>/looks/face`: the face a character's sheets are drawn from;
   - `scene_floor_plan`, at `assets/scenes/<id>/plan`: the floor plan a scene's views are drawn from.
+  - `scene_view`, at `<scene node>/views/<side>` with side `front`, `back`, `left` or `right`: one side of a scene node, the scene itself or one of its variants, drawn on its own. The node's object shows its composed sheet, whose list names the objects it is composed from, in the sheet's order. The node holds no copies of its views; a reader reads each view object's shown file.
 
-  So `objects_sent_by_draw_request` always lists object ids. For example, a character's list names the objects its sheet is drawn from: its `character_face` when the sheet is drawn from one (a face is optional); a scene's list names its `scene_floor_plan`, then the outside it is inside of; and a floor plan's list names that outside's establishing view when it has one.
+  So `objects_sent_by_draw_request` always lists object ids. For example:
+  - a character's list names the objects its sheet is drawn from: its `character_face` when the sheet is drawn from one (a face is optional);
+  - a scene's front view lists its `scene_floor_plan`, then the outside's establishing view when it is inside of one;
+  - its other views list its front view, then its `scene_floor_plan`;
+  - a variant's view lists the view on the same side of the node it is drawn from (its `variant_of`);
+  - a floor plan lists the outside's establishing view when there is one;
+  - a scene node's composed sheet lists its front, back, floor plan, left and right, as its cells are laid out.
 - **Pine Computer changes an object only in a turn that works on that object.** It plans, draws or rewrites that object itself: never as a side effect of another object changing, and never when it reads one. So a field the person set (`objects_sent_by_draw_request`, `relations`, `variant_of`, the text files) stays as they set it until they, or a turn that works on that object, change it. History keeps both.
 - **References that no longer resolve.** A listed object may be deleted later, and a reference may point back at its own object, directly or through others. Both are allowed in the data. A draw sends the shown files of the listed objects that exist, in order, and names each one it could not send in `pine_computer_could_not_do` (4.6). It refuses nothing. A draw sends files, not a graph, so a cycle sends each file once, as listed.
 - **Who creates objects.** Either side may create an object. The client creates one when the person adds it, with `object.json` and the person's `description.md`. drama-cli derives every name a model reads from `name`, never from the id.
