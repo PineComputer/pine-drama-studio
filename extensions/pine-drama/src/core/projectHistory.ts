@@ -4,8 +4,8 @@
 // since the people who make dramas don't use git, and every version stays recoverable, as Claude Code's checkpoints
 // keep each edit for a rewind. No vscode import.
 
-import { randomUUID } from 'node:crypto';
-import { createWriteStream, existsSync } from 'node:fs';
+import { createHash, randomUUID } from 'node:crypto';
+import { createWriteStream, existsSync, lstatSync } from 'node:fs';
 import { mkdir, mkdtemp, rename, rm, writeFile } from 'node:fs/promises';
 import { devNull, tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
@@ -64,7 +64,7 @@ export function runInProjectWriteQueue<T>(projectRoot: string, write: () => Prom
  * fails is thrown: a version the history does not hold could be overwritten unseen.
  */
 export async function commitPathsToHistory(projectRoot: string, author: CommitAuthor, paths: readonly string[] | 'all', message: string,
-	trailers: Readonly<Record<string, string>> = {}): Promise<void> {
+	trailers: Readonly<Record<string, string>> = {}, leaveOut: readonly string[] = []): Promise<void> {
 	await ensureRepository(projectRoot);
 	const trailing = Object.entries(trailers).flatMap(([key, value]) => ['--trailer', `${key}: ${value}`]);
 	const record = trailing.length > 0;
@@ -75,6 +75,10 @@ export async function commitPathsToHistory(projectRoot: string, author: CommitAu
 	const removed = paths === 'all' ? [] : paths.filter(p => !existsSync(join(projectRoot, p)));
 	if (onDisk.length) { await run(projectRoot, author, ['add', '-A', ...(paths === 'all' ? [] : ['--force']), '--', ...onDisk]); }
 	if (removed.length) { await run(projectRoot, author, ['rm', '-r', '-q', '--cached', '--ignore-unmatch', '--', ...removed]); }
+	// Paths left as they are in HEAD's index: staged back to HEAD (git reset), or out of an index with no HEAD yet.
+	if (leaveOut.length) {
+		await run(projectRoot, author, await hasHead(projectRoot) ? ['reset', '-q', 'HEAD', '--', ...leaveOut] : ['rm', '-r', '-q', '--cached', '--ignore-unmatch', '--', ...leaveOut]);
+	}
 	const inHead = removed.length && await hasHead(projectRoot) ? (await run(projectRoot, author, ['ls-tree', '-r', '-z', '--name-only', 'HEAD', '--', ...removed])).split('\0') : [];
 	const spec = [...onDisk, ...removed.filter(p => inHead.some(t => t === p || t.startsWith(`${p}/`)))];
 	if (!spec.length && !record) { return; }
@@ -91,11 +95,108 @@ export async function commitPathsToHistory(projectRoot: string, author: CommitAu
 
 /**
  * Commits, in the project's write queue, whatever the folder holds that no commit records, as
- * `client-found-changes-on-disk`
- * (doc/protocol.md 2.1): at opening, and before a turn's seed (4.2).
+ * `client-found-changes-on-disk` (doc/protocol.md 2.1), at opening (recordFilesFoundOnDisk).
  */
 export function commitFilesFoundOnDisk(projectRoot: string, message: string): Promise<void> {
-	return runInProjectWriteQueue(projectRoot, () => commitPathsToHistory(projectRoot, 'client-found-changes-on-disk', 'all', message));
+	return runInProjectWriteQueue(projectRoot, () => recordFilesFoundOnDisk(projectRoot, message));
+}
+
+/**
+ * Inside the project's write queue: commits whatever the folder holds that no commit records, as
+ * `client-found-changes-on-disk`, but the files a running turn has written so far: they are that turn's, and its one
+ * commit at its end records them (writtenByRunningTurns).
+ */
+export async function recordFilesFoundOnDisk(projectRoot: string, message: string): Promise<void> {
+	const turns = await writtenByRunningTurns(projectRoot);
+	const paths = [...new Set(turns.flatMap(turn => [...turn.files.keys()]))];
+	// Only where the folder still holds what a turn wrote: a hand edit since is the person's, and is recorded.
+	const disk = await onDisk(projectRoot, paths);
+	const writing = paths.filter(path => turns.some(turn => turn.files.get(path) === blobOf(disk.get(path))));
+	await commitPathsToHistory(projectRoot, 'client-found-changes-on-disk', 'all', message, {}, writing);
+}
+
+/**
+ * The project's refs for a session of Pine Computer (one name per session, from its own), outside refs/heads, so no
+ * branch shows them: `acked`, the last commit both sides hold, which the project's history records; `put`, the snapshot
+ * going up; `captured`, the turn's last capture on the Computer, which the next one follows; `incoming`, a capture just
+ * fetched; `written`, a commit of what the turn has written into the folder so far, a path at a time.
+ */
+export function sessionRefs(session: string): SessionRefs {
+	const key = createHash('sha256').update(session).digest('hex').slice(0, 16);
+	const ref = (kind: string) => `${SESSION_REFS}/${kind}/${key}`;
+	return { acked: ref('sessions'), put: ref('put'), captured: ref('captured'), incoming: ref('incoming'), written: ref('written') };
+}
+
+export interface SessionRefs { readonly acked: string; readonly put: string; readonly captured: string; readonly incoming: string; readonly written: string }
+
+const SESSION_REFS = 'refs/pine-drama';
+
+/**
+ * Each running turn's writes into the folder that no commit records yet: for each session whose `written` commit is
+ * not its acknowledged one, the paths that differ, with the blob it wrote there or null where it removed one.
+ */
+export async function writtenByRunningTurns(projectRoot: string): Promise<{ readonly written: string; readonly files: ReadonlyMap<string, string | null> }[]> {
+	if (!existsSync(join(projectRoot, '.git'))) { return []; }
+	const turns: { written: string; files: Map<string, string | null> }[] = [];
+	for (const written of (await run(projectRoot, 'person', ['for-each-ref', '--format=%(refname)', `${SESSION_REFS}/written/`])).split('\n').filter(Boolean)) {
+		const acked = await readRef(projectRoot, written.replace(`${SESSION_REFS}/written/`, `${SESSION_REFS}/sessions/`));
+		const wrote = await readRef(projectRoot, written);
+		if (!acked || !wrote || acked === wrote) { continue; }
+		turns.push({ written, files: new Map((await treeChanges(projectRoot, acked, wrote)).map(e => [e.path, e.blob])) });
+	}
+	return turns;
+}
+
+/** A commit of `base`'s tree with `entries` in it (a temporary index, write-tree, commit-tree), or `base` itself for none. */
+export async function commitTreeWith(projectRoot: string, base: string, entries: readonly TreeEntry[]): Promise<string> {
+	if (!entries.length) { return base; }
+	const tree = await withIndex(async index => {
+		await run(projectRoot, 'person', ['read-tree', base], { index });
+		await run(projectRoot, 'person', ['update-index', '-z', '--index-info'], { index, stdin: indexLines(entries) });
+		return (await run(projectRoot, 'person', ['write-tree'], { index })).trim();
+	});
+	return (await run(projectRoot, 'person', ['commit-tree', tree, '-m', 'What a turn has written into the folder'])).trim();
+}
+
+/** Every file of `rev` (git ls-tree -r), by path, with its mode and blob; none where `rev` names no commit. */
+export async function filesOf(projectRoot: string, rev: string): Promise<Map<string, { readonly mode: string; readonly blob: string }>> {
+	if (!await readRef(projectRoot, rev)) { return new Map(); }
+	// "<mode> <type> <blob>\t<path>", NUL-terminated.
+	return new Map((await run(projectRoot, 'person', ['ls-tree', '-r', '-z', '--full-tree', rev])).split('\0').filter(Boolean).map(line => {
+		const [mode, , blob] = line.slice(0, line.indexOf('\t')).split(' ');
+		return [line.slice(line.indexOf('\t') + 1), { mode, blob }] as const;
+	}));
+}
+
+/** What stands at a path of the folder: a file, by git's mode and blob; nothing (null); or a folder or anything else. */
+export type DiskState = { readonly mode: string; readonly blob: string } | null | 'folder';
+
+/** The blob a disk state holds there, or null where no file does. */
+export const blobOf = (state: DiskState | undefined): string | null => state && state !== 'folder' ? state.blob : null;
+
+/**
+ * What the folder holds at each of `paths`, each file by git's own id of its bytes and its mode (git hash-object, the
+ * paths given as arguments, so a name is never read as git's quoted form; with `store`, -w writes each into the
+ * repository, so a commit can name it).
+ */
+export async function onDisk(projectRoot: string, paths: readonly string[], store = false): Promise<Map<string, DiskState>> {
+	const found = new Map<string, DiskState>();
+	const files: { path: string; mode: string }[] = [];
+	for (const path of paths) {
+		try {
+			const stat = lstatSync(join(projectRoot, path));
+			if (stat.isFile()) { files.push({ path, mode: stat.mode & 0o100 ? '100755' : '100644' }); } else { found.set(path, 'folder'); }
+		} catch {
+			found.set(path, null);
+		}
+	}
+	await ensureRepository(projectRoot);
+	for (let i = 0; i < files.length; i += 200) {
+		const batch = files.slice(i, i + 200);
+		const ids = (await run(projectRoot, 'person', ['hash-object', ...store ? ['-w'] : [], '--', ...batch.map(f => f.path)])).trim().split('\n');
+		batch.forEach((file, j) => found.set(file.path, { mode: file.mode, blob: ids[j] }));
+	}
+	return found;
 }
 
 /** Pine's own ids of a turn: its Computer, its session (Pine names a session by its name) and the turn. */
@@ -280,11 +381,6 @@ export async function treeChanges(projectRoot: string, from: string, to: string)
 	return entries;
 }
 
-/** Every path HEAD holds (git ls-tree -r --name-only). */
-export async function listPathsOfHead(projectRoot: string): Promise<string[]> {
-	if (!existsSync(join(projectRoot, '.git')) || !await hasHead(projectRoot)) { return []; }
-	return (await run(projectRoot, 'person', ['ls-tree', '-r', '-z', '--name-only', '--full-tree', 'HEAD'])).split('\0').filter(Boolean);
-}
 
 /**
  * Inside the project's write queue, once its folder holds them: commits exactly `entries` onto HEAD as `author`, with
@@ -297,8 +393,7 @@ export async function commitEntriesToHistory(projectRoot: string, author: Commit
 	trailers: Readonly<Record<string, string>>, refs: Readonly<Record<string, string>> = {}): Promise<void> {
 	await ensureRepository(projectRoot);
 	const head = await readRef(projectRoot, 'HEAD');
-	const lines = [...entries].sort((a, b) => Number(a.blob !== null) - Number(b.blob !== null))
-		.map(e => e.blob === null ? `0 ${'0'.repeat(40)}\t${e.path}` : `${e.mode} ${e.blob}\t${e.path}`).join('\0') + '\0';
+	const lines = indexLines(entries);
 	const moves = { ...refs };
 	if (entries.length) {
 		const tree = await withIndex(async index => {
@@ -315,6 +410,10 @@ export async function commitEntriesToHistory(projectRoot: string, author: Commit
 	await run(projectRoot, author, ['update-ref', '--stdin'], { stdin: transaction });
 	if (entries.length) { await run(projectRoot, author, ['update-index', '-z', '--index-info'], { stdin: lines }); }
 }
+
+/** `entries` as git update-index --index-info reads them, NUL-terminated, deletions first, so a file and a folder can change places. */
+const indexLines = (entries: readonly TreeEntry[]): string => [...entries].sort((a, b) => Number(a.blob !== null) - Number(b.blob !== null))
+	.map(e => e.blob === null ? `0 ${'0'.repeat(40)}\t${e.path}` : `${e.mode} ${e.blob}\t${e.path}`).join('\0') + '\0';
 
 /**
  * Runs `use` with a temporary index, removed after (GIT_INDEX_FILE): outside the folder, as `.git` may be a file (a

@@ -13,11 +13,11 @@ import { join } from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import type { ReadableStream as WebReadableStream } from 'node:stream/web';
-import { landTurnResult, type LeftOut } from './applyChange';
+import { landTurnFiles, type LeftOut } from './applyChange';
 import { writeWhole } from './placement';
 import type { PineConnection, PinePort, PineSession } from './pinePort';
 import { projectIdentity } from './projectPlace';
-import { bundleRef, commitEntriesToHistory, commitPathsToHistory, commitSnapshotOfHead, fetchBundle, readRef, runInProjectWriteQueue, treeChanges, type PineTurnIds } from './projectHistory';
+import { bundleRef, commitEntriesToHistory, commitSnapshotOfHead, fetchBundle, readRef, recordFilesFoundOnDisk, runInProjectWriteQueue, sessionRefs, type PineTurnIds } from './projectHistory';
 import { DRAMA_FOLDER } from './protocol';
 import { sha256 } from './sha256';
 
@@ -129,15 +129,6 @@ const PUT_BUNDLE = 'pine-drama-put.bundle';
 const GET_BUNDLE = 'pine-drama-get.bundle';
 
 /**
- * The project's refs for a session (one name per session, from its own): `acked`, the last commit both sides hold;
- * `put`, the snapshot going up; `result`, the last capture fetched back. Refs outside refs/heads, so no branch shows them.
- */
-function sessionRefs(session: string): { readonly acked: string; readonly put: string; readonly result: string } {
-	const key = sha256(session).slice(0, 16);
-	return { acked: `refs/pine-drama/sessions/${key}`, put: `refs/pine-drama/put/${key}`, result: `refs/pine-drama/result/${key}` };
-}
-
-/**
  * Turn `turn`'s files on the Computer before its agent runs. In the project's write queue, the folder is recorded, and
  * HEAD's files (no hidden ones, no links) are made a snapshot commit and bundled: a child of the session's acknowledged
  * commit when the Computer still holds it (git cat-file -e), so only what it lacks goes up, else a commit with no
@@ -153,7 +144,7 @@ export async function putTurnFiles(at: ComputerSession, root: string, turn: stri
 	const bundle = join(dir, 'put.bundle');
 	try {
 		const seed = await runInProjectWriteQueue(root, async () => {
-			await commitPathsToHistory(root, 'client-found-changes-on-disk', 'all', `The project as found before turn ${turn}`);
+			await recordFilesFoundOnDisk(root, `The project as found before turn ${turn}`);
 			const seed = await commitSnapshotOfHead(root, refs.put, held ? acked : null, `The project as turn ${turn} starts`);
 			await bundleRef(root, bundle, refs.put, held ? acked : null);
 			return seed;
@@ -173,7 +164,8 @@ export async function putTurnFiles(at: ComputerSession, root: string, turn: stri
 		} finally { await file.close(); }
 		await run(at, [INIT, `cat ${parts.map(name => `attachments/${name}`).join(' ')} > ${PUT_BUNDLE}`, `rm -f attachments/${PUT_PART}*`,
 			`${GIT} fetch -q --no-tags ${PUT_BUNDLE} +${refs.put}:refs/studio`, `${GIT} read-tree --reset -u refs/studio`, `${GIT} clean -ffdxq ${DRAMA_PATHS}`, `rm -f ${PUT_BUNDLE}`].join(' && '));
-		await runInProjectWriteQueue(root, () => commitEntriesToHistory(root, 'person', [], '', {}, { [refs.acked]: seed }));
+		// The turn starts from the snapshot: nothing captured or written yet.
+		await runInProjectWriteQueue(root, () => commitEntriesToHistory(root, 'person', [], '', {}, { [refs.acked]: seed, [refs.captured]: seed, [refs.written]: seed }));
 		return { seed };
 	} finally {
 		await rm(dir, { recursive: true, force: true });
@@ -187,31 +179,50 @@ export interface Collected {
 }
 
 /**
- * Lands what Pine's turn `ids` agent changed in the drama's folder on the Computer, at its Pine turn's end however it ended.
- * One exec stages it all (git add -A --force, names starting with "." left out) and, when the tree differs from the session's
- * acknowledged commit, commits it as that commit's child and bundles only that commit; an unchanged tree makes no
- * commit and no bundle. The bundle is read back and fetched under a private ref, and the paths that differ (git
- * diff-tree, no renames) land path by path (applyChange.ts landTurnResult), the acknowledged commit moving with them.
- * Collecting again is a no-op.
+ * Collects what Pine's turn `ids` agent has changed in the drama's folder on the Computer: while the turn runs (`last`
+ * false), on a timer, and once at its Pine turn's end however it ended (`last` true), which is the last word.
+ *
+ * One exec stages the folder (git add -A --force, names starting with "." left out) and, when its tree differs from the
+ * turn's last capture (or, before any, the session's acknowledged commit), commits it as that capture's child and
+ * bundles only that commit; an unchanged tree makes no commit and no bundle. The bundle is read back and fetched under
+ * a private ref, and the folder is brought to it (applyChange.ts landTurnFiles): with no commit while the turn runs, in
+ * the turn's one commit at its end. Collecting again is a no-op.
  */
-export async function collectTurn(at: ComputerSession, root: string, ids: PineTurnIds): Promise<Collected> {
+export async function collectTurn(at: ComputerSession, root: string, ids: PineTurnIds, { last }: { readonly last: boolean }): Promise<Collected> {
 	const refs = sessionRefs(at.session.name);
 	const acked = await readRef(root, refs.acked);
 	if (!acked) { throw new Error(`the Studio holds no commit of session ${at.session.name}, so its turn cannot be compared`); }
+	// The turn's last capture, and what it has written into the folder: both at the put's snapshot until it captures.
+	const base = (await readRef(root, refs.captured)) ?? acked;
+	const written = (await readRef(root, refs.written)) ?? acked;
 	const said = await run(at, [`${GIT} add -A --force ${DRAMA_PATHS}`, `t=$(${GIT} write-tree)`,
-		`if [ "$t" = "$(${GIT} rev-parse ${acked}^{tree})" ]; then echo unchanged; else c=$(${GIT} -c user.name=pine-computer -c user.email=pine-computer@pine-drama.invalid commit-tree "$t" -p ${acked} -m ${shellWord(`Turn ${ids.turn}`)})`
-		+ ` && ${GIT} update-ref refs/heads/turn "$c" && ${GIT} bundle create ${GET_BUNDLE} refs/heads/turn ^${acked} && echo captured; fi`].join(' && '));
-	if (said.trim().split('\n').at(-1) === 'unchanged') { return { files: [], leftOut: new Map() }; }
+		`if [ "$t" = "$(${GIT} rev-parse ${base}^{tree})" ]; then echo unchanged; else c=$(${GIT} -c user.name=pine-computer -c user.email=pine-computer@pine-drama.invalid commit-tree "$t" -p ${base} -m ${shellWord(`Turn ${ids.turn}`)})`
+		+ ` && ${GIT} update-ref refs/heads/turn "$c" && ${GIT} bundle create ${GET_BUNDLE} refs/heads/turn ^${base} && echo captured; fi`].join(' && '));
+	const to = said.trim().split('\n').at(-1) === 'unchanged' ? base : await fetchCapture(at, root, refs.incoming);
+	const { landed, leftOut } = await landTurnFiles(root, { ids, refs, acked, written, to, last });
+	return { files: landed, leftOut };
+}
+
+/** The capture the Computer bundled, read back by read_file and fetched into `into`; returns its commit. */
+async function fetchCapture(at: ComputerSession, root: string, into: string): Promise<string> {
 	const dir = await mkdtemp(join(tmpdir(), 'pine-drama-get-'));
 	const bundle = join(dir, 'get.bundle');
 	try {
 		const stream = await at.port.openFile(at.env, at.session, GET_BUNDLE);
 		await pipeline(Readable.fromWeb(stream as WebReadableStream<Uint8Array>), createWriteStream(bundle));
 		await run(at, `rm -f ${GET_BUNDLE}`);
-		const result = await runInProjectWriteQueue(root, () => fetchBundle(root, bundle, 'refs/heads/turn', refs.result));
-		const { landed, leftOut } = await landTurnResult(root, ids, await treeChanges(root, acked, result), { [refs.acked]: result });
-		return { files: landed, leftOut };
+		return await runInProjectWriteQueue(root, () => fetchBundle(root, bundle, 'refs/heads/turn', into));
 	} finally {
 		await rm(dir, { recursive: true, force: true });
 	}
+}
+
+/**
+ * A session Pine no longer has took its files with it: what its last turn wrote into the folder before its end is no
+ * running turn's any more, so the next found-on-disk commit records it (projectHistory.ts recordFilesFoundOnDisk).
+ */
+export async function forgetCaptures(root: string, session: string): Promise<void> {
+	const refs = sessionRefs(session);
+	const acked = await readRef(root, refs.acked);
+	if (acked) { await runInProjectWriteQueue(root, () => commitEntriesToHistory(root, 'person', [], '', {}, { [refs.captured]: acked, [refs.written]: acked })); }
 }

@@ -4,11 +4,11 @@
 // since media replaces whole files and history keeps what it replaces. It runs in the project's one write queue (projectHistory.ts), with the person's other writes.
 // No vscode import.
 
-import { existsSync, lstatSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { mkdir, rm, rmdir } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { throughNoLink, writeWhole } from './placement';
-import { commitEntriesToHistory, commitPathsToHistory, listPathsOfHead, runInProjectWriteQueue, turnTrailers, writeBlob, type PineTurnIds, type TreeEntry } from './projectHistory';
+import { blobOf, commitEntriesToHistory, commitPathsToHistory, commitTreeWith, filesOf, onDisk, runInProjectWriteQueue, treeChanges, turnTrailers, writeBlob, writtenByRunningTurns, type PineTurnIds, type SessionRefs, type TreeEntry } from './projectHistory';
 import { matches, RECEIPT_SUFFIX } from './protocol';
 import { sha256, sha256OfFile } from './sha256';
 
@@ -63,65 +63,115 @@ export type LeftOut = 'no path of the project' | 'a link' | 'the same name as an
 	| 'not allowed to write there' | 'a name too long for this disk';
 
 /**
- * Lands a turn's result in the project folder, in its write queue: `entries`, the paths it changed in git's own objects
- * (projectHistory.ts treeChanges), each on its own, so no one path keeps the rest out. A path is left out, and named
- * with why, when it is no path of the project (section 1), a link or another repository (its mode is no file's), the same
- * name as another but for case, reached through a link at the destination, or when the folder will not take it there
- * (pathError): a folder that is not empty where it writes a file, a file where it needs a folder, a folder it may not
- * write, a name too long. Only an error that is about no one path (git's, a full disk) fails the landing. Deletions go first, each with the folders it leaves empty
- * (as git does, dir.c remove_path), so a file and a folder can change places; then each file is streamed from its blob.
- * One `pine-computer` commit of exactly what landed, with the turn's trailers, moves HEAD and `refs` together.
+ * Brings a turn's capture `to` into the project folder, in its write queue: while the turn runs (`last` false), on a
+ * timer, and at its Pine turn's end (`last` true), which is the last word. The folder moves from what the turn has
+ * written so far (`written`, a commit of it, projectHistory.ts sessionRefs) to the capture, path by path (writeEntries),
+ * and `written` records only what was written, so a path skipped or left out is tried again.
+ *
+ * A path the person changed by hand is one whose disk state is not what it should be: what the turn wrote there, for a
+ * path it has written; else HEAD's, or what another running turn wrote (writtenByRunningTurns). While the turn runs it is
+ * not written over; at the end it is committed first, as `client-found-changes-on-disk`, so history keeps it.
+ *
+ * Only at the end does history move: one `pine-computer` commit, with the turn's trailers, of every path the turn
+ * changed as the folder now holds it, against HEAD as it then is; a file the turn wrote and removed again is in none.
+ * HEAD and the session's refs (`acked`, `captured`, `written` all at `to`) move in one transaction; while the turn runs
+ * only `captured` and `written` move.
  */
-export function landTurnResult(projectRoot: string, ids: PineTurnIds, entries: readonly TreeEntry[], refs: Readonly<Record<string, string>>):
+export function landTurnFiles(projectRoot: string, turn: { readonly ids: PineTurnIds; readonly refs: SessionRefs; readonly acked: string; readonly written: string; readonly to: string; readonly last: boolean }):
 	Promise<{ readonly landed: readonly string[]; readonly leftOut: ReadonlyMap<string, LeftOut> }> {
+	const { ids, refs, acked, written, to, last } = turn;
 	return runInProjectWriteQueue(projectRoot, async () => {
-		const leftOut = new Map<string, LeftOut>();
-		const writes = entries.filter(e => e.blob !== null);
-		const gone = new Set(entries.filter(e => e.blob === null).map(e => e.path));
-		// The project's paths once this lands, by case-folded name: a write whose name another holds but for case is left out.
-		const byKey = new Map<string, Set<string>>();
-		for (const path of [...(await listPathsOfHead(projectRoot)).filter(path => !gone.has(path)), ...writes.map(e => e.path)]) {
-			byKey.set(path.toLowerCase(), new Set([...byKey.get(path.toLowerCase()) ?? [], path]));
+		const entries = await treeChanges(projectRoot, written, to);
+		const own = new Map((await treeChanges(projectRoot, acked, written)).map(e => [e.path, e.blob] as const));
+		const others = (await writtenByRunningTurns(projectRoot)).filter(t => t.written !== refs.written);
+		const head = await filesOf(projectRoot, 'HEAD');
+		// Every path the turn has touched, at the end; the ones it writes now, while it runs.
+		const touched = [...new Set([...last ? own.keys() : [], ...entries.map(e => e.path)])];
+		const disk = await onDisk(projectRoot, touched);
+		const othersWrote = (path: string, blob: string | null) => others.some(t => t.files.has(path) && t.files.get(path) === blob);
+		// A folder standing at a path is no hand edit: what is in it is judged at its own paths, and a write there is left out
+		// as in the way. What another running turn wrote there is that turn's, never the person's.
+		const edited = touched.filter(path => {
+			const state = disk.get(path);
+			return state !== 'folder' && !othersWrote(path, blobOf(state)) && (own.has(path) ? own.get(path) : head.get(path)?.blob ?? null) !== blobOf(state);
+		});
+		if (last && edited.length) { await commitPathsToHistory(projectRoot, 'client-found-changes-on-disk', edited, 'Changes found on disk before a turn\'s result'); }
+		// The folder's names once this lands, for the case check: HEAD's, and what the turn has written so far.
+		const present = [...new Set([...head.keys(), ...(await filesOf(projectRoot, written)).keys()])];
+		const { landed, leftOut } = await writeEntries(projectRoot, last ? entries : entries.filter(e => !edited.includes(e.path)), present);
+		if (!last) {
+			await commitEntriesToHistory(projectRoot, 'pine-computer', [], '', {}, { [refs.captured]: to, [refs.written]: await commitTreeWith(projectRoot, written, landed) });
+			return { landed: landed.map(e => e.path), leftOut };
 		}
-		for (const { path, mode, blob } of entries) {
-			const why: LeftOut | undefined = !validPath(path) ? 'no path of the project' : blob === null ? undefined : mode !== '100644' && mode !== '100755' ? 'a link'
-				: byKey.get(path.toLowerCase())!.size > 1 ? 'the same name as another but for case' : undefined;
-			if (why) { leftOut.set(path, why); }
-		}
-		const landing = entries.filter(e => !leftOut.has(e.path));
-		// A file the person edited by hand there is recorded first, so the result replaces a version history keeps.
-		const edited = landing.map(e => e.path).filter(path => { try { return lstatSync(join(projectRoot, path)).isFile(); } catch { return false; } });
-		if (edited.length) { await commitPathsToHistory(projectRoot, 'client-found-changes-on-disk', edited, 'Changes found on disk before a turn\'s result'); }
-		const landed: TreeEntry[] = [];
-		for (const entry of landing.filter(e => e.blob === null)) {
-			try {
-				if (!throughNoLink(projectRoot, entry.path)) { leftOut.set(entry.path, 'reached through a link'); continue; }
-				await rm(join(projectRoot, entry.path), { force: true });
-			} catch (error) {
-				leftOut.set(entry.path, pathError(error));
-				continue;
-			}
-			await removeEmptiedFolders(projectRoot, dirname(entry.path));
-			landed.push(entry);
-		}
-		// Each write's destination is judged once the deletions are done, as the folder then is (placement.ts throughNoLink);
-		// receipts go before the outputs they describe (2.3), so an output is never on disk without its receipt.
-		const receiptsFirst = (a: TreeEntry, b: TreeEntry) => Number(!a.path.endsWith(RECEIPT_SUFFIX)) - Number(!b.path.endsWith(RECEIPT_SUFFIX));
-		for (const entry of landing.filter(e => e.blob !== null).sort(receiptsFirst)) {
-			const file = join(projectRoot, entry.path);
-			try {
-				if (!throughNoLink(projectRoot, entry.path)) { leftOut.set(entry.path, 'reached through a link'); continue; }
-				await mkdir(dirname(file), { recursive: true });
-				await writeBlob(projectRoot, entry.blob!, file, entry.mode === '100755');
-			} catch (error) {
-				leftOut.set(entry.path, pathError(error));
-				continue;
-			}
-			landed.push(entry);
-		}
-		await commitEntriesToHistory(projectRoot, 'pine-computer', landed, `Turn ${ids.turn}`, turnTrailers(ids), refs);
-		return { landed: landed.map(e => e.path), leftOut };
+		// The turn's one commit: each path it touched, as the folder now holds it, where HEAD (with the hand edits recorded)
+		// differs; a file another running turn wrote there is that turn's.
+		const now = await filesOf(projectRoot, 'HEAD');
+		const held = await onDisk(projectRoot, touched, true);
+		const committed: TreeEntry[] = touched.flatMap(path => {
+			const state = held.get(path);
+			const file = state && state !== 'folder' ? state : null;
+			const was = now.get(path);
+			if ((was?.blob ?? null) === (file?.blob ?? null) && (!file || was!.mode === file.mode)) { return []; }
+			if (file && othersWrote(path, file.blob)) { return []; }
+			return [{ path, mode: file?.mode ?? '000000', blob: file?.blob ?? null }];
+		});
+		await commitEntriesToHistory(projectRoot, 'pine-computer', committed, `Turn ${ids.turn}`, turnTrailers(ids), { [refs.acked]: to, [refs.captured]: to, [refs.written]: to });
+		return { landed: committed.map(e => e.path), leftOut };
 	});
+}
+
+/**
+ * Writes `entries` into the folder, each path on its own, so no one path keeps the rest out. A path is left out, and
+ * named with why, when it is no path of the project (section 1), a link or another repository (its mode is no file's),
+ * the same name as another but for case, reached through a link at the destination, or when the folder will not take
+ * it there (pathError): a folder that is not empty where it writes a file, a file where it needs a folder, a folder it
+ * may not write, a name too long. Only an error that is about no one path (git's, a full disk) is thrown. Deletions go
+ * first, each with the folders it leaves empty (as git does, dir.c remove_path), so a file and a folder can change
+ * places; then each file is streamed from its blob, receipts before their outputs (2.3).
+ */
+async function writeEntries(projectRoot: string, entries: readonly TreeEntry[], present: readonly string[]): Promise<{ readonly landed: TreeEntry[]; readonly leftOut: Map<string, LeftOut> }> {
+	const leftOut = new Map<string, LeftOut>();
+	const writes = entries.filter(e => e.blob !== null);
+	const gone = new Set(entries.filter(e => e.blob === null).map(e => e.path));
+	// The folder's paths once this lands (`present`, its names now), by case-folded name: a write whose name another holds
+	// but for case is left out.
+	const byKey = new Map<string, Set<string>>();
+	for (const path of [...present.filter(path => !gone.has(path)), ...writes.map(e => e.path)]) {
+		byKey.set(path.toLowerCase(), new Set([...byKey.get(path.toLowerCase()) ?? [], path]));
+	}
+	for (const { path, mode, blob } of entries) {
+		const why: LeftOut | undefined = !validPath(path) ? 'no path of the project' : blob === null ? undefined : mode !== '100644' && mode !== '100755' ? 'a link'
+			: byKey.get(path.toLowerCase())!.size > 1 ? 'the same name as another but for case' : undefined;
+		if (why) { leftOut.set(path, why); }
+	}
+	const landing = entries.filter(e => !leftOut.has(e.path));
+	const landed: TreeEntry[] = [];
+	for (const entry of landing.filter(e => e.blob === null)) {
+		try {
+			if (!throughNoLink(projectRoot, entry.path)) { leftOut.set(entry.path, 'reached through a link'); continue; }
+			await rm(join(projectRoot, entry.path), { force: true });
+		} catch (error) {
+			leftOut.set(entry.path, pathError(error));
+			continue;
+		}
+		await removeEmptiedFolders(projectRoot, dirname(entry.path));
+		landed.push(entry);
+	}
+	// Each write's destination is judged once the deletions are done, as the folder then is (placement.ts throughNoLink).
+	const receiptsFirst = (a: TreeEntry, b: TreeEntry) => Number(!a.path.endsWith(RECEIPT_SUFFIX)) - Number(!b.path.endsWith(RECEIPT_SUFFIX));
+	for (const entry of landing.filter(e => e.blob !== null).sort(receiptsFirst)) {
+		const file = join(projectRoot, entry.path);
+		try {
+			if (!throughNoLink(projectRoot, entry.path)) { leftOut.set(entry.path, 'reached through a link'); continue; }
+			await mkdir(dirname(file), { recursive: true });
+			await writeBlob(projectRoot, entry.blob!, file, entry.mode === '100755');
+		} catch (error) {
+			leftOut.set(entry.path, pathError(error));
+			continue;
+		}
+		landed.push(entry);
+	}
+	return { landed, leftOut };
 }
 
 /** What a file system error says about the one path it was raised for (Node's error codes, POSIX errno). */
