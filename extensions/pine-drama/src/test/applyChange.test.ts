@@ -4,7 +4,7 @@ import { chmodSync, existsSync, mkdtempSync, readFileSync, symlinkSync, writeFil
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { applyPersonChange, landTurnResult, NotAProjectPathError } from '../core/applyChange';
+import { applyPersonChange, landTurnFiles, NotAProjectPathError } from '../core/applyChange';
 import { git } from '../core/git';
 import { commitFilesFoundOnDisk, listHistory } from '../core/projectHistory';
 
@@ -40,8 +40,8 @@ test("a turn's result lands over the person's edit, and the file's history keeps
 	await commitFilesFoundOnDisk(dir, 'Changes found on disk');
 	const two = (await git(['hash-object', '-w', '--stdin'], dir, { stdin: 'picture two' })).stdout.trim();
 	const ids = (turn: string) => ({ computer: 'pc-1', session: 's-1', turn });
-	assert.deepEqual((await landTurnResult(dir, ids('turn-2'), [{ path: LOOK, mode: '100644', blob: two }], {})).landed, [LOOK]);
-	await landTurnResult(dir, ids('turn-3'), [{ path: LOOK, mode: '100644', blob: null }], {});
+	assert.deepEqual((await landTurnFiles(dir, ids('turn-2'), [{ path: LOOK, mode: '100644', blob: two }], true, {})).landed, [LOOK]);
+	await landTurnFiles(dir, ids('turn-3'), [{ path: LOOK, mode: '100644', blob: null }], true, {});
 	assert.equal(existsSync(join(dir, LOOK)), false, 'null deletes the file');
 	assert.equal(existsSync(join(dir, 'assets')), false, 'and the folders it leaves empty');
 	assert.deepEqual((await listHistory(dir, LOOK)).map(h => [h.author, h.files.get(LOOK), h.turnId]), [
@@ -90,11 +90,11 @@ test('a path the folder will not take (a read-only folder) is left out with why,
 	chmodSync(join(dir, 'locked'), 0o555);
 	try {
 		const blobOf = async (text: string) => (await git(['hash-object', '-w', '--stdin'], dir, { stdin: text })).stdout.trim();
-		const { landed, leftOut } = await landTurnResult(dir, { computer: 'pc-1', session: 's-1', turn: 'turn-1' }, [
+		const { landed, leftOut } = await landTurnFiles(dir, { computer: 'pc-1', session: 's-1', turn: 'turn-1' }, [
 			{ path: 'locked/new.txt', mode: '100644', blob: await blobOf('not allowed') },
 			{ path: 'locked/old.txt', mode: '100644', blob: null },
 			{ path: LOOK, mode: '100644', blob: await blobOf('two') },
-		], {});
+		], true, {});
 		assert.deepEqual(landed, [LOOK]);
 		assert.deepEqual(Object.fromEntries(leftOut), { 'locked/new.txt': 'not allowed to write there', 'locked/old.txt': 'not allowed to write there' });
 		assert.equal(readFileSync(join(dir, LOOK), 'utf8'), 'two');

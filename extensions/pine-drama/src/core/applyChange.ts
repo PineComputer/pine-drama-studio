@@ -4,11 +4,11 @@
 // since media replaces whole files and history keeps what it replaces. It runs in the project's one write queue (projectHistory.ts), with the person's other writes.
 // No vscode import.
 
-import { existsSync, lstatSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { mkdir, rm, rmdir } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { throughNoLink, writeWhole } from './placement';
-import { commitEntriesToHistory, commitPathsToHistory, listPathsOfHead, runInProjectWriteQueue, turnTrailers, writeBlob, type PineTurnIds, type TreeEntry } from './projectHistory';
+import { commitEntriesToHistory, commitIndexPaths, commitPathsToHistory, listPathsOfIndex, runInProjectWriteQueue, stagePaths, turnTrailers, unstagedPaths, writeBlob, type PineTurnIds, type TreeEntry } from './projectHistory';
 import { matches, RECEIPT_SUFFIX } from './protocol';
 import { sha256, sha256OfFile } from './sha256';
 
@@ -63,24 +63,40 @@ export type LeftOut = 'no path of the project' | 'a link' | 'the same name as an
 	| 'not allowed to write there' | 'a name too long for this disk';
 
 /**
- * Lands a turn's result in the project folder, in its write queue: `entries`, the paths it changed in git's own objects
- * (projectHistory.ts treeChanges), each on its own, so no one path keeps the rest out. A path is left out, and named
- * with why, when it is no path of the project (section 1), a link or another repository (its mode is no file's), the same
- * name as another but for case, reached through a link at the destination, or when the folder will not take it there
- * (pathError): a folder that is not empty where it writes a file, a file where it needs a folder, a folder it may not
- * write, a name too long. Only an error that is about no one path (git's, a full disk) fails the landing. Deletions go first, each with the folders it leaves empty
- * (as git does, dir.c remove_path), so a file and a folder can change places; then each file is streamed from its blob.
- * One `pine-computer` commit of exactly what landed, with the turn's trailers, moves HEAD and `refs` together.
+ * Brings what a turn changed into the project folder, in its write queue, path by path, so no one path keeps the rest
+ * out: while the turn runs (`last` false), the paths its latest capture changed; at its Pine turn's end (`last` true),
+ * those and every path it changed since the session's acknowledged commit, each as at the end (collectTurn). git's own index is the record:
+ * each path written is staged (git add), so a change the person makes after shows as not staged (git status).
+ *
+ * While the turn runs such a path is not written over, and nothing is committed. At the end the person's unstaged
+ * changes on the turn's paths are committed first, as `client-found-changes-on-disk`, so history keeps them; then the
+ * turn's paths go in one `pine-computer` commit with its trailers, as the index holds them (projectHistory.ts
+ * commitIndexPaths), and what is staged for any other path, another running turn's, stays staged. `refs` move with it.
+ *
+ * A path is left out, and named with why, when it is no path of the project (section 1), a link or another repository
+ * (its mode is no file's), the same name as another but for case, reached through a link at the destination, or when
+ * the folder will not take it there (pathError): a folder that is not empty where it writes a file, a file where it
+ * needs a folder, a folder it may not write, a name too long. Only an error that is about no one path (git's, a full
+ * disk) fails the landing. Deletions go first, each with the folders it leaves empty (as git does, dir.c
+ * remove_path), so a file and a folder can change places; then each file is streamed from its blob, receipts before
+ * their outputs (2.3).
  */
-export function landTurnResult(projectRoot: string, ids: PineTurnIds, entries: readonly TreeEntry[], refs: Readonly<Record<string, string>>):
+export function landTurnFiles(projectRoot: string, ids: PineTurnIds, entries: readonly TreeEntry[], last: boolean, refs: Readonly<Record<string, string>>):
 	Promise<{ readonly landed: readonly string[]; readonly leftOut: ReadonlyMap<string, LeftOut> }> {
 	return runInProjectWriteQueue(projectRoot, async () => {
+		const unstaged = new Set(await unstagedPaths(projectRoot));
+		const edited = entries.map(e => e.path).filter(path => unstaged.has(path) || [...unstaged].some(p => p.startsWith(`${path}/`)));
+		if (last && edited.length) {
+			await stagePaths(projectRoot, edited);
+			await commitIndexPaths(projectRoot, 'client-found-changes-on-disk', edited, 'Changes found on disk before a turn\'s result', {});
+		}
 		const leftOut = new Map<string, LeftOut>();
 		const writes = entries.filter(e => e.blob !== null);
 		const gone = new Set(entries.filter(e => e.blob === null).map(e => e.path));
-		// The project's paths once this lands, by case-folded name: a write whose name another holds but for case is left out.
+		// The folder's paths once this lands (the index's: HEAD's, and what is staged), by case-folded name: a write whose
+		// name another holds but for case is left out.
 		const byKey = new Map<string, Set<string>>();
-		for (const path of [...(await listPathsOfHead(projectRoot)).filter(path => !gone.has(path)), ...writes.map(e => e.path)]) {
+		for (const path of [...(await listPathsOfIndex(projectRoot)).filter(path => !gone.has(path)), ...writes.map(e => e.path)]) {
 			byKey.set(path.toLowerCase(), new Set([...byKey.get(path.toLowerCase()) ?? [], path]));
 		}
 		for (const { path, mode, blob } of entries) {
@@ -88,11 +104,8 @@ export function landTurnResult(projectRoot: string, ids: PineTurnIds, entries: r
 				: byKey.get(path.toLowerCase())!.size > 1 ? 'the same name as another but for case' : undefined;
 			if (why) { leftOut.set(path, why); }
 		}
-		const landing = entries.filter(e => !leftOut.has(e.path));
-		// A file the person edited by hand there is recorded first, so the result replaces a version history keeps.
-		const edited = landing.map(e => e.path).filter(path => { try { return lstatSync(join(projectRoot, path)).isFile(); } catch { return false; } });
-		if (edited.length) { await commitPathsToHistory(projectRoot, 'client-found-changes-on-disk', edited, 'Changes found on disk before a turn\'s result'); }
-		const landed: TreeEntry[] = [];
+		const landing = entries.filter(e => !leftOut.has(e.path) && (last || !edited.includes(e.path)));
+		const landed: string[] = [];
 		for (const entry of landing.filter(e => e.blob === null)) {
 			try {
 				if (!throughNoLink(projectRoot, entry.path)) { leftOut.set(entry.path, 'reached through a link'); continue; }
@@ -102,10 +115,9 @@ export function landTurnResult(projectRoot: string, ids: PineTurnIds, entries: r
 				continue;
 			}
 			await removeEmptiedFolders(projectRoot, dirname(entry.path));
-			landed.push(entry);
+			landed.push(entry.path);
 		}
-		// Each write's destination is judged once the deletions are done, as the folder then is (placement.ts throughNoLink);
-		// receipts go before the outputs they describe (2.3), so an output is never on disk without its receipt.
+		// Each write's destination is judged once the deletions are done, as the folder then is (placement.ts throughNoLink).
 		const receiptsFirst = (a: TreeEntry, b: TreeEntry) => Number(!a.path.endsWith(RECEIPT_SUFFIX)) - Number(!b.path.endsWith(RECEIPT_SUFFIX));
 		for (const entry of landing.filter(e => e.blob !== null).sort(receiptsFirst)) {
 			const file = join(projectRoot, entry.path);
@@ -117,10 +129,16 @@ export function landTurnResult(projectRoot: string, ids: PineTurnIds, entries: r
 				leftOut.set(entry.path, pathError(error));
 				continue;
 			}
-			landed.push(entry);
+			landed.push(entry.path);
 		}
-		await commitEntriesToHistory(projectRoot, 'pine-computer', landed, `Turn ${ids.turn}`, turnTrailers(ids), refs);
-		return { landed: landed.map(e => e.path), leftOut };
+		await stagePaths(projectRoot, landed);
+		if (!last) {
+			await commitEntriesToHistory(projectRoot, 'pine-computer', [], '', {}, refs);
+			return { landed, leftOut };
+		}
+		// Exactly the paths that landed: one left out holds what someone else put there.
+		const committed = await commitIndexPaths(projectRoot, 'pine-computer', entries.map(e => e.path).filter(path => !leftOut.has(path)), `Turn ${ids.turn}`, turnTrailers(ids), refs);
+		return { landed: committed, leftOut };
 	});
 }
 

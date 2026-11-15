@@ -1,12 +1,13 @@
 import { strict as assert } from 'node:assert';
 import { execFileSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { cpSync, existsSync, linkSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, cpSync, existsSync, linkSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { mkdtemp, readdir, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { git } from '../core/git';
+import { commitFilesFoundOnDisk } from '../core/projectHistory';
 import { writeWhole } from '../core/placement';
 import { collectTurn, putTurnFiles, turnRecordOf, type ComputerSession } from '../core/turn';
 import { FakePine } from './fakePine';
@@ -44,6 +45,9 @@ const filesUnder = (dir: string) => readdirSync(dir, { recursive: true, withFile
 /** The project's tracked files but hidden ones: what a put sends. */
 const projectFiles = async (root: string) => (await out(root, 'ls-tree', '-r', '--name-only', 'HEAD')).split('\n').filter(path => !path.split('/').some(part => part.startsWith('.'))).sort();
 const ids = (at: ComputerSession, turn: string) => ({ computer: 'pc-1', session: at.session.name, turn });
+/** A collection at the turn's end, and one while it runs. */
+const END = { last: true } as const;
+const RUNNING = { last: false } as const;
 
 test('before the agent runs, the drama\'s folder is the project as its history records it, hidden files and links aside, and later puts send only what the Computer lacks', async () => {
 	const { root, at, drama } = await place();
@@ -105,7 +109,7 @@ test('a put larger than one attachment goes up in parts; big media, a deletion, 
 		'assets/scenes/street/prompt.md': null, 'assets/scenes/street/prompt.md/take-1.md': 'now a folder', '.cache/scratch': 'the agent\'s own',
 	});
 	linkSync(join(drama, 'assets/characters/lin/look.png'), join(drama, 'assets/characters/lin/copy.png'));
-	const collected = await collectTurn(at, root, ids(at, 'turn-1'));
+	const collected = await collectTurn(at, root, ids(at, 'turn-1'), END);
 	assert.deepEqual([...collected.files].sort(), ['assets/characters/lin/copy.png', 'assets/characters/lin/look.png', 'assets/scenes/street/prompt.md', 'assets/scenes/street/prompt.md/take-1.md', 'episodes/EP001/segments/seg01/take.mp4']);
 	assert.deepEqual(['look.png', 'copy.png'].map(name => readFileSync(join(root, 'assets/characters/lin', name)).equals(picture)), [true, true]);
 	assert.equal(existsSync(join(root, 'episodes/EP001/segments/seg01/take.mp4')), false);
@@ -116,13 +120,13 @@ test('a put larger than one attachment goes up in parts; big media, a deletion, 
 	assert.deepEqual((await out(root, 'show', '--name-only', '--format=', 'HEAD')).split('\n').sort(), [...collected.files].sort(), 'one commit of exactly its paths');
 	assert.equal(await out(root, 'status', '--porcelain'), '', 'the folder, the index and HEAD agree');
 	const landed = await out(root, 'rev-parse', 'HEAD');
-	assert.deepEqual(await collectTurn(at, root, ids(at, 'turn-1')), { files: [], leftOut: new Map() }, 'collected again, nothing is left to land');
+	assert.deepEqual(await collectTurn(at, root, ids(at, 'turn-1'), END), { files: [], leftOut: new Map() }, 'collected again, nothing is left to land');
 	assert.equal(await out(root, 'rev-parse', 'HEAD'), landed, 'and nothing more is committed');
 	// And back: the agent turns the folder into a file again.
 	await putTurnFiles(at, root, 'turn-2');
 	agent(drama, { 'assets/scenes/street/prompt.md': null });
 	agent(drama, { 'assets/scenes/street/prompt.md': 'a file again' });
-	await collectTurn(at, root, ids(at, 'turn-2'));
+	await collectTurn(at, root, ids(at, 'turn-2'), END);
 	assert.equal(readFileSync(join(root, 'assets/scenes/street/prompt.md'), 'utf8'), 'a file again');
 	assert.equal(readdirSync(dirname(drama)).some(name => name.endsWith('.bundle')), false, 'no bundle is left on the Computer');
 });
@@ -132,18 +136,115 @@ test('the agent\'s own .gitignore hides nothing it made, and a hand edit made du
 	await putTurnFiles(at, root, 'turn-1');
 	agent(drama, { '.gitignore': '*.mp4\n', 'episodes/EP001/segments/seg02/take.mp4': 'a new take', 'assets/props/umbrella/description.md': 'the agent\'s' });
 	writeFileSync(join(root, 'assets/props/umbrella/description.md'), 'the person\'s, by hand');
-	const collected = await collectTurn(at, root, ids(at, 'turn-1'));
+	const collected = await collectTurn(at, root, ids(at, 'turn-1'), END);
 	assert.deepEqual([...collected.files].sort(), ['assets/props/umbrella/description.md', 'episodes/EP001/segments/seg02/take.mp4']);
 	assert.equal(existsSync(join(root, '.gitignore')), false);
 	assert.deepEqual((await out(root, 'log', '-2', '--format=%an', '--', 'assets/props/umbrella/description.md')).split('\n'), ['pine-computer', 'client-found-changes-on-disk']);
 	assert.equal(await out(root, 'show', 'HEAD~1:assets/props/umbrella/description.md'), 'the person\'s, by hand');
 });
 
+test('while a turn runs its files come into the folder with no commit; at its end one commit records them all, and a file it wrote and removed since is in none', async () => {
+	const { root, at, drama } = await place();
+	await putTurnFiles(at, root, 'turn-1');
+	const head = await out(root, 'rev-parse', 'HEAD');
+	agent(drama, { 'assets/props/umbrella/description.md': 'A red umbrella.', 'episodes/EP001/scratch.md': 'a draft' });
+	assert.deepEqual([...(await collectTurn(at, root, ids(at, 'turn-1'), RUNNING)).files].sort(), ['assets/props/umbrella/description.md', 'episodes/EP001/scratch.md']);
+	assert.equal(readFileSync(join(root, 'episodes/EP001/scratch.md'), 'utf8'), 'a draft', 'in the folder while the turn runs');
+	assert.equal(await out(root, 'rev-parse', 'HEAD'), head, 'no commit while it runs');
+	// Opened again meanwhile: what the turn wrote is not the person's change found on disk.
+	await commitFilesFoundOnDisk(root, 'Changes found on disk when the project opened');
+	assert.equal(await out(root, 'rev-parse', 'HEAD'), head, 'the turn\'s files are its own, not found on disk');
+	// The person edits a file the agent then changes: not written over while the turn runs.
+	writeFileSync(join(root, 'assets/props/umbrella/description.md'), 'the person\'s, by hand');
+	agent(drama, { 'assets/props/umbrella/description.md': 'A red umbrella, twice.', 'episodes/EP001/scratch.md': null, 'assets/props/umbrella/prompt.md': 'a prompt' });
+	assert.deepEqual([...(await collectTurn(at, root, ids(at, 'turn-1'), RUNNING)).files].sort(), ['assets/props/umbrella/prompt.md', 'episodes/EP001/scratch.md'], 'the hand-edited file waits for the end');
+	assert.equal(readFileSync(join(root, 'assets/props/umbrella/description.md'), 'utf8'), 'the person\'s, by hand');
+	assert.equal(existsSync(join(root, 'episodes/EP001/scratch.md')), false);
+	const collected = await collectTurn(at, root, ids(at, 'turn-1'), END);
+	assert.deepEqual([...collected.files].sort(), ['assets/props/umbrella/description.md', 'assets/props/umbrella/prompt.md']);
+	assert.equal(readFileSync(join(root, 'assets/props/umbrella/description.md'), 'utf8'), 'A red umbrella, twice.');
+	assert.deepEqual((await out(root, 'log', '--format=%an', `${head}..HEAD`)).split('\n'), ['pine-computer', 'client-found-changes-on-disk'], 'the hand edit is kept, then the turn\'s one commit');
+	assert.deepEqual((await out(root, 'show', '--name-only', '--format=', 'HEAD')).split('\n').sort(), ['assets/props/umbrella/description.md', 'assets/props/umbrella/prompt.md'], 'the draft it removed is in no commit');
+	assert.equal(await out(root, 'status', '--porcelain'), '');
+});
+
+test('a file the agent changes and restores before the end comes back as it was, in no commit; a file the person removes while the turn runs is not put back', async () => {
+	const { root, at, drama } = await place();
+	await putTurnFiles(at, root, 'turn-1');
+	const description = readFileSync(join(drama, 'assets/props/umbrella/description.md'), 'utf8');
+	agent(drama, { 'assets/props/umbrella/description.md': 'for a moment', 'assets/scenes/office/description.md': 'redone' });
+	await collectTurn(at, root, ids(at, 'turn-1'), RUNNING);
+	assert.equal(readFileSync(join(root, 'assets/props/umbrella/description.md'), 'utf8'), 'for a moment');
+	rmSync(join(root, 'assets/scenes/office/description.md'));
+	agent(drama, { 'assets/props/umbrella/description.md': description, 'assets/scenes/office/description.md': 'redone, twice' });
+	await collectTurn(at, root, ids(at, 'turn-1'), RUNNING);
+	assert.equal(readFileSync(join(root, 'assets/props/umbrella/description.md'), 'utf8'), description, 'back as it was');
+	assert.equal(existsSync(join(root, 'assets/scenes/office/description.md')), false, 'the person\'s removal stands while the turn runs');
+	const collected = await collectTurn(at, root, ids(at, 'turn-1'), END);
+	assert.deepEqual(collected.files, ['assets/scenes/office/description.md'], 'the restored file is in no commit');
+	assert.equal(readFileSync(join(root, 'assets/scenes/office/description.md'), 'utf8'), 'redone, twice');
+	assert.equal(await out(root, 'log', '-1', '--skip=1', '--format=%an'), 'client-found-changes-on-disk', 'the removal is kept in history first');
+	assert.equal(await out(root, 'status', '--porcelain'), '');
+});
+
+test('a hand edit to a file the turn wrote is the person\'s, recorded at opening, and the turn\'s result lands after it; the turn\'s commit takes the executable bit it set', async () => {
+	const { root, at, drama } = await place();
+	await putTurnFiles(at, root, 'turn-1');
+	agent(drama, { 'notes/draft.md': 'the agent\'s draft', 'run.sh': 'echo hi' });
+	await collectTurn(at, root, ids(at, 'turn-1'), RUNNING);
+	writeFileSync(join(root, 'notes/draft.md'), 'the person\'s, by hand');
+	await commitFilesFoundOnDisk(root, 'Changes found on disk when the project opened');
+	assert.equal(await out(root, 'show', 'HEAD:notes/draft.md'), 'the person\'s, by hand', 'a hand edit since is the person\'s, recorded');
+	assert.equal(await out(root, 'ls-tree', 'HEAD', '--', 'run.sh'), '', 'the turn\'s own file is not');
+	chmodSync(join(drama, 'run.sh'), 0o755);
+	const collected = await collectTurn(at, root, ids(at, 'turn-1'), END);
+	assert.deepEqual([...collected.files].sort(), ['notes/draft.md', 'run.sh']);
+	assert.match(await out(root, 'ls-tree', 'HEAD', '--', 'run.sh'), /^100755 /);
+	assert.equal(await out(root, 'show', 'HEAD~1:notes/draft.md'), 'the person\'s, by hand', 'history keeps the person\'s');
+	assert.equal(readFileSync(join(root, 'notes/draft.md'), 'utf8'), 'the agent\'s draft', 'and the newest result lands');
+	assert.equal(await out(root, 'status', '--porcelain'), '', 'HEAD and the folder agree');
+});
+
+test('two sessions on one project: each turn\'s commit takes its own paths, as it wrote them; the turn that ends last lands last', async () => {
+	const { root, at: a, drama: aDrama } = await place();
+	const { serialized } = await a.pine.newCredentials();
+	const { binding } = await a.pine.ensureComputer(ENV, serialized, 'test', 60);
+	const created = await a.pine.createSession(ENV, serialized, binding);
+	const b: ComputerSession = { port: a.pine, env: ENV, session: { credentials: serialized, binding, ...created } };
+	const bDrama = join(created.workdir, 'drama');
+	await putTurnFiles(a, root, 'turn-a');
+	await putTurnFiles(b, root, 'turn-b');
+	agent(aDrama, { 'notes/x.md': 'a\'s', 'notes/only-a.md': 'a\'s alone' });
+	await collectTurn(a, root, ids(a, 'turn-a'), RUNNING);
+	agent(bDrama, { 'notes/x.md': 'b\'s' });
+	await collectTurn(b, root, ids(b, 'turn-b'), RUNNING);
+	const head = await out(root, 'rev-parse', 'HEAD');
+	assert.deepEqual([...(await collectTurn(a, root, ids(a, 'turn-a'), END)).files].sort(), ['notes/only-a.md', 'notes/x.md']);
+	assert.equal(await out(root, 'rev-list', '--count', `${head}..HEAD`), '1', 'no hand-edit commit: what b staged is no change of the person\'s');
+	assert.deepEqual((await collectTurn(b, root, ids(b, 'turn-b'), END)).files, ['notes/x.md']);
+	assert.equal(await out(root, 'show', 'HEAD:notes/x.md'), 'b\'s');
+	assert.equal(await out(root, 'status', '--porcelain'), '');
+});
+
+test('at the end a draft the turn wrote while running and removed since goes from the folder and from every commit, and a deletion staged while running lands once', async () => {
+	const { root, at, drama } = await place();
+	await putTurnFiles(at, root, 'turn-1');
+	agent(drama, { 'notes/draft.md': 'a draft', 'assets/scenes/street/prompt.md': null });
+	await collectTurn(at, root, ids(at, 'turn-1'), RUNNING);
+	assert.equal(existsSync(join(root, 'notes/draft.md')), true);
+	agent(drama, { 'notes/draft.md': null });
+	const collected = await collectTurn(at, root, ids(at, 'turn-1'), END);
+	assert.deepEqual(collected.files, ['assets/scenes/street/prompt.md']);
+	assert.equal(existsSync(join(root, 'notes')), false, 'the draft and its emptied folder are gone');
+	assert.deepEqual((await out(root, 'show', '--name-only', '--format=', 'HEAD')).split('\n'), ['assets/scenes/street/prompt.md']);
+	assert.equal(await out(root, 'status', '--porcelain'), '', 'nothing is left staged');
+});
+
 test('a turn whose agent changed nothing makes no commit on either side', async () => {
 	const { root, at, workdir } = await place();
 	await putTurnFiles(at, root, 'turn-1');
 	const head = await out(root, 'rev-parse', 'HEAD');
-	assert.deepEqual(await collectTurn(at, root, ids(at, 'turn-1')), { files: [], leftOut: new Map() });
+	assert.deepEqual(await collectTurn(at, root, ids(at, 'turn-1'), END), { files: [], leftOut: new Map() });
 	assert.equal(await out(root, 'rev-parse', 'HEAD'), head);
 	assert.equal((await git(['--git-dir', join(workdir, 'pine-drama.git'), 'rev-parse', '--verify', '-q', 'refs/heads/turn'], workdir)).exitCode, 1, 'no capture on the Computer either');
 });
@@ -156,7 +257,7 @@ test('a path the project cannot hold is left out, with why, and the rest of the 
 		'assets/characters/lin/Look.png': 'the same name as look.png but for case',
 	});
 	symlinkSync('/etc/passwd', join(drama, 'assets/passwd'));
-	const collected = await collectTurn(at, root, ids(at, 'turn-1'));
+	const collected = await collectTurn(at, root, ids(at, 'turn-1'), END);
 	assert.deepEqual(collected.files, ['assets/props/umbrella/description.md']);
 	assert.deepEqual(Object.fromEntries(collected.leftOut), {
 		'assets/CON': 'no path of the project', 'assets/passwd': 'a link', 'assets/characters/lin/Look.png': 'the same name as another but for case',

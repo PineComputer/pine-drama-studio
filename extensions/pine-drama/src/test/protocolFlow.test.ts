@@ -101,6 +101,22 @@ test('while a turn\'s last results come in, the Chat says so, before the turn\'s
 	} finally { f.store.close(); }
 });
 
+test('while a turn runs its files come into the project folder on a timer, with no commit until the turn ends', async () => {
+	const f = fixture({ collectEveryMs: 20 });
+	try {
+		f.pine.plans = [{ state: 'running', files: made('assets/props/a', 'a, being drawn') }];
+		const reply = f.service.submit('main', 'draw a', 'Project Chat', f.root);
+		const pumping = drain(reply);
+		await until(() => existsSync(join(f.root, 'assets/props/a/picture.png')), 'the file comes in while the turn runs');
+		assert.equal(f.store.chat('main')?.state, 'running');
+		assert.equal((await git(['log', '--format=%an', '--author=pine-computer'], f.root)).stdout.trim(), '', 'no commit while it runs');
+		f.pine.finish(f.store.chat('main')!.current_turn_id!, { state: 'completed', text: 'drawn', files: made('assets/props/a', 'a, drawn') });
+		await pumping;
+		assert.equal(readFileSync(join(f.root, 'assets/props/a/picture.png'), 'utf8'), 'a, drawn');
+		assert.equal((await git(['log', '--format=%an', '--author=pine-computer'], f.root)).stdout.trim(), 'pine-computer', 'one commit, at the end');
+	} finally { f.store.close(); }
+});
+
 test('a turn that ended is settled and its changes land even though its event stream never recovers', async () => {
 	const f = fixture({ reconnectWaitsMs: [0, 20] });
 	try {

@@ -32,7 +32,7 @@ import { AccountError, ConnectionLostError, PINE_ACCOUNT_URL, IDLE_WAITING_SECON
 import { projectIdentity, projectPlaceOf, projectRootOf } from './projectPlace';
 import { entryFor, type Entry } from './binding';
 import { givenBack, refusalLine } from './refusal';
-import { collectTurn, putTurnFiles, turnRecordOf, type ComputerSession, type SentTurn, type TurnRecord } from './turn';
+import { collectTurn, forgetCaptures, putTurnFiles, turnRecordOf, type ComputerSession, type SentTurn, type TurnRecord } from './turn';
 import { applyPersonChange } from './applyChange';
 import { DRAMA_FOLDER, PERSON_ATTACHMENTS_FOLDER } from './protocol';
 import { type ProjectPlace, unusedName, within } from './placement';
@@ -105,6 +105,8 @@ export interface ChatServiceOptions {
 	 * TURN_END_GRACE_MS unless a test, whose fake Pine has sent them all by then, makes it 0.
 	 */
 	turnEndGraceMs?: number;
+	/** The pause between two collections of a running turn (COLLECT_EVERY_MS unless a test makes it short). */
+	collectEveryMs?: number;
 	/** The pauses before each new attempt to reach a followed turn (RECONNECT_WAITS_MS unless a test makes them short). */
 	reconnectWaitsMs?: readonly number[];
 	/** How long a follower keeps trying to reach Pine (RECONNECT_LIMIT_MS unless a test makes it short). */
@@ -123,6 +125,12 @@ const PINE_ENV = 'pine';
 const TURN_WAIT_MS = 10_000;
 /** The event stream's time to deliver what it has left once a turn has ended (since M0). */
 const TURN_END_GRACE_MS = 500;
+/**
+ * How often a running turn's files are collected into the project folder (turn.ts collectTurn): each collection is one
+ * exec, which Pine runs beside the agent's own commands and counts as the Computer's activity (PineSandbox
+ * session-coordinator pkg/server/exec.go:85).
+ */
+const COLLECT_EVERY_MS = 15_000;
 /**
  * A follower that lost Pine tries again after these pauses, the last one repeating: VS Code's own reconnection schedule
  * for a lost remote, in seconds [0, 5, 5, 10, 10, 10, 10, 10, 30] (src/vs/platform/remote/common/remoteAgentConnection.ts:660
@@ -1269,6 +1277,8 @@ export class ChatService {
 			}
 		})();
 
+		// What the turn has changed so far comes into the project folder while it runs, until it ends.
+		const collecting = this.collectWhileRunning(key, env, epoch, () => turnId!);
 		const ended = (async () => {
 			for (; ;) {
 				let turn = await this.held(key, epoch, () => this.port.turn(env, session, turnId!, TURN_WAIT_MS));
@@ -1287,12 +1297,14 @@ export class ChatService {
 		let turnEnded = false;
 		ended.then(async () => {
 			turnEnded = true;
+			void collecting.stop();
 			await new Promise(resolve => setTimeout(resolve, this.options.turnEndGraceMs ?? TURN_END_GRACE_MS));
 			stream.abort();
 			await pump;
 			finished = true;
 			wake?.();
 		}, async (error) => {
+			void collecting.stop();
 			failed(error);
 			stream.abort();
 			await pump;
@@ -1335,6 +1347,52 @@ export class ChatService {
 			return undefined;
 		} finally {
 			stream.abort();
+			void collecting.stop();
+		}
+	}
+
+	/**
+	 * Collects a running turn on a timer (COLLECT_EVERY_MS), each collection in the Chat's line (runOneCollectionPerChat),
+	 * so none overlaps another or the turn end's; a tick while one runs is skipped, not queued. It writes the turn's files
+	 * into the folder with no commit (turn.ts collectTurn, not last). Stopped when the turn ends or its follow does.
+	 */
+	private collectWhileRunning(key: string, env: PineConnection, epoch: number, turnId: () => string): { stop(): Promise<void> } {
+		let stopped = false;
+		let wake: (() => void) | undefined;
+		const running = (async () => {
+			const pause = () => new Promise<void>(resolve => {
+				if (stopped) { resolve(); return; }
+				const timer = setTimeout(resolve, this.options.collectEveryMs ?? COLLECT_EVERY_MS);
+				wake = () => { clearTimeout(timer); resolve(); };
+			});
+			// A pause asked for once it is stopped ends at once, so no timer outlives the stop.
+			for (await pause(); !stopped; await pause()) {
+				if (this.settling.has(key)) { continue; }
+				try {
+					for await (const _ of this.runOneCollectionPerChat(key, () => this.collectRunningTurn(key, env, epoch, turnId()))) { /* a running turn's collection says nothing */ }
+				} catch (error) {
+					if (error instanceof PineSessionReplacedError) { return; }
+					this.log(`${key}: turn ${turnId()}'s files could not be collected while it runs: ${(error as Error).message}`);
+				}
+			}
+		})();
+		return { stop: async () => { stopped = true; wake?.(); await running; } };
+	}
+
+	/** collectWhileRunning's pass: each sent turn the running Pine turn carries, not settled, collected (not last). */
+	private async *collectRunningTurn(key: string, env: PineConnection, epoch: number, pineTurn: string): AsyncGenerator<Update> {
+		const root = this.projectRoot(key);
+		if (!this.options.protocol || !root) { return; }
+		const record = this.turnRecord(root);
+		for (const op of this.store.savedSendsOfTurn(key, pineTurn)) {
+			const sent = record.sentTurn(op.id);
+			if (!sent || record.settled(op.id)) { continue; }
+			this.inBoundFolder(key, root);
+			const at = await this.turnSession(key, env, sent.session);
+			if (!at) { continue; }
+			const ids = { computer: this.store.chat(key)?.computer_id ?? '', session: sent.session, turn: pineTurn };
+			const collected = await this.held(key, epoch, () => collectTurn(at, root, ids, { last: false }));
+			if (collected.files.length) { this.changed(key); }
 		}
 	}
 
@@ -1639,10 +1697,11 @@ export class ChatService {
 				this.inBoundFolder(key, root);
 				const at = await this.turnSession(key, env, sent.session);
 				const ids = { computer: this.store.chat(key)?.computer_id ?? '', session: sent.session, turn: pineTurn };
-				const collected = at && await this.held(key, epoch, () => collectTurn(at, root, ids)).catch(error => {
+				const collected = at && await this.held(key, epoch, () => collectTurn(at, root, ids, { last: true })).catch(error => {
 					if (error instanceof MissingError) { return undefined; }
 					throw error;
 				});
+				if (!collected) { await forgetCaptures(root, sent.session); }
 				await record.settle(sent.turn, { files: collected?.files ?? [] });
 				if (!collected) { tell(pineTurn, `The results of turn ${pineTurn} were on a Computer session that has ended, so they could not be brought into your project. Nothing is run again by itself. What Pine charged for the turn is in your Pine account at ${PINE_ACCOUNT_URL}`); }
 				if (collected?.leftOut.size) {

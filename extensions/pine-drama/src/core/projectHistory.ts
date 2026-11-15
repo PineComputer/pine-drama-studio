@@ -57,13 +57,13 @@ export function runInProjectWriteQueue<T>(projectRoot: string, write: () => Prom
 }
 
 /**
- * Inside the project's write queue: commits `paths` (project-relative files or folders, or `all`) as `author` with
+ * Inside the project's write queue: commits `paths` (project-relative files or folders) as `author` with
  * `message` and `trailers`. The commit takes only those paths, so a file someone else changed or staged meanwhile keeps
  * its change for the commit of whoever made it (git commit, "--only"). A commit with trailers is a record (a turn's
  * change applied, doc/protocol.md 4.4), so it is made even when its paths are unchanged (--allow-empty). A commit that
  * fails is thrown: a version the history does not hold could be overwritten unseen.
  */
-export async function commitPathsToHistory(projectRoot: string, author: CommitAuthor, paths: readonly string[] | 'all', message: string,
+export async function commitPathsToHistory(projectRoot: string, author: CommitAuthor, paths: readonly string[], message: string,
 	trailers: Readonly<Record<string, string>> = {}): Promise<void> {
 	await ensureRepository(projectRoot);
 	const trailing = Object.entries(trailers).flatMap(([key, value]) => ['--trailer', `${key}: ${value}`]);
@@ -71,9 +71,9 @@ export async function commitPathsToHistory(projectRoot: string, author: CommitAu
 	// A path on disk is staged by `git add` (--force: even where the folder's .gitignore names it); one the write removed by
 	// `git rm --cached --ignore-unmatch`, which also takes a deletion a cut-off commit left staged. The commit then reads
 	// them with --only, against HEAD too; a removed path HEAD never held is left out, as git refuses a whole commit for one.
-	const onDisk = paths === 'all' ? ['.'] : paths.filter(p => existsSync(join(projectRoot, p)));
-	const removed = paths === 'all' ? [] : paths.filter(p => !existsSync(join(projectRoot, p)));
-	if (onDisk.length) { await run(projectRoot, author, ['add', '-A', ...(paths === 'all' ? [] : ['--force']), '--', ...onDisk]); }
+	const onDisk = paths.filter(p => existsSync(join(projectRoot, p)));
+	const removed = paths.filter(p => !existsSync(join(projectRoot, p)));
+	if (onDisk.length) { await run(projectRoot, author, ['add', '-A', '--force', '--', ...onDisk]); }
 	if (removed.length) { await run(projectRoot, author, ['rm', '-r', '-q', '--cached', '--ignore-unmatch', '--', ...removed]); }
 	const inHead = removed.length && await hasHead(projectRoot) ? (await run(projectRoot, author, ['ls-tree', '-r', '-z', '--name-only', 'HEAD', '--', ...removed])).split('\0') : [];
 	const spec = [...onDisk, ...removed.filter(p => inHead.some(t => t === p || t.startsWith(`${p}/`)))];
@@ -85,17 +85,70 @@ export async function commitPathsToHistory(projectRoot: string, author: CommitAu
 		if (staged.exitCode === 0 && !record) { return; }
 	}
 	// --only with no path and --allow-empty commits nothing of the index: an empty record (git commit, "--only").
-	await run(projectRoot, author, ['commit', '-q', ...(record ? ['--allow-empty'] : []), '-m', message, ...trailing,
-		...(paths === 'all' ? [] : ['--only', '--', ...spec])]);
+	await run(projectRoot, author, ['commit', '-q', ...(record ? ['--allow-empty'] : []), '-m', message, ...trailing, '--only', '--', ...spec]);
 }
 
 /**
  * Commits, in the project's write queue, whatever the folder holds that no commit records, as
- * `client-found-changes-on-disk`
- * (doc/protocol.md 2.1): at opening, and before a turn's seed (4.2).
+ * `client-found-changes-on-disk` (doc/protocol.md 2.1), at opening (recordFilesFoundOnDisk).
  */
 export function commitFilesFoundOnDisk(projectRoot: string, message: string): Promise<void> {
-	return runInProjectWriteQueue(projectRoot, () => commitPathsToHistory(projectRoot, 'client-found-changes-on-disk', 'all', message));
+	return runInProjectWriteQueue(projectRoot, () => recordFilesFoundOnDisk(projectRoot, message));
+}
+
+/**
+ * Inside the project's write queue: commits, as `client-found-changes-on-disk`, every change of the folder that is not
+ * staged (git status: the work tree differs from the index), and nothing staged: a running turn stages each file it
+ * writes into the folder (applyChange.ts landTurnFiles), and its one commit at its end records them.
+ */
+export async function recordFilesFoundOnDisk(projectRoot: string, message: string): Promise<void> {
+	const changed = await unstagedPaths(projectRoot);
+	if (!changed.length) { return; }
+	await stagePaths(projectRoot, changed);
+	await commitIndexPaths(projectRoot, 'client-found-changes-on-disk', changed, message, {});
+}
+
+/**
+ * The paths whose work-tree state differs from the index (git status --porcelain -z: its second column, untracked
+ * files among them), the person's changes git has not been told of; a hidden file of the Studio's own (info/exclude) is
+ * none.
+ */
+export async function unstagedPaths(projectRoot: string): Promise<string[]> {
+	await ensureRepository(projectRoot);
+	// "XY <path>", NUL-terminated; with no rename detection, one path a record.
+	return (await run(projectRoot, 'person', ['status', '--porcelain=v1', '-z', '--untracked-files=all', '--no-renames']))
+		.split('\0').filter(record => record.length > 3 && record[1] !== ' ').map(record => record.slice(3));
+}
+
+/**
+ * Stages `paths` as the folder holds them, a batch at a time so no command line is too long: a path on disk by git add
+ * (--force: even where the folder's .gitignore names it), one gone by git rm --cached --ignore-unmatch, which stages
+ * its deletion and passes over a path the index no longer holds either.
+ */
+export async function stagePaths(projectRoot: string, paths: readonly string[]): Promise<void> {
+	await ensureRepository(projectRoot);
+	const there = paths.filter(path => existsSync(join(projectRoot, path)));
+	const gone = paths.filter(path => !existsSync(join(projectRoot, path)));
+	for (let i = 0; i < there.length; i += 200) { await run(projectRoot, 'person', ['add', '-A', '--force', '--', ...there.slice(i, i + 200)]); }
+	for (let i = 0; i < gone.length; i += 200) { await run(projectRoot, 'person', ['rm', '-r', '-q', '--cached', '--ignore-unmatch', '--', ...gone.slice(i, i + 200)]); }
+}
+
+/**
+ * Commits exactly `paths` as the index holds them (git ls-files -s), each gone where the index has no file there, onto
+ * HEAD (commitEntriesToHistory): what is staged for every other path stays staged for whoever staged it, as git commit
+ * --only leaves it ("disregarding any contents that have been staged for other paths", git-commit), and a file and a
+ * folder may change places, which --only refuses. Returns the paths the commit changed.
+ */
+export async function commitIndexPaths(projectRoot: string, author: CommitAuthor, paths: readonly string[], message: string,
+	trailers: Readonly<Record<string, string>>, refs: Readonly<Record<string, string>> = {}): Promise<string[]> {
+	const wanted = new Set(paths);
+	// "<mode> <blob> <stage>\t<path>", NUL-terminated: each path's own entry, and no other path's.
+	const staged = new Map((await run(projectRoot, 'person', ['ls-files', '-s', '-z'])).split('\0').filter(Boolean).map(line => {
+		const [mode, blob] = line.slice(0, line.indexOf('\t')).split(' ');
+		return [line.slice(line.indexOf('\t') + 1), { mode, blob }] as const;
+	}).filter(([path]) => wanted.has(path)));
+	const entries: TreeEntry[] = [...wanted].map(path => ({ path, mode: staged.get(path)?.mode ?? '000000', blob: staged.get(path)?.blob ?? null }));
+	return commitEntriesToHistory(projectRoot, author, entries, message, trailers, refs);
 }
 
 /** Pine's own ids of a turn: its Computer, its session (Pine names a session by its name) and the turn. */
@@ -280,10 +333,10 @@ export async function treeChanges(projectRoot: string, from: string, to: string)
 	return entries;
 }
 
-/** Every path HEAD holds (git ls-tree -r --name-only). */
-export async function listPathsOfHead(projectRoot: string): Promise<string[]> {
-	if (!existsSync(join(projectRoot, '.git')) || !await hasHead(projectRoot)) { return []; }
-	return (await run(projectRoot, 'person', ['ls-tree', '-r', '-z', '--name-only', '--full-tree', 'HEAD'])).split('\0').filter(Boolean);
+/** Every path the index holds (git ls-files): HEAD's, and what is staged. */
+export async function listPathsOfIndex(projectRoot: string): Promise<string[]> {
+	if (!existsSync(join(projectRoot, '.git'))) { return []; }
+	return (await run(projectRoot, 'person', ['ls-files', '-z'])).split('\0').filter(Boolean);
 }
 
 /**
@@ -294,7 +347,7 @@ export async function listPathsOfHead(projectRoot: string): Promise<string[]> {
  * the deletions go into the index first.
  */
 export async function commitEntriesToHistory(projectRoot: string, author: CommitAuthor, entries: readonly TreeEntry[], message: string,
-	trailers: Readonly<Record<string, string>>, refs: Readonly<Record<string, string>> = {}): Promise<void> {
+	trailers: Readonly<Record<string, string>>, refs: Readonly<Record<string, string>> = {}): Promise<string[]> {
 	await ensureRepository(projectRoot);
 	const head = await readRef(projectRoot, 'HEAD');
 	const lines = [...entries].sort((a, b) => Number(a.blob !== null) - Number(b.blob !== null))
@@ -306,15 +359,22 @@ export async function commitEntriesToHistory(projectRoot: string, author: Commit
 			await run(projectRoot, author, ['update-index', '-z', '--index-info'], { index, stdin: lines });
 			return (await run(projectRoot, author, ['write-tree'], { index })).trim();
 		});
-		const paragraphs = [message, Object.entries(trailers).map(([key, value]) => `${key}: ${value}`).join('\n')].filter(Boolean);
-		moves.HEAD = (await run(projectRoot, author, ['commit-tree', tree, ...head ? ['-p', head] : [], ...paragraphs.flatMap(text => ['-m', text])])).trim();
+		// A tree that is HEAD's makes no commit: nothing changed.
+		if (!head || tree !== (await run(projectRoot, author, ['rev-parse', `${head}^{tree}`])).trim()) {
+			const paragraphs = [message, Object.entries(trailers).map(([key, value]) => `${key}: ${value}`).join('\n')].filter(Boolean);
+			moves.HEAD = (await run(projectRoot, author, ['commit-tree', tree, ...head ? ['-p', head] : [], ...paragraphs.flatMap(text => ['-m', text])])).trim();
+		}
 	}
 	// HEAD only where it still is what the commit was made on, none for an unborn one (an "update <ref> <new> <old>"
 	// line, an all-zero old value for a ref that must not exist yet).
 	const transaction = ['start', ...Object.entries(moves).map(([ref, commit]) => ref === 'HEAD' ? `update HEAD ${commit} ${head ?? '0'.repeat(40)}` : `update ${ref} ${commit}`), 'commit', ''].join('\n');
 	await run(projectRoot, author, ['update-ref', '--stdin'], { stdin: transaction });
 	if (entries.length) { await run(projectRoot, author, ['update-index', '-z', '--index-info'], { stdin: lines }); }
+	return moves.HEAD ? (await treeChanges(projectRoot, head ?? EMPTY_TREE, moves.HEAD)).map(e => e.path) : [];
 }
+
+/** git's empty tree, the one every repository knows (git hash-object -t tree /dev/null). */
+const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
 
 /**
  * Runs `use` with a temporary index, removed after (GIT_INDEX_FILE): outside the folder, as `.git` may be a file (a
