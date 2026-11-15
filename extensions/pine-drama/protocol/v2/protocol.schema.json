@@ -280,7 +280,7 @@
       }
     },
     "request": {
-      "description": "turns/<turn id>/request.json (4.2).",
+      "description": "The session attachment pine-drama-request.json (4.1).",
       "type": "object",
       "required": [
         "schema",
@@ -453,7 +453,7 @@
       }
     },
     "pineComputerTurnRecord": {
-      "description": "pine-computer-records/turns/<turn id>.json (2.4): written first thing in every turn and again when it grows.",
+      "description": "pine-computer-records/turns/<turn id>.json (2.4): written by the turn's first drama-cli command, and again when it grows.",
       "type": "object",
       "required": [
         "schema",
