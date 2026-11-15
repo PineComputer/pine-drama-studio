@@ -32,8 +32,6 @@ export interface Chat {
 	state: ChatState;
 	current_turn_id: string | null;
 	question_turn_id: string | null;
-	/** Pine's place of the recorded ending of `current_turn_id` (TurnView.lastEventId); null until one is recorded. */
-	ending_event_id: number | null;
 	/**
 	 * The canonical local project association. Null until explicitly associated; `projectRootOf` also supports
 	 * per-Chat storage for the existing unbound core path. This field alone grants no execution authority.
@@ -128,9 +126,6 @@ create table if not exists chat_reveal_requests (
   token text not null unique,
   requested_at integer not null
 );
-` }, { version: 21, sql: `
--- The recorded ending's place in Pine's order (chats.ts composeTurnEnding): an ending read earlier never replaces it.
-alter table chats add column ending_event_id integer;
 ` }];
 
 
@@ -322,18 +317,6 @@ export class Store {
 		const sets = entries.map(([column]) => `${column} = ?`).join(', ');
 		this.db.prepare(`update chats set ${sets}, updated_at = ? where key = ?`)
 			.run(...entries.map(([, value]) => value as string | number | null), this.iso(), key);
-	}
-
-	/**
-	 * Records how the Chat's current turn ended, unless an ending Pine ordered later is recorded already: one
-	 * compare-and-set on Pine's order (`eventId`, TurnView.lastEventId), as an HTTP If-Match or a Kubernetes
-	 * resourceVersion, so a Stop's ending and a follower's earlier read of the same turn settle on Pine's last.
-	 * True when it recorded.
-	 */
-	recordEnding(key: string, turnId: string, ending: Pick<Chat, 'state' | 'question_turn_id'>, eventId: number): boolean {
-		return this.db.prepare(`update chats set state = ?, question_turn_id = ?, ending_event_id = ?, updated_at = ?
-			where key = ? and current_turn_id = ? and (ending_event_id is null or ending_event_id < ?)`)
-			.run(ending.state, ending.question_turn_id, eventId, this.iso(), key, turnId, eventId).changes > 0;
 	}
 
 	// ---- operations ----

@@ -12,7 +12,6 @@ import { UnconfirmedError, type PinePort } from '../core/pinePort';
 import { MIGRATIONS, Store } from '../core/store';
 import { FakePine, MemoryVault } from './fakePine';
 import { testProtocol } from './protocolFixture';
-import { IDLE_WORKING_SECONDS } from '../core/tuning';
 
 
 async function drain(updates: AsyncGenerator<Update>): Promise<Update[]> {
@@ -227,10 +226,9 @@ test('a Chat whose turn still runs across a schema step is followed after the st
 		const runs = f.pine.calls.run;
 		// The Studio stops here and its update adds a schema step.
 		f.store.close();
-		const probe = MIGRATIONS.at(-1)!.version + 1;
-		reopened = new Store(f.path, Date.now, [...MIGRATIONS, { version: probe, sql: 'alter table chats add column probe text' }]);
+		reopened = new Store(f.path, Date.now, [...MIGRATIONS, { version: 21, sql: 'alter table chats add column probe text' }]);
 		assert.equal(reopened.setAside, undefined, 'nothing is set aside');
-		assert.equal((reopened.db.prepare('pragma user_version').get() as { user_version: number }).user_version, probe);
+		assert.equal((reopened.db.prepare('pragma user_version').get() as { user_version: number }).user_version, 21);
 		assert.equal(reopened.chat('main')?.state, 'running');
 		assert.equal(reopened.chat('main')?.current_turn_id, turnId);
 		const resumed = f.restarted({}, reopened).resumeUnfinishedTurnFollowUps();
@@ -424,120 +422,6 @@ test('a Stop whose cancel Pine took but whose answer was lost still lands what t
 		await reading;
 		await until(() => existsSync(join(f.root, 'assets/props/a/picture.png')) && !f.service.hasUnfinishedTurnFollowUp('main'), 'the stopped turn\'s files land');
 		assert.equal(lastTurnState(f), 'canceled');
-	} finally { f.store.close(); }
-});
-
-/**
- * The follower's read of a turn that has just asked, held until `release`: the window in which Pine has ended the turn
- * and the Studio has not yet recorded it, where the person's Stop landed in the monkey test (A10, turn _173: Pine's end
- * at 10:13:51.420, Stop at 10:13:52.354).
- */
-function holdQuestionRead(f: ReturnType<typeof fixture>, state = 'needs_input'): { taken: () => boolean; release: () => void } {
-	const read = f.pine.turn.bind(f.pine);
-	let taken = false;
-	let release!: () => void;
-	const gate = new Promise<void>(resolve => { release = resolve; });
-	f.pine.turn = async (...args: Parameters<FakePine['turn']>) => {
-		const turn = await read(...args);
-		if (!taken && turn.state === state) { taken = true; await gate; }
-		return turn;
-	};
-	return { taken: () => taken, release };
-}
-
-/** A running turn, its Stop admitted and its cancel held while Pine has already ended the turn on a question. */
-async function stopAfterTheQuestion(f: ReturnType<typeof fixture>) {
-	f.pine.plans = [{ state: 'running' }];
-	// Before the turn starts, so that the follower's read in flight when the agent asks is the one held.
-	const read = holdQuestionRead(f);
-	const abort = new AbortController();
-	const reading = drain(f.service.submit('main', 'draw her', 'Project Chat', [], f.root, abort.signal));
-	await until(() => f.store.chat('main')?.state === 'running', 'the turn runs');
-	const turn = f.store.chat('main')!.current_turn_id!;
-	const cancel = f.pine.hold('cancel');
-	f.pine.finish(turn, { state: 'needs_input', text: 'May I recreate her under a new id?' });
-	await until(read.taken, 'the follower read the question');
-	// The person's Stop while the Chat still records the turn running. The reply reads on, so its own follower
-	// records what it read, as in A10.
-	abort.abort();
-	await until(() => f.pine.calls.cancel === 1, 'the Stop sent its cancel');
-	return { turn, reading, read, cancel };
-}
-
-test('a Stop just after the agent asked: Pine closed the question, and the Chat records the stopped turn, not a waiting one (A10)', async () => {
-	const f = fixture();
-	try {
-		const { turn, reading, read, cancel } = await stopAfterTheQuestion(f);
-		cancel();
-		await until(() => f.pine.turnState(turn) === 'canceled', 'Pine closed the question');
-		read.release();
-		await reading;
-		await until(() => f.store.chat('main')?.state === 'idle' && !f.service.hasUnfinishedTurnFollowUp('main'), 'the Chat records the turn Pine ended');
-		assert.equal(f.store.chat('main')?.question_turn_id, null, 'nothing waits for the person');
-		assert.equal(f.pine.calls.cancel, 1);
-		assert.equal(f.store.chat('main')?.ending_event_id, f.pine.lastEventIdOf(turn), 'the ending Pine ordered last');
-		const said = f.store.messages('main').filter(m => m.turn_id === turn && ['question', 'result'].includes(m.kind)).map(m => [m.kind, m.text]);
-		assert.deepEqual(said.map(([kind]) => kind), ['question', 'result'], JSON.stringify(said));
-		assert.match(said[1][1], /^You stopped this turn\./);
-	} finally { f.store.close(); }
-});
-
-test('a Stop just after the agent asked leaves the working idle timeout, whatever the follower set while the turn waited', async () => {
-	const f = fixture();
-	try {
-		const { turn, reading, read, cancel } = await stopAfterTheQuestion(f);
-		const before = f.pine.calls.setIdleTimeout ?? 0;
-		const idle = f.pine.hold('setIdleTimeout');
-		read.release();
-		await until(() => f.pine.calls.setIdleTimeout === before + 1, 'the follower asks for the waiting idle timeout');
-		cancel();
-		await until(() => f.pine.turnState(turn) === 'canceled', 'Pine closed the question');
-		idle();
-		await reading;
-		await until(() => f.store.chat('main')?.state === 'idle' && f.pine.idleRequests.at(-1) === IDLE_WORKING_SECONDS, 'the stopped turn and the working idle timeout');
-	} finally { f.store.close(); }
-});
-
-test('a Stop that came after Pine completed the turn: the same ending, read twice, is recorded once and said by each reader', async () => {
-	const logs: string[] = [];
-	const f = fixture({ log: line => logs.push(line) });
-	try {
-		f.pine.plans = [{ state: 'running' }];
-		const read = holdQuestionRead(f, 'completed');
-		const abort = new AbortController();
-		const reading = drain(f.service.submit('main', 'draw her', 'Project Chat', [], f.root, abort.signal));
-		await until(() => f.store.chat('main')?.state === 'running', 'the turn runs');
-		const turn = f.store.chat('main')!.current_turn_id!;
-		f.pine.finish(turn, { state: 'completed', text: 'She is drawn.' });
-		await until(read.taken, 'the follower read the end');
-		// The Stop's cancel finds the turn ended and answers with the same ending the follower read.
-		abort.abort();
-		await until(() => f.pine.calls.cancel === 1, 'the Stop sent its cancel');
-		read.release();
-		const said = f.said(await reading);
-		await until(() => f.store.chat('main')?.ending_event_id === f.pine.lastEventIdOf(turn) && !f.service.hasUnfinishedTurnFollowUp('main'), 'the ending recorded');
-		assert.match(said, /She is drawn\./, 'the reply says the ending');
-		// The Stop's pass meets the ending the reply recorded (the same place in Pine's order): not written again, still said.
-		await until(() => logs.some(line => line.includes('after Stop:') && line.includes('She is drawn.')), 'the Stop\'s pass says the ending it read');
-		assert.equal(f.pine.turnState(turn), 'completed', 'the cancel came too late to change it');
-		assert.equal(f.store.chat('main')?.state, 'idle');
-		const finals = f.store.messages('main').filter(m => m.turn_id === turn && ['result', 'usage'].includes(m.kind)).map(m => m.kind);
-		assert.deepEqual(finals.sort(), ['result', 'usage'], 'one result and one cost, though two read the ending');
-	} finally { f.store.close(); }
-});
-
-test('a Stop once the Chat recorded the question asks Pine nothing: the turn ended before it', async () => {
-	const f = fixture();
-	try {
-		f.pine.plans = [{ state: 'needs_input', text: 'Which episode?' }];
-		await f.send('draw her');
-		assert.equal(f.store.chat('main')?.state, 'needs_input');
-		const abort = new AbortController();
-		abort.abort();
-		await drain(f.service.attachChatToPineTurn('main', abort.signal));
-		await new Promise(resolve => setTimeout(resolve, 200));
-		assert.equal(f.pine.calls.cancel, undefined, 'no cancel');
-		assert.equal(f.store.chat('main')?.state, 'needs_input', 'the question still waits, as on Pine');
 	} finally { f.store.close(); }
 });
 

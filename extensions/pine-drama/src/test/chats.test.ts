@@ -174,14 +174,14 @@ test('a message sent while a turn runs waits for it, then goes as a new run, an 
 	const { store, service } = window();
 	pine.plans = [{ state: 'needs_input', text: 'Which episode?' }];
 	await send(service, 'start');
-	// The turn is still running as far as the Studio knows when the message comes: no ending of it recorded yet.
-	store.tx(() => store.updateChat(KEY, { state: 'running', question_turn_id: null, ending_event_id: null }));
+	// The turn is still running as far as the Studio knows when the message comes.
+	store.tx(() => store.updateChat(KEY, { state: 'running', question_turn_id: null }));
 	const waited = markdown(await send(service, 'EP003'));
 	assert.match(waited, /Pine Computer is still running this turn; your message will be sent when it finishes\./);
 	const ops = store.db.prepare('select text from saved_sends order by created_at').all() as { text: string }[];
 	assert.deepEqual(ops.map(o => o.text), ['start', 'EP003'], 'the answer to the question the turn ended on is a new run (doc/protocol.md, 4.3)');
 	assert.equal(pine.calls.run, 2);
-	store.tx(() => store.updateChat(KEY, { state: 'running', ending_event_id: null }));
+	store.tx(() => store.updateChat(KEY, { state: 'running' }));
 	await send(service, 'again');
 	assert.equal(pine.calls.run, 3, 'a finished turn: a new run');
 });
@@ -208,7 +208,7 @@ test('a message waiting for a turn whose session is lost goes to a new session, 
 	const { store, service } = window();
 	await send(service, 'start');
 	// The turn it waits for is gone, as Pine answers when the session is (MissingError).
-	store.tx(() => store.updateChat(KEY, { state: 'running', current_turn_id: 'turn-gone', ending_event_id: null }));
+	store.tx(() => store.updateChat(KEY, { state: 'running', current_turn_id: 'turn-gone' }));
 	const said = await drain(service.submit(KEY, 'make it darker', 'make it darker', [], folderOf(service)));
 	assert.ok(said.every(u => u.kind !== 'sessionEnded'), markdown(said));
 	assert.match(markdown(said), /done: make it darker/);

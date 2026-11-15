@@ -8,7 +8,7 @@ import { projectAt, ProjectOfAnotherMajorError, ProjectsInsideError } from '../c
 import { RefusedWithUpgradeInstructions, STUDIO_RELEASES_URL } from '../core/protocol';
 import { projectIdentity, projectBoundaryOf } from '../core/projectPlace';
 import { entryFor } from '../core/binding';
-import { MIGRATIONS, Store } from '../core/store';
+import { Store } from '../core/store';
 
 const temp = () => realpathSync(mkdtempSync(join(tmpdir(), 'pine-project-root-')));
 
@@ -110,7 +110,7 @@ test('binding is atomic across windows, canonicalizes aliases, creates no wrappe
 	assert.equal(a.chat('a')!.folder, projectIdentity(root));
 	assert.equal(projectBoundaryOf(dir, a.chat('a')!), root);
 	assert.deepEqual(readdirSync(root), []);
-	assert.equal(a.db.prepare('pragma user_version').get()!.user_version, MIGRATIONS.at(-1)!.version);
+	assert.equal(a.db.prepare('pragma user_version').get()!.user_version, 20);
 	a.close(); b.close();
 });
 

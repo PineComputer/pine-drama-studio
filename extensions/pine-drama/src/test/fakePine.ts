@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { ConnectionLostError, MissingError, NoSuchFileError, StartNotConfirmedError, UnconfirmedError, type IdlePolicy, type PineConnection, type PineEvent, type PinePort, type PineSession, type SecretVault, type TurnView } from '../core/pinePort';
 
-interface FakeTurn { id: string; state: string; question: string; summary: string; next: string; cost: number; lastEventId: number }
+interface FakeTurn { id: string; state: string; question: string; summary: string; next: string; cost: number }
 /** `dir`: the session's working directory, with Pine's attachments/ in it. */
 interface FakeSession { name: string; token: string; taskId: string; dir: string; turns: Map<string, FakeTurn>; runs: Map<string, string>; events: PineEvent[] }
 
@@ -48,8 +48,6 @@ export class FakePine implements PinePort {
 	private dropped = new Set<string>();
 	private failing = new Map<string, { error: Error; skip: number }>();
 	private seq = 0;
-	/** Pine's event order: each ending of a turn takes the next place (TurnView.lastEventId). */
-	private order = 0;
 
 	lose(op: string): void { this.lost.add(op); }
 	/** The next call of `op` never reaches Pine, and the caller cannot tell. */
@@ -191,7 +189,7 @@ export class FakePine implements PinePort {
 	private open(session: FakeSession, text: string): FakeTurn {
 		const plan = this.plans.shift() ?? { state: 'completed' };
 		const turn: FakeTurn = {
-			id: `turn-${++this.seq}`, state: plan.state, next: '', cost: 0.01, lastEventId: plan.state === 'running' ? 0 : ++this.order,
+			id: `turn-${++this.seq}`, state: plan.state, next: '', cost: 0.01,
 			question: plan.state === 'needs_input' ? (plan.text ?? 'Which episode?') : '',
 			// Pine's turn result: a waiting turn's summary is its question (its SDK, parse.ts: question = summary).
 			summary: plan.state === 'completed' ? (plan.text ?? `done: ${text}`) : plan.state === 'needs_input' ? (plan.text ?? 'Which episode?') : '',
@@ -214,10 +212,7 @@ export class FakePine implements PinePort {
 		return turn;
 	}
 
-	/**
-	 * Pine's cancel: a running turn, or one waiting on a question, ends `canceled` (a later ending: its next place in the
-	 * order); an ended one is left as it is. Answers with the turn after the cancel.
-	 */
+	/** Pine's cancel: a running turn, or one waiting on a question, ends `canceled`; an ended one is left as it is. */
 	async cancel(_env: PineConnection, s: PineSession, turnId: string) {
 		await this.count('cancel');
 		const turn = this.sessionOf(s).turns.get(turnId);
@@ -227,9 +222,7 @@ export class FakePine implements PinePort {
 		if (turn.state === 'running' || turn.state === 'needs_input') {
 			turn.state = 'canceled';
 			turn.question = '';
-			turn.lastEventId = ++this.order;
 		}
-		return view(turn);
 	}
 
 	async run(_env: PineConnection, s: PineSession, text: string, key: string) {
@@ -266,7 +259,6 @@ export class FakePine implements PinePort {
 				const turn = session.turns.get(turnId);
 				if (turn) {
 					turn.state = plan.state;
-					turn.lastEventId = plan.state === 'running' ? turn.lastEventId : ++this.order;
 					turn.question = plan.state === 'needs_input' ? (plan.text ?? 'Which episode?') : '';
 					turn.summary = plan.state === 'completed' ? (plan.text ?? 'done') : plan.state === 'needs_input' ? turn.question : '';
 					write(session, plan.files);
@@ -332,17 +324,6 @@ export class FakePine implements PinePort {
 		return new ReadableStream<Uint8Array>({ start(controller) { for (const chunk of chunks) { controller.enqueue(new Uint8Array(chunk)); } controller.close(); } });
 	}
 
-	/** Pine's place of the turn's ending (TurnView.lastEventId), for assertions. */
-	lastEventIdOf(turnId: string): number | undefined {
-		for (const computer of this.computers.values()) {
-			for (const session of computer.sessions.values()) {
-				const turn = session.turns.get(turnId);
-				if (turn) { return turn.lastEventId; }
-			}
-		}
-		return undefined;
-	}
-
 	/** A turn's state, for assertions. */
 	turnState(turnId: string): string | undefined {
 		for (const computer of this.computers.values()) {
@@ -383,7 +364,7 @@ export class FakePine implements PinePort {
 }
 
 function view(turn: FakeTurn): TurnView {
-	return { turnId: turn.id, state: turn.state, question: turn.question, summary: turn.summary, nextTurnId: turn.next, terminalReason: '', cost: { total: turn.cost, currency: 'USD' }, lastEventId: turn.lastEventId };
+	return { turnId: turn.id, state: turn.state, question: turn.question, summary: turn.summary, nextTurnId: turn.next, terminalReason: '', cost: { total: turn.cost, currency: 'USD' } };
 }
 
 export class MemoryVault implements SecretVault {
