@@ -18,6 +18,7 @@ const RAIN = `${ANN}/variants/rain`;
 const CUP = 'assets/props/cup';
 const OLD = 'assets/props/old_lamp';
 const SHOT = 'episodes/EP001/keyframe/seg01/shot01';
+const HALL = 'assets/scenes/hall';
 const OLD_BIBLE = 'bible';
 
 const write = (root: string, path: string, value: unknown) => {
@@ -50,6 +51,13 @@ function majorOneProject(): { root: string; storage: string } {
 	version(root, ANN, 'v1', '2026-11-01T10:00:00Z', { 'image-1.jpg': 'ann one' }, { job: true });
 	version(root, ANN, 'v2', '2026-11-01T11:00:00Z', { 'image-1.png': 'ann two' }, { job: true });
 	version(root, `${ANN}/entry`, 'v1', '2026-11-01T09:00:00Z', {}, { shown: null, source: { kind: 'describe', call: `${ANN}/describe/v1` } });
+	// Ann's face master, a picture of its own that no snapshot lists (pictures_that_become_objects).
+	version(root, `${ANN}/looks/face`, 'v1', '2026-11-01T09:45:00Z', { 'image-1.png': 'ann face' }, { job: true });
+	// A scene's front view, its own object; the scene's sheet version also holds a copy of it, which is not copied.
+	version(root, `${HALL}/entry`, 'v1', '2026-11-01T09:00:00Z', {}, { shown: null });
+	write(root, `${HALL}/entry/v1/entry.json`, { id: 'hall', name: 'Hall', description: 'A long hall.', setting: 'interior' });
+	version(root, `${HALL}/views/front`, 'v1', '2026-11-01T09:50:00Z', { 'image-1.jpg': 'hall front' }, { job: true });
+	version(root, HALL, 'v1', '2026-11-01T09:55:00Z', { 'image-1.jpg': 'hall sheet', 'front.jpg': 'hall front' });
 	write(root, `${ANN}/entry/v1/entry.json`, { id: 'ann', name: 'Ann', appearance: 'Tall, in a grey coat.', role: 'lead', appears_in: ['EP001'] });
 	version(root, `${ANN}/describe`, 'v1', '2026-11-01T08:00:00Z', {}, { job: true, shown: null });
 	version(root, `${ANN}/prompts`, 'v1', '2026-11-01T09:30:00Z', {}, { shown: null });
@@ -122,6 +130,11 @@ test('a major-1 project becomes major 2 by the table: backed up, one commit per 
 	assert.equal(read(root, `${ANN}/prompt.md`), 'Ann, full body, grey coat');
 	assert.equal(readJson(root, `${ANN}/description.md.receipt.json`).paid_call_id, 'att-describe-v1', 'the describe call the entry was written from');
 	assert.deepEqual(readJson(root, `${ANN}/object.json`), { schema: 2, type: 'character', name: 'Ann', relations: [{ kind: 'appears_in', to: 'episodes/EP001' }], shown_file: 'image-1.jpg' });
+	assert.deepEqual(readJson(root, `${ANN}/looks/face/object.json`), { schema: 2, type: 'character_face', name: 'Ann face', shown_file: 'image-1.png' },
+		"a picture that becomes an object, named after its owner's object.json name");
+	assert.deepEqual(readJson(root, `${HALL}/views/front/object.json`), { schema: 2, type: 'scene_view', name: 'Hall front view', shown_file: 'image-1.jpg' }, 'a view, named after its scene and its side');
+	assert.equal(readJson(root, `${HALL}/object.json`).shown_file, 'image-1.jpg', 'the scene shows its composed sheet');
+	assert.ok(!existsSync(join(root, `${HALL}/front.jpg`)), "the scene's copy of a view is not copied: the view holds it");
 	assert.deepEqual(readJson(root, `${RAIN}/object.json`), { schema: 2, type: 'variant', name: 'Ann in the rain', variant_of: ANN, relations: [], shown_file: null });
 	assert.equal(read(root, `${RAIN}/description.md`), 'Wet hair.');
 	// A planned object the snapshot lists is an empty card; one with versions shows its current file.

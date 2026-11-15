@@ -43,11 +43,13 @@ interface ConversionTable {
 		readonly skip_folders_in_version: readonly string[];
 		readonly skip_files_in_version: readonly string[];
 		readonly also_copies: Readonly<Record<string, readonly string[]>>;
+		readonly skip_outputs_by_object: Readonly<Record<string, readonly string[] | string>>;
 	};
 	readonly not_version_folders: {
 		readonly newest_version_to_root: { readonly folder: string; readonly file: string };
 		readonly dropped: readonly string[];
 	};
+	readonly pictures_that_become_objects: Readonly<Record<string, { readonly type: string; readonly name: string } | string>>;
 }
 
 /** The last Studio that reads major 1: where a person goes back to for what this one cannot do with a major-1 project. */
@@ -68,6 +70,9 @@ const NAMES = TABLE.version_folders.version_folder_name_patterns.map(p => new Re
 const RECORDS = TABLE.version_folders.records_in_a_version_folder;
 const ENTRY = TABLE.record_stages.find(s => s.operation === 'split_entry_record_into_object_files')!;
 const CONFIG = TABLE.not_version_folders.newest_version_to_root;
+// Its entries by folder pattern; its `note` is prose.
+const PICTURE_OBJECTS = Object.entries(TABLE.pictures_that_become_objects)
+	.flatMap(([pattern, rule]) => typeof rule === 'object' ? [{ pattern, ...rule }] : []);
 
 interface Job { readonly attempt_id: string; readonly actual_usd: number | null; readonly connection?: unknown; readonly provider: string }
 interface Major1Version {
@@ -108,6 +113,8 @@ export function major1ConversionPending(globalStorage: string, root: string): bo
 }
 
 const json = (path: string) => JSON.parse(readFileSync(path, 'utf8'));
+/** A file name against one of the table's file patterns, `*` standing for any run of characters but `/`. */
+const fileMatches = (pattern: string, file: string) => new RegExp(`^${pattern.split('*').map(part => part.replace(/[.+?^${}()|[\]\\]/g, '\\$&')).join('[^/]*')}$`).test(file);
 const segmentsMatch = (pattern: string, id: string) => {
 	const [p, s] = [pattern.split('/'), id.split('/')];
 	return p.length === s.length && p.every((part, i) => part === '*' || part === s[i]);
@@ -156,9 +163,13 @@ function readVersion(root: string, object: string, id: string): Major1Version {
 	const { skip_folders_in_version: skipFolders, skip_files_in_version: skipFiles, also_copies: also } = TABLE.every_other_version;
 	const listed = ((artifact.outputs ?? []) as { path: string }[]).map(o => o.path.slice(`${object}/${id}/`.length));
 	const extra = Object.entries(also).filter(([pattern]) => segmentsMatch(pattern, object)).flatMap(([, files]) => files);
+	// skip_outputs_by_object: its entries by object pattern; its `note` is prose.
+	const skipped = Object.entries(TABLE.every_other_version.skip_outputs_by_object)
+		.flatMap(([pattern, files]) => typeof files !== 'string' && segmentsMatch(pattern, object) ? files : []);
 	return {
 		object, id, record: versionRecordOf(json(join(folder, RECORDS.version_record))), metadata: artifact.metadata ?? {},
-		outputs: [...listed, ...extra].filter(file => !skipFolders.includes(file.split('/')[0]) && !skipFiles.includes(file) && existsSync(join(folder, file))),
+		outputs: [...listed, ...extra].filter(file => !skipFolders.includes(file.split('/')[0]) && !skipFiles.includes(file)
+			&& !skipped.some(pattern => fileMatches(pattern, file)) && existsSync(join(folder, file))),
 		job: existsSync(join(folder, RECORDS.paid_call)) ? json(join(folder, RECORDS.paid_call)) as Job : undefined,
 	};
 }
@@ -388,8 +399,9 @@ class Conversion {
 		}
 		const removed = [...removedObjectsOf(this.choices, this.kept.edges), ...[...this.everListed].filter(id => !this.kept.listed.has(id))];
 		const owners = [...this.byObject.keys()].filter(o => stageOf(o) === ENTRY).map(o => ownerOf(o, ENTRY));
+		const pictures = [...this.byObject.keys()].filter(o => PICTURE_OBJECTS.some(p => segmentsMatch(p.pattern, o)));
 		// The objects no version's copy described: planned ones, assets with only an entry, and those whose versions were all discarded.
-		for (const object of new Set([...this.kept.listed.keys(), ...owners])) { if (!this.current.has(object)) { await this.writeObjectJson(object); } }
+		for (const object of new Set([...this.kept.listed.keys(), ...owners, ...pictures])) { if (!this.current.has(object)) { await this.writeObjectJson(object); } }
 		// The person's pending text, for the objects major 2 has (written_for), none of them removed.
 		for (const [object, choice] of Object.entries(this.choices?.objects ?? {}).filter(([id]) => this.described.has(id) && !removed.includes(id))) {
 			if (choice.prompt !== undefined) { await writeWhole(join(this.root, object, PROMPT_FILE), choice.prompt); }
@@ -408,15 +420,9 @@ class Conversion {
 	 * the object has one.
 	 */
 	private async writeObjectJson(object: string, version = this.current.get(object)): Promise<boolean> {
+		const fields = this.fieldsOf(object);
+		if (!fields) { return false; }
 		const snapshot = this.kept.listed.get(object)?.object;
-		const entry = this.current.get(`${object}${ENTRY.v1_object_ends_with}`);
-		// written_for: an object the kept snapshots list, or an asset with a current entry version; no other folder gets one.
-		if (!entry && !snapshot) { return false; }
-		const edges = this.kept.edges.filter(e => e.from === object);
-		const fields = entry ? this.entryFields(object, entry) : {
-			type: snapshot!.type, name: snapshot!.name, variant_of: edges.find(e => e.kind === 'variant_of')?.to,
-			relations: edges.filter(e => e.kind !== 'variant_of').map(e => ({ kind: e.kind, to: e.to })),
-		};
 		// The pictures the draw sent (as the receipt's inputs_sent_in_order), else a planned object's snapshot inputs.
 		const sent = version ? version.record.inputs.filter(input => this.shownFile(this.byObject.get(input.object)?.find(v => v.id === input.version))).map(input => input.object)
 			: snapshot?.inputs ?? [];
@@ -426,6 +432,27 @@ class Conversion {
 		await writeWhole(join(this.root, object, OBJECT_FILE), `${JSON.stringify(value, null, '\t')}\n`);
 		this.described.add(object);
 		return true;
+	}
+
+	/**
+	 * object_json's one source per field, for the objects written_for names: the current entry version's, else the latest
+	 * snapshot's that lists the object, else a picture that becomes an object (pictures_that_become_objects). Such a
+	 * picture is named after its owner, the object the deepest `*` before its last segment stands in (a scene for its
+	 * plan and its views, a variant for its views), and `<side>` is its last segment. Undefined for every other folder.
+	 */
+	private fieldsOf(object: string): Record<string, unknown> | undefined {
+		const entry = this.current.get(`${object}${ENTRY.v1_object_ends_with}`);
+		if (entry) { return this.entryFields(object, entry); }
+		const snapshot = this.kept.listed.get(object)?.object;
+		if (snapshot) {
+			const edges = this.kept.edges.filter(e => e.from === object);
+			return { type: snapshot.type, name: snapshot.name, variant_of: edges.find(e => e.kind === 'variant_of')?.to,
+				relations: edges.filter(e => e.kind !== 'variant_of').map(e => ({ kind: e.kind, to: e.to })) };
+		}
+		const picture = PICTURE_OBJECTS.find(p => segmentsMatch(p.pattern, object));
+		const segments = object.split('/');
+		const owner = picture && this.fieldsOf(segments.slice(0, picture.pattern.split('/').slice(0, -1).lastIndexOf('*') + 1).join('/'));
+		return owner && { type: picture.type, name: picture.name.replace(/<side>/g, () => segments.at(-1)!).replace(/<[^>]+>/g, () => String(owner.name)) };
 	}
 
 	private entryFields(owner: string, version: Major1Version): Record<string, unknown> {
