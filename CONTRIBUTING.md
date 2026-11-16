@@ -24,7 +24,7 @@ Questions and discussion: [Discord](https://discord.gg/jBRrXmQHT).
 
 ## Pull requests
 
-- One change per pull request. Pull requests are squash-merged into `main`.
+- One change per pull request, against `staging`. `main` moves to `staging` at each release.
 - State what you ran and what it printed.
 
 ## Developer Certificate of Origin
