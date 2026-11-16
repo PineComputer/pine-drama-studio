@@ -352,7 +352,7 @@ const assetCard = (id: string, section: string): CanvasCard => ({ id, kind: id.i
 // grid, and each kind's groups are packed into a near-square block (potpack), with no group covering another.
 test('an asset group is a grid, not a column; each kind packs into a near-square block and no group covers another', () => {
 	const groups: [string, number][] = [['assets/characters/a', 10], ['assets/characters/b', 1], ['assets/characters/c', 3], ['assets/characters/d', 6],
-		['assets/props/p', 1], ['assets/props/q', 2]];
+		['assets/props/p', 1], ['assets/props/q', 2], ['assets/scenes/s', 2]];
 	const all = groups.flatMap(([asset, n]) => Array.from({ length: n }, (_, i) => assetCard(i ? `${asset}/variants/v${i}` : asset, asset)));
 	const size = Object.fromEntries(all.map(c => [c.id, cardSize({ w: 2048, h: 1152 })]));
 	const { positions } = layoutAssets(groups.map(([a]) => a), all, size);
@@ -371,5 +371,10 @@ test('an asset group is a grid, not a column; each kind packs into a near-square
 	const width = Math.max(...characters.map(b => b.x + b.w)) - Math.min(...characters.map(b => b.x));
 	const height = Math.max(...characters.map(b => b.y + b.h)) - Math.min(...characters.map(b => b.y));
 	assert.ok(width / height < 2.5 && height / width < 2.5, `near-square: ${width} × ${height}`);
-	assert.ok(positions['heading:props'].y >= Math.max(...characters.map(b => b.y + b.h)), 'the props come under the characters');
+	// The person, 2026-11-16: the kinds side by side, left to right, each heading over its own block.
+	const right = (from: typeof boxes) => Math.max(...from.map(b => b.x + b.w));
+	assert.deepEqual(['characters', 'scenes', 'props'].map(k => positions[`heading:${k}`].y), [0, 0, 0], 'the headings stand in one row');
+	assert.ok(positions['heading:scenes'].x >= right(characters), 'the scenes come right of the characters');
+	assert.ok(positions['heading:props'].x >= right(boxes.slice(6)), 'the props come right of the scenes');
+	assert.ok(boxes.slice(4).every(b => b.y >= 70), 'each group under its heading');
 });
