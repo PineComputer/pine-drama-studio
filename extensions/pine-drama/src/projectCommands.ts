@@ -10,7 +10,7 @@ import { RefusedWithUpgradeInstructions } from './core/protocol';
 
 export const NEW_PROJECT_COMMAND = 'pineDrama.newProject';
 export const CONVERT_MAJOR_1_PROJECT_COMMAND = 'pineDrama.convertMajor1Project';
-const OPEN_PROJECT_COMMAND = 'pineDrama.openProject';
+export const OPEN_PROJECT_COMMAND = 'pineDrama.openProject';
 
 // Standard native controls; New Project is also a refused message's New Folder….
 /** `heldRoot`: the folder whose project window lock this window holds (core/projectWindowLock.ts), by its real path. */

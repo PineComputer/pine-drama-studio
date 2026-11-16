@@ -12,6 +12,7 @@
   "main": "./out/extension.js",
   "activationEvents": [
     "onStartupFinished",
+    "onUri",
     "onWebviewPanel:pineDrama.episodeCanvas",
     "onWebviewPanel:pineDrama.gallery",
     "onWebviewPanel:pineDrama.segEditor"
