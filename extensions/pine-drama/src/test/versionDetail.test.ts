@@ -1,5 +1,6 @@
 import { strict as assert } from 'node:assert';
-import { cpSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { cpSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -40,6 +41,26 @@ test("a picture redrawn since shows no thumbnail of its new bytes under an earli
 		[1, 'EP001 · seg01 shot01', 'webview:episodes/EP001/keyframe/seg01/shot01/frame.png'],
 		[2, 'Lin (changed since)', null],
 	]);
+});
+
+test("a take's motion reference, a video it was sent, is its Video 1 beside Image 1..N, shown while the project holds the bytes it was sent", async () => {
+	const root = copy();
+	// drama-cli keeps the clip in assets/motion_references/<id>.<ext> (motion_reference.clip_file) and records it among
+	// the files a take was sent, between its pictures here, so the two counts are independent.
+	const clip = 'assets/motion_references/MREF-car_door_entry-01.mp4';
+	mkdirSync(join(root, 'assets/motion_references'), { recursive: true });
+	writeFileSync(join(root, clip), 'clip');
+	const look = { path: 'assets/characters/lin/look.png', sha256: '6b7fa434f92a8b80aab02d9bf1a12e49ffcae424e4013a1c4f68b67e3d2bbcd0' };
+	writeFileSync(join(root, 'episodes/EP001/segments/seg01/take.mp4.receipt.json'), JSON.stringify({ schema: 2, paid_call_id: 'call-take-seg01-0001', finished_at: '2026-11-12T11:10:00Z',
+		inputs_sent_in_order: [{ path: 'episodes/EP001/keyframe/seg01/shot01/frame.png', sha256: look.sha256 }, { path: clip, sha256: createHash('sha256').update('clip').digest('hex') }, look],
+		prompt_sent: 'Image 1 is the first frame. Video 1: motion reference.', cost: null }));
+	const detail = async () => { const drama = await readProjectFromFolder(root); return (await receiptDetail(root, drama, drama.objects.get('episodes/EP001/segments/seg01')!, src))!; };
+	const sent = await detail();
+	assert.deepEqual(sent.pictures.map(p => [p.n, p.label]), [[1, 'EP001 · seg01 shot01'], [2, 'Lin']]);
+	assert.deepEqual(sent.videos.map(v => [v.n, v.label, v.src, v.stageId]), [[1, clip, `webview:${clip}`, null]]);
+	assert.deepEqual(sent.madeFrom, []);
+	writeFileSync(join(root, clip), 'another clip');
+	assert.deepEqual((await detail()).videos.map(v => [v.n, v.label, v.src]), [[1, `${clip} (changed since)`, null]], 'the bytes it was sent are not the ones the project holds');
 });
 
 test("a text it was sent is listed by name and numbers no picture; the person's own file has no receipt and shows none", async () => {

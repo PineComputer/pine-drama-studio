@@ -1,5 +1,5 @@
-// What a version was made with (detail panel; section 12c): the versions it was made from, the pictures as pictures
-// and the others by name, and its prompt. One view for the canvas's panel and the seg editor, over one reader
+// What a version was made with (detail panel; section 12c): the versions it was made from, the pictures as pictures,
+// the videos (a take's motion reference) as videos and the others by name, and its prompt. One view for the canvas's panel and the seg editor, over one reader
 // (src/core/versionDetail.ts). Read-only.
 import type { CanvasDetail, MadeFrom } from '../src/core/canvasProtocol';
 import './requestView.css';
@@ -25,6 +25,12 @@ export function RequestView({ detail, onGo }: { detail: CanvasDetail; onGo: (sta
 					{detail.pictures.map((r, i) => <PictureRef key={i} r={r} onGo={onGo} />)}
 				</div>
 			)}
+			{detail.videos.map((r, i) => (
+				<div key={i} className="video-ref" title={`Video ${r.n}: ${r.label}`}>
+					{r.src ? <video src={r.src} muted loop controls preload="metadata" /> : <span className="codicon codicon-file-media" />}
+					<button className="pill" disabled={!r.stageId} onClick={go(r.stageId)}>{`Video ${r.n}: ${r.label}`}</button>
+				</div>
+			))}
 			{detail.madeFrom.length > 0 && (
 				<div className="meta">
 					{detail.madeFrom.map((r, i) => <button key={i} className="pill" disabled={!r.stageId} onClick={go(r.stageId)} title={`${r.label}${r.stageId ? '\nClick: go to its card' : ''}`}>{r.label}</button>)}
