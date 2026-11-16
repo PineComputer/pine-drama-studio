@@ -36,6 +36,7 @@ import { givenBack, refusalLine } from './refusal';
 import { Replay } from './replay';
 import { COLLECT_EVERY_MS, IDLE_WAITING_SECONDS, IDLE_WORKING_SECONDS, RECONNECT_LIMIT_MS, RECONNECT_WAITS_MS, START_WAIT_SECONDS, TURN_END_GRACE_MS, TURN_WAIT_MS } from './tuning';
 import { listHistory } from './projectHistory';
+import { commandOf } from './commandSend';
 import { collectTurn, landCaptures, putTurnFiles, turnRecordOf, type ComputerSession, type SentTurn, type TurnRecord } from './turn';
 import { applyPersonChange, type LeftOut } from './applyChange';
 import { DRAMA_FOLDER, PERSON_ATTACHMENTS_FOLDER } from './protocol';
@@ -283,6 +284,14 @@ export class ChatService {
 	 */
 	private async *sendPersonMessageToPine(key: string, text: string, label: string, folder: string, intendedAtSend: ReturnType<typeof intent>, files: readonly ChatFile[], ending: Ending, resends?: string, changedBefore = false, signal?: AbortSignal): AsyncGenerator<Update> {
 		if (this.options.connectionCurrent?.() === false) { throw new Error('The Pine connection changed. Reload the window before sending more work.'); }
+		// A `$ ` message runs its program as the turn (commandSend.ts); read before anything is sent, so a bad one goes nowhere.
+		let command: string[] | null;
+		try {
+			command = commandOf(text);
+		} catch (error) {
+			yield unsentLine(text, files, (error as Error).message.replace(/[.\s]+$/, ''));
+			return;
+		}
 		let conv = this.store.chat(key);
 		const env = conv ? this.pineOf(conv) : this.thePine();
 		const epoch = this.pineSessionGeneration(key);
@@ -405,7 +414,7 @@ export class ChatService {
 			yield unsentLine(text, files, `the project could not be sent to the Computer (${(error as Error).message.replace(/[.\s]+$/, '')})`);
 			return;
 		}
-		const op: SavedSend = { id: opId, chat_key: key, text: noted, state: 'pending', turn_id: null, created_at: '' };
+		const op: SavedSend = { id: opId, chat_key: key, text: noted, command: command && JSON.stringify(command), state: 'pending', turn_id: null, created_at: '' };
 		this.write(key, epoch, () => {
 			this.store.insertSavedSend(op);
 			// The person's message is recorded as typed; the Studio's notes, in messages of their own.
@@ -923,7 +932,9 @@ export class ChatService {
 
 	private async *send(key: string, env: PineConnection, epoch: number, session: PineSession, op: SavedSend): AsyncGenerator<Update, SendResult> {
 		try {
-			const turn = await this.held(key, epoch, () => this.port.run(env, session, op.text, op.id));
+			const turn = await this.held(key, epoch, () => op.command === null
+				? this.port.run(env, session, op.text, op.id)
+				: this.port.runCommand(env, session, JSON.parse(op.command) as string[], op.id));
 			this.sent(key, epoch, op, turn);
 			yield* this.tendIdle(key, env, epoch, session);
 			return { kind: 'sent', turn };

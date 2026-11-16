@@ -162,6 +162,11 @@ export interface PinePort {
 	/** Idempotent by `key`: a repeat returns the turn it admitted (SDK session.ts, AgentMode.run). */
 	run(env: PineConnection, session: PineSession, text: string, key: string): Promise<TurnView>;
 	/**
+	 * A command turn: `argv` runs as the session's turn, with no agent (SDK session.ts, AgentMode.runCommand; PineSandbox
+	 * PublicCommandRun). A turn like `run`'s, idempotent by `key` the same way.
+	 */
+	runCommand(env: PineConnection, session: PineSession, argv: readonly string[], key: string): Promise<TurnView>;
+	/**
 	 * Asks Pine to cancel the turn (SDK `session.agent.cancel`, POST /v2/sessions/{name}/agent/cancel): a running turn is
 	 * `canceling` until its run unwinds, then `canceled`; a waiting question closes and its turn ends `canceled`; an
 	 * ended turn is left as it is (PineSandbox session-coordinator pkg/server/agent_turns.go, handleAgentCancelV2).

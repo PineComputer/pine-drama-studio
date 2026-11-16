@@ -98,13 +98,43 @@ test('run response lost: resent with the same key, so Pine opens one turn', asyn
 	assert.equal(store.messages(KEY).filter(m => m.kind === 'result').length, 3);
 });
 
+test('a "$ " message is a command turn: its argv goes to Pine as the turn, never to the agent, and resends as one', async () => {
+	const { window, pine } = setup();
+	const { store, service } = window();
+	await send(service, 'first');
+	const runs = pine.calls.run;
+	await send(service, "$ drama-cli props key-ring --model seedream:dola-seedream-5-5-261028 --feedback 'brass, worn' --config drama/drama-cli.cfg.yaml");
+	assert.deepEqual(pine.commandTurns, [['drama-cli', 'props', 'key-ring', '--model', 'seedream:dola-seedream-5-5-261028', '--feedback', 'brass, worn', '--config', 'drama/drama-cli.cfg.yaml']]);
+	assert.equal(pine.calls.run, runs, 'a command message is not given to the agent');
+	const op = store.db.prepare("select command, state from saved_sends where command is not null").get() as { command: string; state: string };
+	assert.equal(op.state, 'sent');
+	assert.equal(JSON.parse(op.command)[1], 'props');
+	// A lost answer resends the same command under the same key: one turn.
+	pine.lose('runCommand');
+	await send(service, '$ drama-cli models --config drama/drama-cli.cfg.yaml');
+	await send(service, 'after');
+	assert.equal(pine.commandTurns.length, 2);
+	const turns = store.db.prepare("select count(distinct turn_id) n from saved_sends where text like '$ drama-cli models%'").get() as { n: number };
+	assert.equal(turns.n, 1);
+});
+
+test('a "$ " message a shell would treat as more than one program is refused before anything is sent', async () => {
+	const { window, pine } = setup();
+	const { service } = window();
+	await send(service, 'first');
+	const updates = await send(service, '$ drama-cli models | tee out.txt');
+	assert.match(markdown(updates), /no pipes, redirections, globs or comments/);
+	assert.equal(markdown(updates).match(/was not sent/g)?.length, 1, 'one line gives the message back');
+	assert.deepEqual(pine.commandTurns, []);
+});
+
 test('crash after sending: a restarted window resends the saved run with its key', async () => {
 	const { window, pine } = setup();
 	const first = window();
 	await send(first.service, 'first');
 	// The window saved the operation and sent it, then died before recording the answer.
 	const conv = first.store.chat(KEY)!;
-	first.store.tx(() => first.store.insertSavedSend({ id: 'op-crash', chat_key: KEY, text: 'lost in crash' }));
+	first.store.tx(() => first.store.insertSavedSend({ id: 'op-crash', chat_key: KEY, text: 'lost in crash', command: null }));
 	const secrets = await window().service['secrets'](conv);
 	await pine.run(ENV, { credentials: secrets!.credentials, binding: secrets!.binding!, name: conv.pine_session_name!, token: secrets!.sessionToken! }, 'lost in crash', 'op-crash');
 	const runsBefore = pine.calls.run;

@@ -45,6 +45,11 @@ export interface SavedSend {
 	id: string;
 	chat_key: string;
 	text: string;
+	/**
+	 * A command turn's argv as JSON (PineSandbox PublicCommandRun): the send runs that program as the turn instead of
+	 * giving `text` to the agent, which stays what the Chat shows. Null for a message to the agent.
+	 */
+	command: string | null;
 	state: SavedSendState;
 	turn_id: string | null;
 	created_at: string;
@@ -126,6 +131,9 @@ create table if not exists chat_reveal_requests (
   token text not null unique,
   requested_at integer not null
 );
+` }, { version: 21, sql: `
+-- A command turn's argv as JSON; null for a message to the agent.
+alter table saved_sends add column command text;
 ` }];
 
 
@@ -321,9 +329,9 @@ export class Store {
 
 	// ---- operations ----
 
-	insertSavedSend(op: Pick<SavedSend, 'id' | 'chat_key' | 'text'>): void {
-		this.db.prepare(`insert into saved_sends (id, chat_key, text, state, created_at)
-			values (?, ?, ?, 'pending', ?)`).run(op.id, op.chat_key, op.text, this.iso());
+	insertSavedSend(op: Pick<SavedSend, 'id' | 'chat_key' | 'text' | 'command'>): void {
+		this.db.prepare(`insert into saved_sends (id, chat_key, text, command, state, created_at)
+			values (?, ?, ?, ?, 'pending', ?)`).run(op.id, op.chat_key, op.text, op.command, this.iso());
 	}
 
 	updateSavedSend(id: string, patch: Partial<Pick<SavedSend, 'state' | 'turn_id'>>): void {

@@ -236,6 +236,21 @@ export class FakePine implements PinePort {
 		return this.respond('run', view(session.turns.get(turnId)!));
 	}
 
+	/** Every command turn's argv, in the order they were admitted. */
+	readonly commandTurns: string[][] = [];
+
+	async runCommand(_env: PineConnection, s: PineSession, argv: readonly string[], key: string) {
+		await this.count('runCommand');
+		const session = this.sessionOf(s);
+		let turnId = session.runs.get(key);
+		if (!turnId) {
+			this.commandTurns.push([...argv]);
+			turnId = this.open(session, argv.join(' ')).id;
+			session.runs.set(key, turnId);
+		}
+		return this.respond('runCommand', view(session.turns.get(turnId)!));
+	}
+
 	async turn(_env: PineConnection, s: PineSession, turnId: string) {
 		if (this.offline) {
 			await new Promise(resolve => setTimeout(resolve, 5));
