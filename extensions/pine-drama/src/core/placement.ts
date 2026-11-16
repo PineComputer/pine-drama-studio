@@ -19,7 +19,8 @@ function realTarget(path: string): string | undefined {
 		try {
 			return join(realpathSync(existing), ...rest);
 		} catch (error) {
-			if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+			// Not there, or a file stands where a folder would (ENOTDIR): judged by what is there.
+			if (!['ENOENT', 'ENOTDIR'].includes((error as NodeJS.ErrnoException).code ?? '')) {
 				throw error;
 			}
 		}

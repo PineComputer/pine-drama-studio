@@ -72,6 +72,9 @@ test("Use removes a file added since and not yet committed, leaves an object fol
 	await mkdir(join(root, shot, 'extra'), { recursive: true });
 	await writeFile(join(root, shot, 'extra/notes.md'), 'the shot\'s notes');
 	await writeFile(join(root, shot, 'notes'), 'a file then');
+	await mkdir(join(root, shot, 'sub'));
+	await writeFile(join(root, shot, 'sub/a.md'), 'in a folder then');
+	await writeFile(join(root, shot, 'empty'), 'a file then too');
 	await commitFilesFoundOnDisk(root, 'The project as found');
 	const [first] = await listHistoryOfShownFile(root, shot);
 	// Since: extra/ became an object of its own, notes became a folder, and a file was added by hand, not committed.
@@ -80,6 +83,10 @@ test("Use removes a file added since and not yet committed, leaves an object fol
 	await rm(join(root, shot, 'notes'));
 	await mkdir(join(root, shot, 'notes'));
 	await writeFile(join(root, shot, 'notes/a.md'), 'a folder now');
+	await rm(join(root, shot, 'sub'), { recursive: true });
+	await writeFile(join(root, shot, 'sub'), 'a file now');
+	await rm(join(root, shot, 'empty'));
+	await mkdir(join(root, shot, 'empty'));
 	await git(['add', '-A'], root);
 	await git(['-c', 'user.name=person', '-c', 'user.email=p@x', 'commit', '-q', '-m', 'since'], root);
 	await writeFile(join(root, shot, 'scratch.md'), 'by hand, not committed');
@@ -87,6 +94,8 @@ test("Use removes a file added since and not yet committed, leaves an object fol
 	assert.equal(existsSync(join(root, shot, 'scratch.md')), false, 'a file the folder did not hold then goes, though no commit held it');
 	assert.equal(await readFile(join(root, shot, 'extra/notes.md'), 'utf8'), 'the extra\'s own notes', 'an object folded inside is its own');
 	assert.equal(await readFile(join(root, shot, 'notes'), 'utf8'), 'a file then', 'a file takes the place of the folder that stands there now');
+	assert.equal(await readFile(join(root, shot, 'sub/a.md'), 'utf8'), 'in a folder then', 'and a folder the place of a file');
+	assert.equal(await readFile(join(root, shot, 'empty'), 'utf8'), 'a file then too', 'an empty folder, which git does not hold, makes way');
 	assert.match((await git(['log', '--format=%an', '-2'], root)).stdout, /client-found-changes-on-disk/, 'the hand-made file is kept in history first');
 });
 

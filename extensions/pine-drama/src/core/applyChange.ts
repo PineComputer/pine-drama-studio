@@ -59,6 +59,8 @@ export function applyPersonChange(projectRoot: string, commitMessage: string,
 				await removeEmptiedFolders(projectRoot, dirname(path));
 			} else {
 				await mkdir(dirname(file), { recursive: true });
+				// An empty folder where the file goes, which git does not hold, makes way (rmdir refuses one that is not empty).
+				if (statSync(file, { throwIfNoEntry: false })?.isDirectory()) { await rmdir(file); }
 				await writeWhole(file, got);
 			}
 		}
