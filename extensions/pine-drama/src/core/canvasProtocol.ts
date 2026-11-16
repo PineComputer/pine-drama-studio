@@ -152,7 +152,7 @@ export interface MadeFrom {
 	readonly label: string;
 	readonly src: string | null;
 	readonly stageId: string | null;
-	/** Its "Image N" in the prompt, by the order its receipt says it was sent (versionDetail.ts receiptDetail). */
+	/** Its "Image N" (a picture) or "Video N" (a video) in the prompt, by the order its receipt says it was sent (versionDetail.ts receiptDetail). */
 	readonly n?: number;
 }
 
@@ -164,6 +164,8 @@ export interface CanvasDetail {
 	readonly prompt: string | null;
 	readonly madeAt: string;
 	readonly pictures: readonly MadeFrom[];
+	/** The videos it was sent, a take's motion reference: Video 1..N. */
+	readonly videos: readonly MadeFrom[];
 	readonly madeFrom: readonly MadeFrom[];
 }
 

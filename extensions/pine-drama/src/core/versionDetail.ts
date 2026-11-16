@@ -19,24 +19,27 @@ export function mediaOf(file: string): 'image' | 'video' | 'text' {
 
 /**
  * `object`'s shown file as the panel shows it: its receipt's prompt and the files it was sent, in order, the pictures
- * numbered as the prompt's Image 1..N and the others by name, each with its card. A picture shows its thumbnail (`src`)
- * only while the project still holds the bytes it was sent (its receipt's sha256, doc/protocol.md 2.3); one changed
- * since shows none, and says so. Null for a file with no receipt: the person's own, a text, or none shown.
+ * numbered as the prompt's Image 1..N, the videos as its Video 1..N (a take's motion reference, which drama-cli sends
+ * as Video 1 and records among the files sent) and the others by name, each with its card. A picture or a video shows
+ * itself (`src`) only while the project still holds the bytes it was sent (its receipt's sha256, doc/protocol.md 2.3);
+ * one changed since shows none, and says so. Null for a file with no receipt: the person's own, a text, or none shown.
  */
 export async function receiptDetail(projectRoot: string, drama: ProjectReadModel, object: ProjectObject, src: (rel: string) => string): Promise<CanvasDetail | null> {
 	const receipt = object.shownFileReceipt;
 	if (!receipt) {
 		return null;
 	}
-	let images = 0;
-	const same = await Promise.all(receipt.inputsSentInOrder.map(async ({ path, sha256 }) => mediaOf(path) === 'image' && await sha256OfFile(join(projectRoot, ...path.split('/'))) === sha256));
+	const counted = { image: 0, video: 0 };
+	const same = await Promise.all(receipt.inputsSentInOrder.map(async ({ path, sha256 }) => mediaOf(path) !== 'text' && await sha256OfFile(join(projectRoot, ...path.split('/'))) === sha256));
 	const sent = receipt.inputsSentInOrder.map(({ path }, i) => {
 		const owner = objectOwningFile(drama, path);
 		const label = owner ? objectTitle(drama, owner) : path;
-		if (mediaOf(path) !== 'image') { return { image: false, made: { label, src: null, stageId: owner ?? null } }; }
-		return { image: true, made: { label: same[i] ? label : `${label} (changed since)`, src: same[i] ? src(path) : null, stageId: owner ?? null, n: ++images } };
+		const media = mediaOf(path);
+		if (media === 'text') { return { media, made: { label, src: null, stageId: owner ?? null } }; }
+		return { media, made: { label: same[i] ? label : `${label} (changed since)`, src: same[i] ? src(path) : null, stageId: owner ?? null, n: ++counted[media] } };
 	});
-	return { prompt: receipt.promptSent, madeAt: receipt.finishedAt, pictures: sent.filter(i => i.image).map(i => i.made), madeFrom: sent.filter(i => !i.image).map(i => i.made) };
+	const of = (media: string) => sent.filter(i => i.media === media).map(i => i.made);
+	return { prompt: receipt.promptSent, madeAt: receipt.finishedAt, pictures: of('image'), videos: of('video'), madeFrom: of('text') };
 }
 
 /**
