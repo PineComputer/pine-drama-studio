@@ -283,15 +283,14 @@ const notYet = 'Not available yet';
 
 /**
  * The composer: one floating dialog under the picked card, the same on both canvases (the person's design). A top row
- * (Upload, + Variant, Reference, Style, Full prompt), the references, the text specific to this picture, and a bottom
- * bar (model, settings, Generate). An asset's text is its description, its full prompt one click away; an episode
- * card's is its prompt, the only text it has; a storyboard has none. The text is for the next draw, so a picture the
- * person uploaded keeps it; how the picture on the card was made (its receipt; none for an upload) is behind "How it
- * was made". The model and settings are greyed, as the Computer cannot take a choice yet.
+ * (Upload, + Variant, Reference, Style, Full prompt), the references, an asset's one editable text, its description,
+ * and a bottom bar (model, settings, Generate). Its full prompt, the one its last draw sent, is read only; a keyframe's,
+ * a storyboard's or a take's own prompt can only be removed here (doc/protocol.md 2.2). How the picture on the card was
+ * made (its receipt) is behind "How it was made". The model and settings are greyed, as the Computer cannot take a choice yet.
  */
 function Composer({ card, reply, onGo, onClose }: { card: CanvasCard; reply: DetailMessage | undefined; onGo: (stageId: string) => void; onClose: () => void }) {
 	const record = reply?.record ?? null;
-	const prompt = reply?.prompt ?? null;
+	const ownPrompt = reply?.ownPrompt ?? null;
 	const [draft, setDraft] = useState<{ name: string; text: string } | null>(null);
 	const [full, setFull] = useState(false);
 	const [outcome, setOutcome] = useState<{ key: string; busy: boolean; error: string | null; unchanged: string | null } | null>(null);
@@ -311,16 +310,12 @@ function Composer({ card, reply, onGo, onClose }: { card: CanvasCard; reply: Det
 	};
 	const description = useTextEdit(`describe:${card.id}`, record?.description ?? null, busy, act,
 		text => ({ action: 'describe', object: card.id, description: record?.description ?? '', text }));
-	const promptEdit = useTextEdit(`prompt:${card.id}`, prompt?.text ?? null, busy, act, text => ({ action: 'prompt', object: prompt?.object ?? card.id, text }));
-	// The picture shown is the person's own upload: it was made from no prompt.
-	// An asset's own text is its description, its full prompt behind Full prompt; an episode card's is its prompt, the only
-	// text it has (the person's decision). One text is edited at a time, so Save and Generate act on the one shown.
-	const main = record ? (full ? promptEdit : description) : prompt?.text != null ? promptEdit : null;
+	const fullPrompt = reply?.detail?.prompt ?? 'Composed when drawn';
 	// What its next draw sends, Image 1..N: the one list the draw builds its request from (objects_sent_by_draw_request).
 	const references = reply?.nextDraw ?? [];
 	const generate = () => {
-		if (!main || main.blank) { return; }
-		if (main.save()) { generateOnceSaved.set(main.key, card.id); } else { post({ v: CANVAS_PROTOCOL, type: 'generate', stageId: card.id }); }
+		if (record && description.blank) { return; }
+		if (record && description.save()) { generateOnceSaved.set(description.key, card.id); } else { post({ v: CANVAS_PROTOCOL, type: 'generate', stageId: card.id }); }
 	};
 	const addVariant = () => record && draft && draft.name.trim() && draft.text.trim() && !busy
 		&& act({ key: `variant:${card.id}`, request: { action: 'add', type: 'variant', from: card.id, name: draft.name.trim(), text: draft.text.trim() } });
@@ -338,8 +333,8 @@ function Composer({ card, reply, onGo, onClose }: { card: CanvasCard; reply: Det
 				<button className="chip-button" disabled title={notYet}>Style</button>
 				<span className="spacer" />
 				{card.segment && <button className="quiet" onClick={() => post({ v: CANVAS_PROTOCOL, type: 'segEditor', seg: card.segment })} title={`Open ${card.segment} in the seg editor`}>Seg editor ⤢</button>}
-				{record && prompt?.text != null && <button className="quiet" aria-expanded={full} disabled={main?.changed} onClick={() => setFull(v => !v)}
-					title={main?.changed ? 'Save or cancel your edit first' : full ? 'Back to its description' : 'The whole prompt its next draw sends'}>{full ? 'Description ⤡' : 'Full prompt ⤢'}</button>}
+				{record && <button className="quiet" aria-expanded={full} disabled={description.changed} onClick={() => setFull(v => !v)}
+					title={description.changed ? 'Save or cancel your edit first' : full ? 'Back to its description' : 'The whole prompt its last draw sent, composed from the description'}>{full ? 'Description ⤡' : 'Full prompt ⤢'}</button>}
 				<button className="icon" onClick={onClose} title="Close (Esc)" aria-label="Close"><span className="codicon codicon-close" /></button>
 			</div>
 			{references.length > 0 && (
@@ -350,13 +345,22 @@ function Composer({ card, reply, onGo, onClose }: { card: CanvasCard; reply: Det
 			{reply?.picture && <PictureState picture={reply.picture} busy={busy} act={act} />}
 			{!reply && <div className="detail-note">Reading its record…</div>}
 			{reply?.error && <div className="detail-note">{reply.error}</div>}
-			{main && <FlatText key={main.key} edit={main} busy={busy} label={!record ? 'Prompt' : full ? 'Full prompt' : 'Description'} />}
-			{main?.changed && (
+			{record && (full ? <textarea className="flat-text" readOnly value={fullPrompt} aria-label="Full prompt" />
+				: <FlatText key={description.key} edit={description} busy={busy} label="Description" />)}
+			{ownPrompt && (
+				<div className="composer-row">
+					<span className="muted">Its own prompt is used</span>
+					<span className="spacer" />
+					<button className="labeled" disabled={busy} onClick={() => act({ key: `automatic:${card.id}`, request: { action: 'automatic', object: card.id } })}
+						title="Remove its own prompt, so the draw composes it">Use the automatic prompt</button>
+				</div>
+			)}
+			{description.changed && (
 				<div className="composer-row">
 					<span className="muted">Unsaved changes · ⌘Enter to save</span>
 					<span className="spacer" />
-					<button className="labeled" disabled={busy} onClick={main.cancel} title="Discard your edit (Esc)">Cancel</button>
-					<button className="labeled" disabled={busy || main.blank} onClick={main.save}>Save</button>
+					<button className="labeled" disabled={busy} onClick={description.cancel} title="Discard your edit (Esc)">Cancel</button>
+					<button className="labeled" disabled={busy || description.blank} onClick={description.save}>Save</button>
 				</div>
 			)}
 			{reply?.detail && (
@@ -388,9 +392,8 @@ function Composer({ card, reply, onGo, onClose }: { card: CanvasCard; reply: Det
 				<span className="bar-sep" />
 				<button className="chip-button" disabled title={notYet}>Ratio · Quality · Resolution · Count ▾</button>
 				<span className="spacer" />
-				{/* Generate draws from the text shown, so a card with none (a storyboard, a cut) offers none. */}
-				{main && (
-					<button className="generate" disabled={busy || main.blank} onClick={generate}
+				{(record || ownPrompt !== null) && (
+					<button className="generate" disabled={busy || (record !== null && description.blank)} onClick={generate}
 						title={`${card.kind === 'take' ? 'Shoot only this segment' : 'Draw only this picture'}: puts a request in the Chat, saving your edit first`}>
 						<span className="codicon codicon-arrow-up" />Generate
 					</button>

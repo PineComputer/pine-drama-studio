@@ -17,7 +17,8 @@ import { extname, join } from 'node:path';
 import { recordOf } from '../core/assetStatus';
 import { lineageMessage } from '../core/canvasMessage';
 import { onBoard } from '../core/canvasLayout';
-import { ASSETS_CANVAS, CANVAS_PROTOCOL, type CanvasCard, type CanvasPrompt } from '../core/canvasProtocol';
+import { ASSETS_CANVAS, CANVAS_PROTOCOL, type CanvasCard } from '../core/canvasProtocol';
+import { PROMPT_CARDS } from '../core/protocol';
 import { galleryPageMessage } from '../core/galleryMessage';
 import { NAME_MAX, TEXT_MAX, type Collection } from '../core/galleryProtocol';
 import { readProjectFromFolder, type ProjectReadModel } from '../core/project';
@@ -114,10 +115,10 @@ async function takeLinesCase(source: Source): Promise<Case> {
 	return { ...c, name: `${source.name}: a take's lines come from every picture it lists on the board`, interact: { answer: () => null, check } };
 }
 
-/** The prompt the box shows for an object (episodeCanvas.ts detailReply): its prompt.md. */
-function promptOf(source: Source, id: string): CanvasPrompt | null {
-	const text = source.drama.objects.get(id)?.prompt ?? null;
-	return text !== null ? { object: id, text } : null;
+/** Whether a keyframe, a storyboard or a take has its own prompt (episodeCanvas.ts detailReply); null for any other card. */
+function ownPromptOf(source: Source, id: string): boolean | null {
+	const object = source.drama.objects.get(id);
+	return object && PROMPT_CARDS.has(object.type) ? object.prompt !== null : null;
 }
 
 /** The commits of a picture's two results the strip offers, newest first, as pictureHistory gives them from git. */
@@ -142,7 +143,7 @@ function recordAnswer(source: Source) {
 		if (m.type !== 'inspect' || !m.stageId) { return null; }
 		const object = source.drama.objects.get(m.stageId);
 		return { v: CANVAS_PROTOCOL, type: 'detail', stageId: m.stageId, detail: null, record: recordOf(source.drama, m.stageId),
-			prompt: promptOf(source, m.stageId), nextDraw: object ? nextDrawRequest(source.drama, object, fileSrc) : [],
+			ownPrompt: ownPromptOf(source, m.stageId), nextDraw: object ? nextDrawRequest(source.drama, object, fileSrc) : [],
 			picture: object ? historyOf(object.id, object.shownFile) : null, error: null };
 	};
 }
@@ -380,63 +381,41 @@ async function shortPaneBoxCase(source: Source): Promise<Case> {
 }
 
 /**
- * An episode card's box has the asset box's Generate (amended 2026-11-11): with no edit it puts the request in the
- * chat; with an edit it saves the text shown first, on the card's own stage and version, and the request follows once
- * the save is written. On the first keyframe or take of EP001 whose prompt drama-cli planned.
+ * An episode card's box has Generate with no text to edit (amended 2026-11-11; A4: every prompt is composed when
+ * drawn): it puts the request in the chat at once. A card with its own prompt says so and offers "Use the automatic
+ * prompt", which removes it. On the first keyframe or take of EP001 that has its own prompt.
  */
 async function episodeBoxCase(source: Source): Promise<Case> {
 	const c = await canvasCase(source, 'EP001');
-	const id = ((c.message as { cards?: readonly CanvasCard[] }).cards ?? []).filter(onBoard).map(card => card.id).find(card => promptOf(source, card));
-	const target = id ? { id, text: promptOf(source, id)!.text!, take: source.drama.objects.get(id)?.type === 'take' } : undefined;
-	// Answered as episodeCanvas.ts answers them (detailReply). A save's answer (actionEnded, written) is held, and sent by
-	// the check, so a request posted before the save is written shows.
-	let held: unknown = null;
-	const answer = (m: { type?: string; stageId?: string }) => {
-		const e = m as Posted;
-		if (e.type === 'entry' && e.request?.action === 'prompt') { held = { v: CANVAS_PROTOCOL, type: 'actionEnded', key: e.key, error: null, unchanged: null }; return null; }
-		return m.type !== 'inspect' || !m.stageId ? null
-			: { v: CANVAS_PROTOCOL, type: 'detail', stageId: m.stageId, detail: null, error: null, prompt: promptOf(source, m.stageId) };
-	};
+	const id = ((c.message as { cards?: readonly CanvasCard[] }).cards ?? []).filter(onBoard).map(card => card.id).find(card => ownPromptOf(source, card));
+	const target = id ? { id, take: source.drama.objects.get(id)?.type === 'take' } : undefined;
+	const answer = (m: { type?: string; stageId?: string }) => m.type !== 'inspect' || !m.stageId ? null
+		: { v: CANVAS_PROTOCOL, type: 'detail', stageId: m.stageId, detail: null, error: null, ownPrompt: ownPromptOf(source, m.stageId) };
 	const check = async (page: Page, posted: readonly unknown[]): Promise<string[]> => {
-		if (!target) { return ['no card of EP001 has a prompt, so no episode box is checked']; }
+		if (!target) { return ['no card of EP001 has its own prompt, so no episode box is checked']; }
 		const problems: string[] = [];
 		await page.keyboard.press('v');
 		await page.locator(`.react-flow__node[data-id="${target.id}"]`).click({ position: { x: 12, y: 12 } });
-		const text = page.locator('.composer textarea[aria-label="Prompt"]');
-		if (await text.waitFor({ timeout: WAIT_MS }).then(() => false, () => true)) { return [`${target.id}'s box shows no prompt`]; }
 		const generate = page.locator('.composer button.generate');
-		if (await generate.count() !== 1) { return [`${target.id}'s composer has ${await generate.count()} Generate buttons, not one`]; }
+		if (await generate.waitFor({ timeout: WAIT_MS }).then(() => false, () => true)) { return [`${target.id}'s box shows no Generate`]; }
+		if (await page.locator('.composer textarea').count() !== 0) { problems.push(`${target.id}'s box has a text to edit: an episode card's prompt is composed when drawn`); }
 		// A take is shot, a picture drawn: the tooltip says which, as the request does.
 		const verb = target.take ? 'Shoot only this segment' : 'Draw only this picture';
 		if (!(await generate.getAttribute('title'))?.startsWith(verb)) { problems.push(`${target.id}'s Generate reads ${JSON.stringify(await generate.getAttribute('title'))}, not "${verb}…"`); }
+		if (await generate.isDisabled()) { return [...problems, 'Generate is disabled with no text']; }
+		await generate.click();
 		const generates = () => posted.filter(m => (m as { type?: string }).type === 'generate') as { stageId?: string }[];
-		const saved = () => entries(posted, 'prompt').map(m => m.request!);
-		// No edit: the request at once, for this card, and no save.
-		if (await generate.isDisabled()) { return [...problems, 'Generate is disabled with no edit']; }
-		await generate.click();
 		for (const until = Date.now() + 2000; generates().length < 1 && Date.now() < until;) { await new Promise(resolve => setTimeout(resolve, 50)); }
-		if (generates().length !== 1 || generates()[0].stageId !== target.id) { problems.push(`Generate with no edit posted ${JSON.stringify(generates())}, not one request for ${target.id}`); }
-		if (saved().length) { problems.push('Generate with no edit saved'); }
-		// An edit: saved first, then the request once written.
-		const edited = `${target.text} edited`;
-		await text.fill(edited);
-		if (await generate.isDisabled()) { return [...problems, 'Generate is disabled with an unsaved edit']; }
-		await generate.click();
-		for (const until = Date.now() + 2000; !held && Date.now() < until;) { await new Promise(resolve => setTimeout(resolve, 50)); }
-		const save = saved()[0];
-		if (!held || saved().length !== 1 || save.text !== edited || save.object !== target.id) {
-			return [...problems, `Generate with an edit saved ${JSON.stringify(saved())}, not the edit on ${target.id}`];
-		}
-		// Not before the save is written.
-		await new Promise(resolve => setTimeout(resolve, 300));
-		if (generates().length !== 1) { problems.push('Generate with an edit posted its request before the save was written'); }
-		// Sent as the extension's reply is sent to the webview (the acquireVsCodeApi shim).
-		await page.evaluate(message => (globalThis as unknown as { postMessage(m: unknown, origin: string): void }).postMessage(message, '*'), held);
-		for (const until = Date.now() + 2000; generates().length < 2 && Date.now() < until;) { await new Promise(resolve => setTimeout(resolve, 50)); }
-		if (generates().length !== 2 || generates()[1].stageId !== target.id) { problems.push(`Generate with an edit posted ${generates().length - 1} requests once saved, not 1 for ${target.id}`); }
+		if (generates().length !== 1 || generates()[0].stageId !== target.id) { problems.push(`Generate posted ${JSON.stringify(generates())}, not one request for ${target.id}`); }
+		// Its own prompt is said, and goes with one press.
+		const automatic = page.locator('.composer button:has-text("Use the automatic prompt")');
+		if (await automatic.count() !== 1) { return [...problems, `${target.id} has its own prompt, but its box offers no "Use the automatic prompt"`]; }
+		await automatic.click();
+		for (const until = Date.now() + 2000; !entries(posted, 'automatic').length && Date.now() < until;) { await new Promise(resolve => setTimeout(resolve, 50)); }
+		if (entries(posted, 'automatic').map(m => m.request!.object).join() !== target.id) { problems.push(`"Use the automatic prompt" posted ${JSON.stringify(entries(posted, 'automatic'))}, not one for ${target.id}`); }
 		return problems;
 	};
-	return { ...c, name: `${source.name}: an episode card's composer has Generate`, interact: { answer, check } };
+	return { ...c, name: `${source.name}: an episode card's composer has Generate and the automatic prompt`, interact: { answer, check } };
 }
 
 /**
@@ -702,15 +681,15 @@ async function toolsCase(source: Source): Promise<Case> {
  * A click and a double-click on a card, by tool, after tldraw's (HandTool.ts, SelectTool): with Hand a click picks
  * nothing and a double-click zooms in at the pointer; with Select a click picks the card and opens its composer without
  * moving the board, and a double-click fits the card in the view. Nothing opens a file in a tab. The composer is a part
- * of the board, flat (as LibTV's): a wheel over it pans the board, and its height is its text's, so a long prompt, as
- * long as a real take's (about 7000 characters in 27 lines), is read by panning the board down, with nothing clipped.
+ * of the board, flat (as LibTV's): a wheel over it pans the board, and its height is its text's, so a long description,
+ * as long as a real take's prompt (about 7000 characters in 27 lines), is read by panning the board down, with nothing clipped.
  */
 async function clickModelCase(source: Source, episode: string): Promise<Case> {
 	const c = await canvasCase(source, episode);
 	const id = episode === ASSETS_CANVAS ? ((c.message as { cards?: readonly CanvasCard[] }).cards ?? []).find(onBoard)?.id : 'episodes/EP001/segments/seg01';
-	const prompt = Array.from({ length: 27 }, (_, i) => `Line ${i + 1}: ${'the camera holds on the subject while the light shifts slowly across the room. '.repeat(3)}`).join('\n');
+	const text = Array.from({ length: 27 }, (_, i) => `Line ${i + 1}: ${'the camera holds on the subject while the light shifts slowly across the room. '.repeat(3)}`).join('\n');
 	const answer = (m: { type?: string; stageId?: string }) => m.type !== 'inspect' || !m.stageId ? null
-		: { v: CANVAS_PROTOCOL, type: 'detail', stageId: m.stageId, detail: null, error: null, prompt: { object: m.stageId, text: prompt } };
+		: { v: CANVAS_PROTOCOL, type: 'detail', stageId: m.stageId, detail: null, error: null, record: { description: text } };
 	const check = async (page: Page, posted: readonly unknown[]): Promise<string[]> => {
 		if (!id) { return [`the ${episode} canvas has no card`]; }
 		const problems: string[] = [];

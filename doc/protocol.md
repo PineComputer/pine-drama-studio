@@ -82,7 +82,10 @@ An object is a folder holding **`object.json`** (`$defs/object`):
 - **Pine Computer changes an object only in a turn that works on that object.** It plans, draws or rewrites that object itself: never as a side effect of another object changing, and never when it reads one. So a field the person set (`objects_sent_by_draw_request`, `relations`, `variant_of`, the text files) stays as they set it until they, or a turn that works on that object, change it. History keeps both.
 - **References that no longer resolve.** A listed object may be deleted later, and a reference may point back at its own object, directly or through others. Both are allowed in the data. A draw sends the shown files of the listed objects that exist, in order, and Pine Computer tells the person each one it could not send (4.4). It refuses nothing. A draw sends files, not a graph, so a cycle sends each file once, as listed.
 - **Who creates objects.** Either side may create an object. The client creates one when the person adds it, with `object.json` and the person's `description.md`. drama-cli derives every name a model reads from `name`, never from the id.
-- **The person's text.** In an object's folder, `description.md` and `prompt.md`, when present, are the text the person and Pine Computer edit. Whoever writes last wins, and git keeps the earlier text.
+- **One editable text per object.** The person and Pine Computer are equal writers of it: whoever writes last wins, and git keeps the earlier text. No side rewrites it as a side effect of drawing.
+  - A `character`, `scene`, `prop` or `variant` has `description.md`. Its draw composes the prompt from it, so it has no `prompt.md`; the prompt a draw sent is in its receipt (`prompt_sent`, 2.3). A character's outfit and a prop's printed words are part of the description (`Outfit: …`; `It shows the words "…".`). `entry.json` beside it keeps the asset's other story facts, which drama-cli reads and no card edits.
+  - A `character_face`, `scene_floor_plan` or `scene_view` has neither: it is drawn from its owner's description, and the variant's change for a variant's view.
+  - A `keyframe`, `storyboard` or `take` has `prompt.md` only as an override, which its draw sends as written. Without one, the draw composes the prompt. Removing it ("Use the automatic prompt") returns to that.
 - **Removal.** Removing an object deletes its folder; a variant is a folder below its asset's, so it goes with it.
 
 ### 2.3 Receipts
@@ -113,7 +116,7 @@ Pine Computer keeps its own records of the drama in **`pine-computer-records/`**
   - an `object.json` field (`objects_sent_by_draw_request`, `relations`, `variant_of`, `name`);
   - adding an object, which writes its folder with `object.json` and `description.md`;
   - removing an object, which deletes its folder;
-  - `description.md` or `prompt.md`;
+  - `description.md`, or the `prompt.md` of a keyframe, storyboard or take, or its removal (2.2);
   - the person's own picture or video, below.
 - **Canvas positions** and every other view state are the client's own, per person or per profile, and are never written into the drama.
 - **Hand changes** (a folder client): a file changed outside the client is recorded as `client-found-changes-on-disk` at the next opening, before the next turn, or at a running turn's next collection (4.3).
@@ -188,7 +191,10 @@ A turn ends as Pine reports it ([agent turns](https://console.pinecomputer.io/do
 ## 5. What the client shows
 
 - **The cards** show what the client holds: each object's `object.json`, its `shown_file` and its receipts. A file's history is every earlier content of it (2.1; in git, `git log` of the path).
-- **"Use" on a past result** restores the files that result's change wrote inside the object's own folder, receipts with them, as a `person` change. That is the change's commit in git; for a turn's, the commit of the collection that landed it, which carries the turn's `Pine-Turn-Id`. Files of a variant or any other object folded inside it are not included, since each is an object of its own. Files the same change wrote for other objects stay as they are. The rule is the same whoever made the change: a turn, the person, or `client-found-changes-on-disk`, which may hold the whole project. The restored result's file is the shown one again: `object.json` `shown_file` names it, and a current shown file of another name is deleted with its receipt in the same change, as for the person's own picture (3). Use restores only the files that result's change wrote: a file a later result added beside them, such as a take's last frame, stays.
+- **"Use" on a past result** brings the object's own folder back as it was at that result, as a `person` change: the result is the commit that first wrote that shown file (in git; for a turn's, the commit of the collection that landed it, which carries the turn's `Pine-Turn-Id`).
+  - Every file of the folder then comes back, receipts with them, `description.md` and `entry.json` too, and a file the folder holds now but did not then is deleted.
+  - `object.json` stays the current one, with that result's `shown_file`. On a keyframe, storyboard or take, that result's `objects_sent_by_draw_request` comes back too, since its `prompt.md` names its images by that list; its `prompt.md` follows the folder, present or absent.
+  - Files of a variant or any other object folded inside it are not included, since each is an object of its own, and nothing outside the folder changes. The rule is the same whoever made the result: a turn, the person, or `client-found-changes-on-disk`.
 
 ## 6. Majors and upgrades
 

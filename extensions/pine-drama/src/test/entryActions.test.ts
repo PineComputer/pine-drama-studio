@@ -4,7 +4,8 @@ import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { runCardAction, unchangedLine, type EntryAsk } from '../core/entryActions';
+import { runCardAction, unchangedLine, type CardRequest, type EntryAsk } from '../core/entryActions';
+import { readEntryAction } from '../core/galleryProtocol';
 import { git } from '../core/git';
 import { readProjectFromFolder } from '../core/project';
 import { commitFilesFoundOnDisk, listHistoryOfShownFile } from '../core/projectHistory';
@@ -21,16 +22,48 @@ const project = async () => {
 const lastCommit = async (root: string) => (await git(['log', '-1', '--format=%an|%s', '--name-only'], root)).stdout.trim().split('\n').filter(Boolean);
 const LIN = 'assets/characters/lin';
 
-test('a description or a prompt is written to its file as the person\'s commit; the same text again changes nothing and says so', async () => {
+test('a description is written to its file as the person\'s commit; the same text again changes nothing and says so', async () => {
 	const root = await project();
 	assert.deepEqual(await runCardAction(root, { action: 'describe', object: LIN, description: '', text: 'A reporter in the rain.' }, never), { already: false });
 	assert.equal(await readFile(join(root, LIN, 'description.md'), 'utf8'), 'A reporter in the rain.');
 	assert.deepEqual(await lastCommit(root), ['person|Description of assets/characters/lin', `${LIN}/description.md`]);
 	assert.deepEqual(await runCardAction(root, { action: 'describe', object: LIN, description: '', text: 'A reporter in the rain.' }, never), { already: true });
-	await runCardAction(root, { action: 'prompt', object: 'episodes/EP001/segments/seg02', text: 'Lin opens the umbrella.' }, never);
-	assert.equal((await readProjectFromFolder(root)).objects.get('episodes/EP001/segments/seg02')!.prompt, 'Lin opens the umbrella.');
 	assert.equal(await runCardAction(root, { action: 'describe', object: LIN, description: 'x' }, { ...never, description: () => Promise.resolve(undefined) }), undefined);
 	assert.equal(unchangedLine(undefined), 'Cancelled: nothing was changed.');
+});
+
+test('one editable text per card: no card writes a prompt, and a take\'s own prompt goes with Use the automatic prompt', async () => {
+	const root = await project();
+	await commitFilesFoundOnDisk(root, 'The project as found');
+	assert.equal(readEntryAction({ key: 'k', request: { action: 'prompt', object: LIN, text: 'Lin, full body.' } }), undefined, 'a prompt is composed when drawn: no page writes one');
+	const seg = 'episodes/EP001/segments/seg02';
+	const automatic = readEntryAction({ key: 'k', request: { action: 'automatic', object: seg } });
+	assert.ok(automatic, 'the page may send it');
+	assert.deepEqual(await runCardAction(root, automatic.request as CardRequest, never), { already: false });
+	assert.equal(existsSync(join(root, seg, 'prompt.md')), false, 'the draw composes its prompt again');
+	assert.deepEqual(await lastCommit(root), [`person|The automatic prompt for ${seg}`, `${seg}/prompt.md`]);
+	await assert.rejects(runCardAction(root, readEntryAction({ key: 'k', request: { action: 'automatic', object: LIN } })!.request as CardRequest, never), /no prompt of its own/);
+});
+
+test("Use brings the object's own folder back as it was then: a file added since goes, its name stays, and a keyframe's prompt comes back with the list it names", async () => {
+	const root = await project();
+	const shot = 'episodes/EP001/keyframe/seg01/shot01';
+	await commitFilesFoundOnDisk(root, 'The project as found');
+	const [first] = await listHistoryOfShownFile(root, shot);
+	const object = JSON.parse(await readFile(join(root, shot, 'object.json'), 'utf8'));
+	await writeFile(join(root, shot, 'object.json'), JSON.stringify({ ...object, name: 'Shot 1, renamed', objects_sent_by_draw_request: ['assets/props/umbrella'] }));
+	await writeFile(join(root, shot, 'prompt.md'), 'Image 1 is the umbrella.');
+	await writeFile(join(root, shot, 'notes.md'), 'added since');
+	await writeFile(join(root, shot, object.shown_file), 'a redraw');
+	await git(['add', '-A'], root);
+	await git(['-c', 'user.name=pine-computer', '-c', 'user.email=p@x', 'commit', '-q', '-m', 'a redraw'], root);
+	await runCardAction(root, { action: 'use', object: shot, commit: first.commit }, never);
+	const now = JSON.parse(await readFile(join(root, shot, 'object.json'), 'utf8'));
+	assert.deepEqual([now.name, now.objects_sent_by_draw_request, now.shown_file], ['Shot 1, renamed', object.objects_sent_by_draw_request, object.shown_file],
+		'its name stays current; its list is the one its prompt was written for');
+	assert.equal(existsSync(join(root, shot, 'notes.md')), false, 'a file the folder did not hold then is gone');
+	assert.equal(existsSync(join(root, shot, 'prompt.md')), false, 'it had no prompt of its own then, so the draw composes it');
+	assert.notEqual(await readFile(join(root, shot, object.shown_file), 'utf8'), 'a redraw');
 });
 
 test('an asset or a variant the person adds is a folder with object.json and description.md at once; removing one deletes its folder', async () => {

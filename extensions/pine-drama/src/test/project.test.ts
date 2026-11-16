@@ -29,7 +29,7 @@ test('every folder holding object.json is an object, with its shown file, its re
 	]);
 	const lin = drama.objects.get('assets/characters/lin')!;
 	assert.deepEqual([lin.type, lin.name, lin.shownFile, lin.episode, lin.description, lin.prompt],
-		['character', 'Lin', 'assets/characters/lin/look.png', null, 'A reporter, calm under pressure.\n', 'Lin, 30, grey wool coat\n']);
+		['character', 'Lin', 'assets/characters/lin/look.png', null, 'A reporter, calm under pressure.\n', null], 'a character has no prompt of its own: its prompt.md is not read');
 	assert.deepEqual([lin.shownFileReceipt?.finishedAt, lin.shownFileReceipt?.promptSent], ['2026-11-12T10:05:00Z', 'Lin, 30, grey wool coat'], 'its receipt');
 	const take = drama.objects.get('episodes/EP001/segments/seg01')!;
 	assert.deepEqual([take.episode, take.segment, take.shownFile], ['EP001', 'seg01', 'episodes/EP001/segments/seg01/take.mp4']);

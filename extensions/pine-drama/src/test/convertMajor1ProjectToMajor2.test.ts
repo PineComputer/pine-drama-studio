@@ -28,10 +28,10 @@ const write = (root: string, path: string, value: unknown) => {
 };
 
 /** One version folder: its shown file (artifact.json lists it), version.json, and job.json when it was a paid call. */
-const version = (root: string, object: string, id: string, made: string, files: Record<string, string>, extra: { job?: boolean | string; inputs?: { object: string; version: string }[]; source?: unknown; shown?: string | null } = {}) => {
+const version = (root: string, object: string, id: string, made: string, files: Record<string, string>, extra: { job?: boolean | string; inputs?: { object: string; version: string }[]; source?: unknown; shown?: string | null; author?: string } = {}) => {
 	for (const [name, bytes] of Object.entries(files)) { write(root, `${object}/${id}/${name}`, bytes); }
 	const outputs = Object.entries(files).map(([name, bytes]) => ({ path: `${object}/${id}/${name}`, sha256: sha256(bytes) }));
-	write(root, `${object}/${id}/artifact.json`, { outputs, metadata: extra.source ? { source: extra.source } : {} });
+	write(root, `${object}/${id}/artifact.json`, { outputs, metadata: { ...extra.source ? { source: extra.source } : {}, ...extra.author ? { author: extra.author } : {} } });
 	write(root, `${object}/${id}/version.json`, { schema: 1, made_at: made, file: extra.shown === undefined ? Object.keys(files)[0] : extra.shown, inputs: extra.inputs ?? [], prompt: 'a prompt', from_import: null });
 	// `job`: the paid call's state (drama-cli's job.json `state`), downloaded when only `true`.
 	if (extra.job) { write(root, `${object}/${id}/job.json`, { state: extra.job === true ? 'downloaded' : extra.job, attempt_id: `att-${object.split('/').at(-1)}-${id}`, actual_usd: 0.04, connection: 'pine', provider: 'byteplus' }); }
@@ -60,10 +60,18 @@ function majorOneProject(): { root: string; storage: string } {
 	write(root, `${HALL}/entry/v1/entry.json`, { id: 'hall', name: 'Hall', description: 'A long hall.', setting: 'interior' });
 	version(root, `${HALL}/views/front`, 'v1', '2026-11-01T09:50:00Z', { 'image-1.jpg': 'hall front' }, { job: true });
 	version(root, HALL, 'v1', '2026-11-01T09:55:00Z', { 'image-1.jpg': 'hall sheet', 'front.jpg': 'hall front' });
-	write(root, `${ANN}/entry/v1/entry.json`, { id: 'ann', name: 'Ann', appearance: 'Tall, in a grey coat.', role: 'lead', appears_in: ['EP001'] });
+	write(root, `${ANN}/entry/v1/entry.json`, { id: 'ann', name: 'Ann', appearance: 'Tall, in a grey coat.', look: 'A coat buttoned to the chin.', role: 'lead', appears_in: ['EP001'] });
 	version(root, `${ANN}/describe`, 'v1', '2026-11-01T08:00:00Z', {}, { job: true, shown: null });
-	version(root, `${ANN}/prompts`, 'v1', '2026-11-01T09:30:00Z', {}, { shown: null });
+	version(root, `${ANN}/prompts`, 'v1', '2026-11-01T09:30:00Z', {}, { shown: null, author: 'person' });
 	write(root, `${ANN}/prompts/v1/prompt.json`, { text: 'Ann, full body, grey coat' });
+	// A keyframe's prompt the person wrote, and another's from the template (major 1's prompts.py: author agent): neither is carried.
+	version(root, `${SHOT}/prompts`, 'v1', '2026-11-02T09:00:00Z', {}, { shown: null, author: 'person' });
+	write(root, `${SHOT}/prompts/v1/prompt.json`, { text: 'Image 1 is Ann. She turns.' });
+	version(root, 'episodes/EP001/keyframe/seg01/shot02/prompts', 'v1', '2026-11-02T09:00:00Z', {}, { shown: null, author: 'agent' });
+	write(root, 'episodes/EP001/keyframe/seg01/shot02/prompts/v1/prompt.json', { text: 'Shot 2, from the template.' });
+	// A prop with printed words.
+	version(root, 'assets/props/sign/entry', 'v1', '2026-11-01T09:00:00Z', {}, { shown: null });
+	write(root, 'assets/props/sign/entry/v1/entry.json', { id: 'sign', name: 'Sign', description: 'A shop sign.', text: 'OPEN' });
 	version(root, `${RAIN}/entry`, 'v1', '2026-11-01T09:00:00Z', {}, { shown: null });
 	write(root, `${RAIN}/entry/v1/entry.json`, { id: 'rain', name: 'Ann in the rain', text: 'Wet hair.', from: 'base' });
 	// The keyframe is drawn from Ann's current picture: its receipt names it at its major-2 path.
@@ -126,10 +134,16 @@ test('a major-1 project becomes major 2 by the table: backed up, each object at 
 		schema: 2, paid_call_id: 'att-ann-v1', finished_at: '2026-11-01T10:00:00Z', inputs_sent_in_order: [], prompt_sent: 'a prompt', cost: { usd: 0.04, reported_by: 'pine' },
 	});
 	assert.deepEqual(readJson(root, `${SHOT}/image-1.jpg.receipt.json`).inputs_sent_in_order, [{ path: `${ANN}/image-1.jpg`, sha256: sha256('ann one') }]);
-	// The entry is split into the object's files; the person's pending description wins; the prompt is prompt.md.
-	assert.equal(read(root, `${ANN}/description.md`), 'Tall, in a long grey coat.');
+	// The entry is split into the object's files; the person's pending description wins, and the outfit joins it. Every
+	// prompt is composed when drawn, so no stored prompt is carried, the person's neither (the backup keeps them).
+	assert.equal(read(root, `${ANN}/description.md`), 'Tall, in a long grey coat.\n\nOutfit: A coat buttoned to the chin.\n');
 	assert.deepEqual(readJson(root, `${ANN}/entry.json`), { role: 'lead' });
-	assert.equal(read(root, `${ANN}/prompt.md`), 'Ann, full body, grey coat');
+	for (const card of [ANN, SHOT, 'episodes/EP001/keyframe/seg01/shot02']) {
+		assert.ok(!existsSync(join(root, card, 'prompt.md')) && !existsSync(join(root, card, 'prompts')), `${card} carries no stored prompt`);
+	}
+	assert.equal(read(backup, `${SHOT}/prompts/v1/prompt.json`), JSON.stringify({ text: 'Image 1 is Ann. She turns.' }), 'the backup keeps it');
+	assert.deepEqual([read(root, 'assets/props/sign/description.md'), readJson(root, 'assets/props/sign/entry.json')], ['A shop sign.\n\nIt shows the words "OPEN".\n', {}],
+		"a prop's printed words join its description");
 	assert.equal(readJson(root, `${ANN}/description.md.receipt.json`).paid_call_id, 'att-describe-v1', 'the describe call the entry was written from');
 	assert.deepEqual(readJson(root, `${ANN}/object.json`), { schema: 2, type: 'character', name: 'Ann', relations: [{ kind: 'appears_in', to: 'episodes/EP001' }], shown_file: 'image-1.jpg' });
 	assert.deepEqual(readJson(root, `${ANN}/looks/face/object.json`), { schema: 2, type: 'character_face', name: 'Ann face', shown_file: 'image-1.png' },

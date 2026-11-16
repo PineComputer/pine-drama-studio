@@ -11,6 +11,7 @@ import { nextDrawRequest, pictureHistory, receiptDetail } from './core/versionDe
 import { canvasTreePath } from './core/assetsCanvas';
 import { lineageMessage } from './core/canvasMessage';
 import { ASSETS_CANVAS } from './core/lineage';
+import { PROMPT_CARDS } from './core/protocol';
 import { episodeIn, episodeOfNode, fileAddressByVersion, roleOf, type OutlineNode, type Role } from './core/project';
 import type { CardAction } from './cardActions';
 import type { ProjectViews, StageRef } from './projectViews';
@@ -69,7 +70,7 @@ export function registerEpisodeCanvas(context: vscode.ExtensionContext, views: P
 
 	/**
 	 * The detail panel's reply for a card: what its shown file was made with (its receipt, versionDetail.ts); an asset's or
-	 * a variant's card, its record too; the box's prompt (prompt.md) for an object that has one to edit; what its next draw
+	 * a variant's card, its record too; whether a keyframe, a storyboard or a take has its own prompt; what its next draw
 	 * sends; and its picture's history for Use.
 	 */
 	const detailReply = async (webview: vscode.Webview, episode: string, stageId: string): Promise<ToCanvas> => {
@@ -78,9 +79,8 @@ export function registerEpisodeCanvas(context: vscode.ExtensionContext, views: P
 			const object = drama.objects.get(stageId);
 			const src = fileAddressByVersion(project.root, rel => webview.asWebviewUri(fileUri(rel)).toString());
 			const detail: CanvasDetail | null = object ? await receiptDetail(project.root, drama, object, src) : null;
-			const prompt = object && object.prompt !== null ? { object: object.id, text: object.prompt } : null;
 			return { v: CANVAS_PROTOCOL, type: 'detail', stageId: stageId, detail, record: recordOf(drama, stageId),
-				prompt, nextDraw: object ? nextDrawRequest(drama, object, src) : [],
+				ownPrompt: object && PROMPT_CARDS.has(object.type) ? object.prompt !== null : null, nextDraw: object ? nextDrawRequest(drama, object, src) : [],
 				picture: object ? await pictureHistory(project.root, object, globalStorageFolder(context).fsPath, file => webview.asWebviewUri(vscode.Uri.file(file)).toString()) : null,
 				error: object ? null : `${stageId} is not in the project any more` };
 		} catch (error) {

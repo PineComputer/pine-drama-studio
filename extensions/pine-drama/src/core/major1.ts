@@ -28,7 +28,6 @@ export interface Chosen {
 export interface ObjectChoice {
 	readonly chosen?: Chosen;
 	readonly discarded?: readonly string[];
-	readonly prompt?: string;
 	readonly description?: string;
 	readonly removed?: true;
 }

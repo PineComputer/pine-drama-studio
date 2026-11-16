@@ -40,7 +40,7 @@
       },
       "writes": {
         "{owner}/description.md": "the description field's text",
-        "{owner}/entry.json": "entry.json without entry_json_drop_fields and without the description field (description_field_by_owner_kind); every other field (look, members, establishing, …) stays"
+        "{owner}/entry.json": "entry.json without entry_json_drop_fields and without the description field (description_field_by_owner_kind); every other field (look, members, establishing, …) stays, until a character's look and a prop's text move into its description.md, after the person's pending text (pending_text): the one-editable-text merge (doc/protocol.md 2.2)"
       },
       "also_gives": "the fields of {owner}'s object.json (see object_json)",
       "entry_json_drop_fields": [
@@ -49,8 +49,7 @@
         "setting",
         "inside_of",
         "appears_in",
-        "from",
-        "text"
+        "from"
       ],
       "kind_folder_to_type": {
         "characters": "character",
@@ -88,16 +87,6 @@
           "value": "a list of episode ids, one relation per item",
           "target": "episodes/<value>"
         }
-      }
-    },
-    {
-      "v1_object_ends_with": "/prompts",
-      "owner": "the prompts folder's parent ({owner})",
-      "operation": "extract_json_field_to_markdown",
-      "reads": "prompt.json",
-      "field": "text",
-      "writes": {
-        "{owner}/prompt.md": "the field's text"
       }
     },
     {
@@ -183,14 +172,15 @@
     ],
     "dropped_wherever_they_are": [
       "understanding",
-      "asset-library"
+      "asset-library",
+      "prompts"
     ],
-    "dropped_wherever_they_are_note": "folders of these names, at any depth (the root, an episode, a variant): drama-cli's own records of major 1, its understand calls and its asset-library uploads; drama-cli of major 2 keeps such records in pine-computer-records/ and reads none of these (kept in the backup)"
+    "dropped_wherever_they_are_note": "folders of these names, at any depth (the root, an episode, a variant): drama-cli's own records of major 1, its understand calls, its asset-library uploads and its stored prompts, since every prompt is composed when drawn (doc/protocol.md 2.2); drama-cli of major 2 keeps such records in pine-computer-records/ and reads none of these (kept in the backup)"
   },
   "current": {
     "rule": "each kept object's files are the files of its major-1 current version (major 1's 3.2: the chosen version, else the newest not discarded), and every object.json is written (see object_json); earlier versions are kept in the backup only, and the converted folder is recorded as one commit, authored client-found-changes-on-disk",
     "removed_objects": "an object choices.json marks removed is deleted, with every variant under it",
-    "pending_text": "choices.json prompt and description fields become {object}/prompt.md and {object}/description.md"
+    "pending_text": "choices.json description becomes {object}/description.md; its prompt is dropped (kept in the backup), since every prompt is composed when drawn"
   },
   "snapshots": {
     "read_from": [

@@ -90,22 +90,22 @@ function Thumb({ poster, icon }: { poster: Poster | null; icon: string }) {
 	);
 }
 
-/** A seg's prompt (section 12c; Pippit's clip view; 760.png). Read-only. */
+/** A seg's own prompt (section 12c; Pippit's clip view; 760.png). Read-only here; the canvas edits it. */
 function PlannedView({ text }: { text: string }) {
 	return (
 		<div className="planned">
-			<div className="planned-head">Prompt</div>
+			<div className="planned-head">Your own prompt</div>
 			<pre className="planned-text">{text}</pre>
 		</div>
 	);
 }
 
-/** The take's prompt as its next draw sends it (prompt.md), and what the shown take was made with behind its disclosure. */
+/** The take's own prompt, which its next shoot sends as written (prompt.md), else none, and what the shown take was made with behind its disclosure. */
 function Prompt({ seg }: { seg: Seg }) {
 	return (
 		<section className="request">
 			{seg.prompt !== null ? <PlannedView text={seg.prompt} />
-				: <p className="muted">No prompt yet: it is written when the take is planned.</p>}
+				: <p className="muted">The automatic prompt: composed when the take is shot.</p>}
 			{seg.request && (
 				<details className="made">
 					<summary>How it was made</summary>

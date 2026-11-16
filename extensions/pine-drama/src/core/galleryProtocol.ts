@@ -52,11 +52,12 @@ export type ToGallery =
 
 /** A card action, by the protocol's object ids (project-relative paths); core/entryActions.ts runs it. */
 export type CardRequest =
-	/** "Use" on a past result of the object: its whole change, from that commit, comes back (doc/protocol.md section 5). */
+	/** "Use" on a past result of the object: its own folder comes back as it was at that commit (doc/protocol.md section 5). */
 	| { readonly action: 'use'; readonly object: string; readonly commit: string }
 	/** `text`: the new description, written in place; absent to ask the person, starting from `description`. */
 	| { readonly action: 'describe'; readonly object: string; readonly description: string; readonly text?: string }
-	| { readonly action: 'prompt'; readonly object: string; readonly text: string }
+	/** "Use the automatic prompt": a keyframe's, a storyboard's or a take's own prompt.md goes, so its draw composes the prompt. */
+	| { readonly action: 'automatic'; readonly object: string }
 	| { readonly action: 'remove'; readonly object: string }
 	| { readonly action: 'add'; readonly type: 'character' | 'scene' | 'prop' | 'variant'; readonly name: string; readonly text: string; readonly from?: string; readonly setting?: Setting }
 	/** `file`: the person's picture on disk; null to ask for one. */
@@ -139,10 +140,9 @@ function readRequest(m: Record<string, unknown>): EntryAction['request'] | undef
 		case 'describe':
 			return isPath(m.object) && typeof m.description === 'string' && (m.text === undefined || typeof m.text === 'string')
 				? { action: 'describe', object: m.object, description: m.description, ...(typeof m.text === 'string' ? { text: m.text } : {}) } : undefined;
-		case 'prompt':
-			return isPath(m.object) && text(m.text, TEXT_MAX) ? { action: 'prompt', object: m.object, text: m.text } : undefined;
 		case 'remove':
-			return isPath(m.object) ? { action: 'remove', object: m.object } : undefined;
+		case 'automatic':
+			return isPath(m.object) ? { action: m.action, object: m.object } : undefined;
 		case 'add':
 			return (m.type === 'character' || m.type === 'scene' || m.type === 'prop' || m.type === 'variant') && text(m.name, NAME_MAX) && text(m.text, TEXT_MAX)
 				&& (m.from === undefined || isPath(m.from)) && (m.setting === undefined || m.setting === 'interior' || m.setting === 'exterior')

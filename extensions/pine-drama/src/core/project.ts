@@ -9,7 +9,7 @@ import { join } from 'node:path';
 import { CHOICES_FILE } from './major1';
 import { noFileThere, throughNoLink, writeWhole } from './placement';
 import { projectIdentity } from './projectPlace';
-import { BIBLE_STORY_FILE, DESCRIPTION_FILE, OBJECT_FILE, PAID_CALL_ATTEMPT, PAID_CALL_LEDGER, PAID_CALL_LEDGER_BEFORE, PAID_CALL_UNDER_WAY, PINE_COMPUTER_RECORDS, PROJECT_MARKER_FILE, PROMPT_FILE, RECEIPT_SUFFIX, MAJOR, majorTwo, type Edge, type ObjectType } from './protocol';
+import { BIBLE_STORY_FILE, DESCRIPTION_FILE, OBJECT_FILE, PAID_CALL_ATTEMPT, PAID_CALL_LEDGER, PAID_CALL_LEDGER_BEFORE, PAID_CALL_UNDER_WAY, PINE_COMPUTER_RECORDS, PROJECT_MARKER_FILE, PROMPT_CARDS, PROMPT_FILE, RECEIPT_SUFFIX, MAJOR, majorTwo, type Edge, type ObjectType } from './protocol';
 
 
 
@@ -50,7 +50,7 @@ export interface ProjectObject {
 	 * doc/protocol.md 2.2): the one source of its lines, drawn or not.
 	 */
 	readonly objectsSentByDrawRequest: readonly string[];
-	/** The text of its description.md and prompt.md, or null without one. */
+	/** The text of its description.md, and of a keyframe's, a storyboard's or a take's own prompt.md, or null without one. */
 	readonly description: string | null;
 	readonly prompt: string | null;
 	/** A paid call for it is under way, by Pine Computer's records in the folder (objectsBeingMade). */
@@ -164,7 +164,8 @@ export async function readProjectFromFolder(projectRoot: string): Promise<Projec
 		const receipt = shown ? await readTextOrNull(at(`${shown}${RECEIPT_SUFFIX}`)) : null;
 		return {
 			id, raw, shownFile: shown ? `${id}/${shown}` : null, shownFileReceipt: receipt === null ? null : receiptOf(majorTwo(`${id}/${shown}${RECEIPT_SUFFIX}`, JSON.parse(receipt))),
-			description: await readTextOrNull(at(DESCRIPTION_FILE)), prompt: await readTextOrNull(at(PROMPT_FILE)),
+			// Only a keyframe, a storyboard or a take has a prompt of its own; any other card's is composed when drawn (2.2).
+			description: await readTextOrNull(at(DESCRIPTION_FILE)), prompt: PROMPT_CARDS.has(raw.type) ? await readTextOrNull(at(PROMPT_FILE)) : null,
 		};
 	}));
 	const ids = new Set(read.map(o => o.id));

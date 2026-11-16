@@ -42,7 +42,7 @@ Your reply is the go: nothing at a stop asks you to approve item by item.
 
 | Stop | You look at | Your choice |
 |---|---|---|
-| 1 | The planned asset cards, each with its prompt | Add, remove or change an asset, in one sentence |
+| 1 | The planned asset cards, each with its description | Add, remove or change an asset, in one sentence |
 | 2 | The drawn assets, with what the agent found | The leads' looks |
 | 3 | The episode's shot list and its planned cards | Revise it, or go |
 | 4 | Storyboards, keyframes, video prompts, and the estimated video cost | Shoot everything, or hold some back |
@@ -55,7 +55,7 @@ The agent also stops for a red line in the screenplay, and for a screenplay it r
 | Place | What's there | What you do |
 |---|---|---|
 | **Right: Chat** | The agent | Ask, answer, say go, press Stop |
-| **Center: canvas** | One canvas for the assets, one per episode | Edit a card's prompt, drop your picture on it, click an old version and press **Use** |
+| **Center: canvas** | One canvas for the assets, one per episode | Edit a card's description (an episode card: its prompt), drop your picture on it, click an old version and press **Use** |
 | **Center: galleries** | Characters, places, props | **Create New**; click a card to see it on the canvas |
 | **Center: seg editor** | An episode's segments and takes | Play takes; **Generate** writes the request into the Chat for you to send |
 | **Left: Production** | The project and each object's versions | Look and open only |
@@ -95,7 +95,6 @@ How and why: [architecture](architecture.md).
 | You answer hours after a question | The Computer may have stopped | Send your answer; the agent starts again from your folder |
 | The Chat is dead after Stop | Known bug | Run **Developer: Reload Window** |
 | A card you made with Create New can't be drawn | Its name has a space, dash or accent (known bug) | Use a name in plain letters a–z, or ask the agent to add it |
-| The redraw ignored your new description | A card is drawn from its prompt | Edit the card's prompt, or tell the agent what to change |
 | A turn failed | What it made still lands; Pine gives the reason | Ask the agent to go on |
 
 ## 6. FAQ

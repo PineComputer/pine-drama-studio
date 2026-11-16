@@ -117,8 +117,8 @@ export type ToCanvas =
 	| { readonly v: typeof CANVAS_PROTOCOL; readonly type: 'detail'; readonly stageId: string; readonly detail: CanvasDetail | null; readonly error: string | null;
 		/** An asset's card: what the record panel edits; null elsewhere. */
 		readonly record?: CanvasRecord | null;
-		/** The box's prompt; null for an object with none to edit. */
-		readonly prompt?: CanvasPrompt | null;
+		/** A keyframe's, a storyboard's or a take's: whether it has its own prompt (prompt.md, its override); null for any other card. */
+		readonly ownPrompt?: boolean | null;
 		/** Its shown file's earlier results and the one in use, for Use (versionDetail.ts pictureHistory); null with none. */
 		readonly picture?: CanvasPicture | null;
 		/** What its next draw request sends, Image 1..N (versionDetail.ts nextDrawRequest): the composer's references. */
@@ -139,12 +139,6 @@ export interface CanvasPicture {
 		/** Each result's own (versionDetail.ts mediaOf): an object can turn from a picture into a video. */
 		readonly media: 'image' | 'video' | 'text';
 	}[];
-}
-
-/** The box's one text: the object's prompt.md, which the person and the agent edit; null while there is none. */
-export interface CanvasPrompt {
-	readonly object: string;
-	readonly text: string | null;
 }
 
 /** An asset or variant as the record panel shows and edits it. */

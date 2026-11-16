@@ -14,7 +14,7 @@ export interface Seg {
 	readonly src: string | null;
 	/** What the take was made with (its receipt, versionDetail.ts), or null. */
 	readonly request: CanvasDetail | null;
-	/** The take's prompt.md, which the person and the agent edit, or null without one. */
+	/** The take's prompt.md, the override the person and the agent write, or null while the shoot composes its prompt. */
 	readonly prompt: string | null;
 	/** Its badge in the strip: what a take not shot yet says (canvasProtocol.ts notMadeText), empty once shot. */
 	readonly badge: string;

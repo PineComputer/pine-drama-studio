@@ -240,23 +240,13 @@ export async function readFileAtCommit(projectRoot: string, commit: string, path
 }
 
 /**
- * The files commit `commit` changed in `object`'s own folder, each with its bytes there, or null where it deleted the
- * file: what a "Use" of that result restores (doc/protocol.md section 5). A folder below holding an object.json, in the
- * commit or among what it changed, is an object of its own (a variant) and is left out. git diff-tree names them, the
- * first commit's too (--root).
+ * The files of `object`'s own folder at `rev` (git ls-tree): what a "Use" of a result restores (doc/protocol.md section
+ * 5). A folder below holding an object.json there is an object of its own (a variant) and is left out.
  */
-export async function readChangeOfObject(projectRoot: string, commit: string, object: string): Promise<Map<string, Buffer | null>> {
-	const listed = (await run(projectRoot, 'person', ['diff-tree', '-r', '-z', '--root', '--no-commit-id', '--name-status', '--no-renames', commit, '--', object])).split('\0').filter(Boolean);
-	const changed = new Map<string, boolean>();
-	for (let i = 0; i + 1 < listed.length; i += 2) { changed.set(listed[i + 1], listed[i] === 'D'); }
-	const tree = (await run(projectRoot, 'person', ['ls-tree', '-r', '-z', '--name-only', commit, '--', object])).split('\0').filter(Boolean);
-	const objects = [...tree, ...changed.keys()].filter(path => basename(path) === OBJECT_FILE).map(dirname).filter(folder => folder !== object);
-	const files = new Map<string, Buffer | null>();
-	for (const [path, deleted] of changed) {
-		if (objects.some(folder => path.startsWith(`${folder}/`))) { continue; }
-		files.set(path, deleted ? null : await blobBytes(projectRoot, `${commit}:${path}`));
-	}
-	return files;
+export async function filesOfObjectAt(projectRoot: string, rev: string, object: string): Promise<string[]> {
+	const tree = (await run(projectRoot, 'person', ['ls-tree', '-r', '-z', '--name-only', rev, '--', object])).split('\0').filter(Boolean);
+	const objects = tree.filter(path => basename(path) === OBJECT_FILE).map(dirname).filter(folder => folder !== object);
+	return tree.filter(path => !objects.some(folder => path.startsWith(`${folder}/`)));
 }
 
 /** The modes of a file of the project: a regular file, executable or not; a link (120000) or a gitlink (160000) is none (section 1). */

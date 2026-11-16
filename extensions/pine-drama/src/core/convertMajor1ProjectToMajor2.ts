@@ -11,16 +11,15 @@ import { CHOICES_FILE, dramaRecordsOf, publishKeptTurns, readChoices, readVersio
 import { readProjectMajor, writeProjectMarker } from './project';
 import { commitPathsToHistory, runInProjectWriteQueue } from './projectHistory';
 import { sha256OfFile } from './sha256';
-import { DESCRIPTION_FILE, type Edge, OBJECT_FILE, PROMPT_FILE, RECEIPT_SUFFIX, refuseWithUpgradeInstructions, STUDIO_RELEASES_URL } from './protocol';
+import { DESCRIPTION_FILE, type Edge, ENTRY_FILE, OBJECT_FILE, RECEIPT_SUFFIX, refuseWithUpgradeInstructions, STUDIO_RELEASES_URL } from './protocol';
 
 const TABLE = require('../../protocol/v2/major1-to-major2-conversion.json') as ConversionTable;
 
 interface RelationTarget { readonly only_on?: string; readonly first_existing_of?: readonly string[]; readonly target?: string }
 interface RecordStage {
 	readonly v1_object_ends_with: string;
-	readonly operation: 'split_entry_record_into_object_files' | 'extract_json_field_to_markdown' | 'write_receipt_only';
+	readonly operation: 'split_entry_record_into_object_files' | 'write_receipt_only';
 	readonly reads?: string;
-	readonly field?: string;
 	readonly writes: Readonly<Record<string, unknown>>;
 	readonly description_field_by_owner_kind?: Readonly<Record<string, string>>;
 	readonly entry_json_drop_fields?: readonly string[];
@@ -92,6 +91,20 @@ const segmentsMatch = (pattern: string, id: string) => {
 };
 const stageOf = (object: string) => TABLE.record_stages.find(s => object.endsWith(s.v1_object_ends_with));
 const ownerOf = (object: string, stage: RecordStage) => object.slice(0, -stage.v1_object_ends_with.length);
+/**
+ * A character's `look` or a prop's `text` moved from entry.json into its description, in drama-cli's bytes for a new
+ * asset (entries.prose); null when the entry has neither.
+ */
+function mergedDescription(type: string, description: string, entry: Readonly<Record<string, unknown>>): { readonly description: string; readonly entry: Record<string, unknown> } | null {
+	const field = type === 'character' ? 'look' : type === 'prop' ? 'text' : null;
+	if (!field || !(field in entry)) { return null; }
+	const value = typeof entry[field] === 'string' ? (entry[field] as string).trim() : '';
+	const { [field]: _moved, ...rest } = entry;
+	const part = !value ? null : field === 'look' ? (description.includes(value) ? null : `Outfit: ${value}`)
+		: description.includes(`"${value}"`) ? null : `It shows the words "${value}".`;
+	return { description: part ? `${[description.trim(), part].filter(Boolean).join('\n\n')}\n` : description, entry: rest };
+}
+
 /** A dot path into a JSON value (receipt_when_owner_current_entry_metadata's keys). */
 const at = (value: unknown, path: string) => path.split('.').reduce<unknown>((v, key) => (v as Record<string, unknown> | undefined)?.[key], value);
 
@@ -129,7 +142,7 @@ function findMajor1Versions(root: string): Major1Version[] {
 		}
 	};
 	walk('');
-	return found.filter(v => !TABLE.objects_dropped.includes(v.object));
+	return found.filter(v => !TABLE.objects_dropped.includes(v.object) && !v.object.split('/').some(part => DROPPED_BY_NAME.has(part)));
 }
 
 function readVersion(root: string, object: string, id: string): Major1Version {
@@ -236,9 +249,6 @@ class Conversion {
 		const owner = ownerOf(version.object, stage);
 		const record = () => json(join(this.root, version.object, version.id, stage.reads!)) as Record<string, unknown>;
 		const [written] = Object.keys(stage.writes).map(path => path.replace('{owner}', owner));
-		if (stage.operation === 'extract_json_field_to_markdown') {
-			return writeWhole(join(this.root, written), String(record()[stage.field!] ?? ''));
-		}
 		if (stage.operation === 'split_entry_record_into_object_files') {
 			const entry = record();
 			const field = stage.description_field_by_owner_kind![this.descriptionKeyOf(owner)];
@@ -317,8 +327,14 @@ class Conversion {
 		for (const object of new Set([...this.kept.listed.keys(), ...owners, ...pictures])) { if (!this.current.has(object)) { await this.writeObjectJson(object); } }
 		// The person's pending text, for the objects major 2 has (written_for), none of them removed.
 		for (const [object, choice] of Object.entries(this.choices?.objects ?? {}).filter(([id]) => this.described.has(id) && !removed.includes(id))) {
-			if (choice.prompt !== undefined) { await writeWhole(join(this.root, object, PROMPT_FILE), choice.prompt); }
 			if (choice.description !== undefined) { await writeWhole(join(this.root, object, DESCRIPTION_FILE), choice.description); }
+		}
+		// One editable text per card (doc/protocol.md 2.2): an outfit or printed words join the description, after the pending text.
+		for (const owner of owners.filter(id => !removed.includes(id) && existsSync(join(this.root, id, ENTRY_FILE)))) {
+			const description = join(this.root, owner, DESCRIPTION_FILE);
+			const merged = mergedDescription(String(this.fieldsOf(owner)?.type), existsSync(description) ? await readFile(description, 'utf8') : '',
+				JSON.parse(await readFile(join(this.root, owner, ENTRY_FILE), 'utf8')));
+			if (merged) { await writeWhole(join(this.root, owner, ENTRY_FILE), `${JSON.stringify(merged.entry, null, '\t')}\n`); await writeWhole(description, merged.description); }
 		}
 		const configs = existsSync(join(this.root, CONFIG.folder)) ? readdirSync(join(this.root, CONFIG.folder))
 			.filter(v => existsSync(join(this.root, CONFIG.folder, v, CONFIG.file))).sort((a, b) => a.localeCompare(b, 'en', { numeric: true })) : [];

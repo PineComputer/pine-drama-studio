@@ -1,5 +1,5 @@
 // The seg editor's model: an episode's segs, each with its take, what the take was made with (its receipt), and its
-// prompt, all from the read model (core/project.ts). The Studio writes no prompt text. No vscode import.
+// own prompt, all from the read model (core/project.ts). No vscode import.
 
 import { notMadeText } from './canvasProtocol';
 import type { ProjectReadModel } from './project';

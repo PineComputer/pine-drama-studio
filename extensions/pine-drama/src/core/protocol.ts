@@ -44,6 +44,10 @@ export const BIBLE_STORY_FILE = 'bible.json';
 /** The text the person and Pine Computer edit in an object's folder (doc/protocol.md 2.2). */
 export const DESCRIPTION_FILE = 'description.md';
 export const PROMPT_FILE = 'prompt.md';
+/** The cards whose prompt.md is their override, drawn as written; every other card's prompt is composed when drawn (doc/protocol.md 2.2). */
+export const PROMPT_CARDS: ReadonlySet<string> = new Set(['keyframe', 'storyboard', 'take']);
+/** An asset's story facts beside its description, which drama-cli keeps and no card edits (doc/protocol.md 2.2). */
+export const ENTRY_FILE = 'entry.json';
 
 /** The suffix of a paid output's receipt beside it, `<file>.receipt.json` (doc/protocol.md 2.3). */
 export const RECEIPT_SUFFIX = '.receipt.json';
