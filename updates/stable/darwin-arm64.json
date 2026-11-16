@@ -1,7 +1,7 @@
 {
-	"url": "https://github.com/PineComputer/pine-drama-studio/releases/download/v0.2.6/Pine-Drama-Studio-0.2.6-darwin-arm64.zip",
-	"name": "0.2.6",
-	"version": "8f9ff6b8971e25451fd86c03cb3e012c6216a724",
-	"productVersion": "0.2.6",
-	"sha256hash": "ca788157365b3bc9243fb56f9f88ae54eb8e3b4eea154bbe89b5108b7f9e2018"
+	"url": "https://github.com/PineComputer/pine-drama-studio/releases/download/v0.3.0/Pine-Drama-Studio-0.3.0-darwin-arm64.zip",
+	"name": "0.3.0",
+	"version": "567945dcf22834232d837ecacc5bc87b31ace915",
+	"productVersion": "0.3.0",
+	"sha256hash": "e2d4e0c953c2ce11d94ce9ed492333d6f3267e97e3ca4fa64d685b3f2a14aebf"
 }
