@@ -1,4 +1,5 @@
-import { registerProjectCommands } from './projectCommands';
+import { NEW_PROJECT_COMMAND, OPEN_PROJECT_COMMAND, registerProjectCommands } from './projectCommands';
+import { readStartLink, startRequest } from './core/startLink';
 import * as vscode from 'vscode';
 import { savedConnection, connectionScope, disconnectProblem, developerConnectionFile, PINE_KEY_SECRET } from './core/pineConnection';
 import { registerPineConnection, CONNECTION_COMMAND } from './pineConnection';
@@ -65,6 +66,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	// (core/projectFinder.ts). The parts that read it register once, when it first appears.
 	let opened: { views: ProjectViews; canvas: { refresh(): void }; galleries: ReturnType<typeof registerGalleries> } | undefined;
 	let protocolStorage: string | undefined;
+	// "Open in Pine Drama Studio" from a partner's page (core/startLink.ts): a link never sends anything.
+	context.subscriptions.push(vscode.window.registerUriHandler({ handleUri: async uri => {
+		const link = readStartLink(uri.path, uri.query);
+		if (!link) { log(`link: ${uri.path} is no link Pine Drama Studio takes`); return; }
+		if (link.kind === 'connect') { await vscode.commands.executeCommand(CONNECTION_COMMAND); return; }
+		if (!opened) {
+			const go = await vscode.window.showInformationMessage(`Pine: open or create the drama's project first, then open the link again. It asks for the ${link.preset} preset.`, 'New Project', 'Open Project');
+			if (go) { await vscode.commands.executeCommand(go === 'New Project' ? NEW_PROJECT_COMMAND : OPEN_PROJECT_COMMAND); }
+			return;
+		}
+		await vscode.commands.executeCommand('workbench.action.chat.open', { query: startRequest(link.preset), isPartialQuery: true });
+	} }));
 	const projects = await registerProjectViews(context, output, views => {
 		const root = views.project.root;
 		// Every view reads the folder's files, so a change of them refreshes the tree, the galleries and the canvases a
