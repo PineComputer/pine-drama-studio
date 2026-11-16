@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert';
-import { cp, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -64,6 +64,30 @@ test("Use brings the object's own folder back as it was then: a file added since
 	assert.equal(existsSync(join(root, shot, 'notes.md')), false, 'a file the folder did not hold then is gone');
 	assert.equal(existsSync(join(root, shot, 'prompt.md')), false, 'it had no prompt of its own then, so the draw composes it');
 	assert.notEqual(await readFile(join(root, shot, object.shown_file), 'utf8'), 'a redraw');
+});
+
+test("Use removes a file added since and not yet committed, leaves an object folded inside since as it is, and puts a file back where a folder now stands", async () => {
+	const root = await project();
+	const shot = 'episodes/EP001/keyframe/seg01/shot01';
+	await mkdir(join(root, shot, 'extra'), { recursive: true });
+	await writeFile(join(root, shot, 'extra/notes.md'), 'the shot\'s notes');
+	await writeFile(join(root, shot, 'notes'), 'a file then');
+	await commitFilesFoundOnDisk(root, 'The project as found');
+	const [first] = await listHistoryOfShownFile(root, shot);
+	// Since: extra/ became an object of its own, notes became a folder, and a file was added by hand, not committed.
+	await writeFile(join(root, shot, 'extra/object.json'), JSON.stringify({ schema: 2, type: 'prop', name: 'Extra', shown_file: null }));
+	await writeFile(join(root, shot, 'extra/notes.md'), 'the extra\'s own notes');
+	await rm(join(root, shot, 'notes'));
+	await mkdir(join(root, shot, 'notes'));
+	await writeFile(join(root, shot, 'notes/a.md'), 'a folder now');
+	await git(['add', '-A'], root);
+	await git(['-c', 'user.name=person', '-c', 'user.email=p@x', 'commit', '-q', '-m', 'since'], root);
+	await writeFile(join(root, shot, 'scratch.md'), 'by hand, not committed');
+	await runCardAction(root, { action: 'use', object: shot, commit: first.commit }, never);
+	assert.equal(existsSync(join(root, shot, 'scratch.md')), false, 'a file the folder did not hold then goes, though no commit held it');
+	assert.equal(await readFile(join(root, shot, 'extra/notes.md'), 'utf8'), 'the extra\'s own notes', 'an object folded inside is its own');
+	assert.equal(await readFile(join(root, shot, 'notes'), 'utf8'), 'a file then', 'a file takes the place of the folder that stands there now');
+	assert.match((await git(['log', '--format=%an', '-2'], root)).stdout, /client-found-changes-on-disk/, 'the hand-made file is kept in history first');
 });
 
 test('an asset or a variant the person adds is a folder with object.json and description.md at once; removing one deletes its folder', async () => {

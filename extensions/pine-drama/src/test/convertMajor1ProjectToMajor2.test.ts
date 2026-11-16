@@ -72,6 +72,9 @@ function majorOneProject(): { root: string; storage: string } {
 	// A prop with printed words.
 	version(root, 'assets/props/sign/entry', 'v1', '2026-11-01T09:00:00Z', {}, { shown: null });
 	write(root, 'assets/props/sign/entry/v1/entry.json', { id: 'sign', name: 'Sign', description: 'A shop sign.', text: 'OPEN' });
+	// A prop whose description already quotes its words: nothing added, the text in drama-cli's bytes all the same.
+	version(root, 'assets/props/board/entry', 'v1', '2026-11-01T09:00:00Z', {}, { shown: null });
+	write(root, 'assets/props/board/entry/v1/entry.json', { id: 'board', name: 'Board', description: '  A board that says "CLOSED".  ', text: 'CLOSED' });
 	version(root, `${RAIN}/entry`, 'v1', '2026-11-01T09:00:00Z', {}, { shown: null });
 	write(root, `${RAIN}/entry/v1/entry.json`, { id: 'rain', name: 'Ann in the rain', text: 'Wet hair.', from: 'base' });
 	// The keyframe is drawn from Ann's current picture: its receipt names it at its major-2 path.
@@ -144,6 +147,7 @@ test('a major-1 project becomes major 2 by the table: backed up, each object at 
 	assert.equal(read(backup, `${SHOT}/prompts/v1/prompt.json`), JSON.stringify({ text: 'Image 1 is Ann. She turns.' }), 'the backup keeps it');
 	assert.deepEqual([read(root, 'assets/props/sign/description.md'), readJson(root, 'assets/props/sign/entry.json')], ['A shop sign.\n\nIt shows the words "OPEN".\n', {}],
 		"a prop's printed words join its description");
+	assert.equal(read(root, 'assets/props/board/description.md'), 'A board that says "CLOSED".\n', 'words it quotes already are not added twice');
 	assert.equal(readJson(root, `${ANN}/description.md.receipt.json`).paid_call_id, 'att-describe-v1', 'the describe call the entry was written from');
 	assert.deepEqual(readJson(root, `${ANN}/object.json`), { schema: 2, type: 'character', name: 'Ann', relations: [{ kind: 'appears_in', to: 'episodes/EP001' }], shown_file: 'image-1.jpg' });
 	assert.deepEqual(readJson(root, `${ANN}/looks/face/object.json`), { schema: 2, type: 'character_face', name: 'Ann face', shown_file: 'image-1.png' },

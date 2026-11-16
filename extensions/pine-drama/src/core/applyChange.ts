@@ -4,7 +4,7 @@
 // since media replaces whole files and history keeps what it replaces. It runs in the project's one write queue (projectHistory.ts), with the person's other writes.
 // No vscode import.
 
-import { existsSync } from 'node:fs';
+import { existsSync, statSync } from 'node:fs';
 import { mkdir, rm, rmdir } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { throughNoLink, writeWhole } from './placement';
@@ -32,6 +32,9 @@ export class NotAProjectPathError extends Error {
 export function applyPersonChange(projectRoot: string, commitMessage: string,
 	files: () => Promise<Iterable<readonly [string, Buffer | string | null]>>): Promise<ChangeApplied> {
 	return runInProjectWriteQueue(projectRoot, async () => {
+		// What the person saved by hand and no commit holds is recorded first, as a turn's landing does, so a change
+		// written over it never loses it from history, and the change is read against a HEAD that holds the folder.
+		await recordFilesFoundOnDisk(projectRoot, 'Changes found on disk before the person\'s change');
 		const bytes = new Map([...await files()].map(([path, given]) => [path, typeof given === 'string' ? Buffer.from(given) : given] as const));
 		const paths = [...bytes.keys()];
 		const keys = paths.map(path => path.toLowerCase());
@@ -40,17 +43,20 @@ export function applyPersonChange(projectRoot: string, commitMessage: string,
 		const notPaths = paths.filter((path, i) => !validPath(path) || !throughNoLink(projectRoot, path) || keys.indexOf(keys[i]) !== i);
 		if (notPaths.length) { throw new NotAProjectPathError(notPaths); }
 		// A path to delete is as the change wants it when nothing is there, so what goes is never read (git rm -r).
-		const asWanted = async (path: string) => { const got = bytes.get(path)!; return got === null ? !existsSync(join(projectRoot, path)) : await sha256OfFile(join(projectRoot, path)) === sha256(got); };
+		const asWanted = async (path: string) => {
+			const got = bytes.get(path)!;
+			return got === null ? !existsSync(join(projectRoot, path)) : statSync(join(projectRoot, path), { throwIfNoEntry: false })?.isFile() === true && await sha256OfFile(join(projectRoot, path)) === sha256(got);
+		};
 		if ((await Promise.all(paths.map(asWanted))).every(Boolean)) { return 'already on disk'; }
-		// What the person saved by hand and no commit holds is recorded first, as a turn's landing does, so a change
-		// written over it never loses it from history.
-		await recordFilesFoundOnDisk(projectRoot, 'Changes found on disk before the person\'s change');
-		// Receipts before the outputs they describe (2.3), so an output is never on disk without its receipt.
-		for (const path of [...paths].sort((a, b) => Number(!a.endsWith(RECEIPT_SUFFIX)) - Number(!b.endsWith(RECEIPT_SUFFIX)))) {
+		// Deletions first, each with the folders it leaves empty (git's dir.c remove_path), so a file and a folder may change
+		// places; then receipts before the outputs they describe (2.3), so an output is never on disk without its receipt.
+		const order = (path: string) => bytes.get(path) === null ? 0 : path.endsWith(RECEIPT_SUFFIX) ? 1 : 2;
+		for (const path of [...paths].sort((a, b) => order(a) - order(b))) {
 			const file = join(projectRoot, path);
 			const got = bytes.get(path)!;
 			if (got === null) {
 				await rm(file, { recursive: true, force: true });
+				await removeEmptiedFolders(projectRoot, dirname(path));
 			} else {
 				await mkdir(dirname(file), { recursive: true });
 				await writeWhole(file, got);

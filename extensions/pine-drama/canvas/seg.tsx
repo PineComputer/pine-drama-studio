@@ -90,7 +90,7 @@ function Thumb({ poster, icon }: { poster: Poster | null; icon: string }) {
 	);
 }
 
-/** A seg's own prompt (section 12c; Pippit's clip view; 760.png). Read-only here; the canvas edits it. */
+/** A seg's own prompt (section 12c; Pippit's clip view; 760.png), which the agent writes. Read-only. */
 function PlannedView({ text }: { text: string }) {
 	return (
 		<div className="planned">

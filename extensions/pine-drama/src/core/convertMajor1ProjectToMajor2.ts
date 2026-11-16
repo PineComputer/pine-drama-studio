@@ -102,7 +102,8 @@ function mergedDescription(type: string, description: string, entry: Readonly<Re
 	const { [field]: _moved, ...rest } = entry;
 	const part = !value ? null : field === 'look' ? (description.includes(value) ? null : `Outfit: ${value}`)
 		: description.includes(`"${value}"`) ? null : `It shows the words "${value}".`;
-	return { description: part ? `${[description.trim(), part].filter(Boolean).join('\n\n')}\n` : description, entry: rest };
+	const text = [description.trim(), part].filter(Boolean).join('\n\n');
+	return { description: text ? `${text}\n` : '', entry: rest };
 }
 
 /** A dot path into a JSON value (receipt_when_owner_current_entry_metadata's keys). */

@@ -240,13 +240,14 @@ export async function readFileAtCommit(projectRoot: string, commit: string, path
 }
 
 /**
- * The files of `object`'s own folder at `rev` (git ls-tree): what a "Use" of a result restores (doc/protocol.md section
- * 5). A folder below holding an object.json there is an object of its own (a variant) and is left out.
+ * The files of `object`'s own folder at each of `revs` (git ls-tree): what a "Use" of a result restores and removes
+ * (doc/protocol.md section 5). A folder below holding an object.json at any of them is an object of its own (a variant)
+ * and is left out of all.
  */
-export async function filesOfObjectAt(projectRoot: string, rev: string, object: string): Promise<string[]> {
-	const tree = (await run(projectRoot, 'person', ['ls-tree', '-r', '-z', '--name-only', rev, '--', object])).split('\0').filter(Boolean);
-	const objects = tree.filter(path => basename(path) === OBJECT_FILE).map(dirname).filter(folder => folder !== object);
-	return tree.filter(path => !objects.some(folder => path.startsWith(`${folder}/`)));
+export async function filesOfObjectAt(projectRoot: string, object: string, revs: readonly string[]): Promise<string[][]> {
+	const trees = await Promise.all(revs.map(async rev => (await run(projectRoot, 'person', ['ls-tree', '-r', '-z', '--name-only', rev, '--', object])).split('\0').filter(Boolean)));
+	const objects = trees.flat().filter(path => basename(path) === OBJECT_FILE).map(dirname).filter(folder => folder !== object);
+	return trees.map(tree => tree.filter(path => !objects.some(folder => path.startsWith(`${folder}/`))));
 }
 
 /** The modes of a file of the project: a regular file, executable or not; a link (120000) or a gitlink (160000) is none (section 1). */

@@ -111,14 +111,15 @@ export async function runCardAction(root: string, request: CardRequest, ask: Ent
 /** The writes that make `object`'s own folder what it was at `commit` (doc/protocol.md section 5). */
 async function restoredAsOf(root: string, object: string, commit: string): Promise<[string, Buffer | string | null][]> {
 	const raw = await readObjectFile(root, object);
-	const then = await readFileAtCommit(root, commit, `${object}/${OBJECT_FILE}`);
-	if (!then) { throw new Error(`${object} had no ${OBJECT_FILE} at ${commit}`); }
-	const was = JSON.parse(then.toString('utf8')) as Record<string, unknown>;
+	const record = await readFileAtCommit(root, commit, `${object}/${OBJECT_FILE}`);
+	if (!record) { throw new Error(`${object} had no ${OBJECT_FILE} at ${commit}`); }
+	const was = JSON.parse(record.toString('utf8')) as Record<string, unknown>;
 	const prompts = PROMPT_CARDS.has(raw.type);
 	const own = (path: string) => path !== `${object}/${OBJECT_FILE}` && (prompts || path !== `${object}/${PROMPT_FILE}`);
 	const files = new Map<string, Buffer | string | null>();
-	for (const path of (await filesOfObjectAt(root, 'HEAD', object)).filter(own)) { files.set(path, null); }
-	for (const path of (await filesOfObjectAt(root, commit, object)).filter(own)) { files.set(path, await readFileAtCommit(root, commit, path)); }
+	const [now, then] = await filesOfObjectAt(root, object, ['HEAD', commit]);
+	for (const path of now.filter(own)) { files.set(path, null); }
+	for (const path of then.filter(own)) { files.set(path, await readFileAtCommit(root, commit, path)); }
 	files.set(`${object}/${OBJECT_FILE}`, json({ ...raw, shown_file: was.shown_file ?? null,
 		...prompts ? { objects_sent_by_draw_request: was.objects_sent_by_draw_request } : {} }));
 	return [...files];

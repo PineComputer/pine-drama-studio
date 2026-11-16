@@ -689,7 +689,7 @@ async function clickModelCase(source: Source, episode: string): Promise<Case> {
 	const id = episode === ASSETS_CANVAS ? ((c.message as { cards?: readonly CanvasCard[] }).cards ?? []).find(onBoard)?.id : 'episodes/EP001/segments/seg01';
 	const text = Array.from({ length: 27 }, (_, i) => `Line ${i + 1}: ${'the camera holds on the subject while the light shifts slowly across the room. '.repeat(3)}`).join('\n');
 	const answer = (m: { type?: string; stageId?: string }) => m.type !== 'inspect' || !m.stageId ? null
-		: { v: CANVAS_PROTOCOL, type: 'detail', stageId: m.stageId, detail: null, error: null, record: { description: text } };
+		: { v: CANVAS_PROTOCOL, type: 'detail', stageId: m.stageId, detail: null, error: null, ...episode === ASSETS_CANVAS ? { record: { description: text } } : { ownPrompt: false } };
 	const check = async (page: Page, posted: readonly unknown[]): Promise<string[]> => {
 		if (!id) { return [`the ${episode} canvas has no card`]; }
 		const problems: string[] = [];
@@ -714,7 +714,8 @@ async function clickModelCase(source: Source, episode: string): Promise<Case> {
 		await settle();
 		const before = await drawnViewport(page);
 		await node.click(at);
-		if (await composer.locator('textarea').waitFor({ timeout: WAIT_MS }).then(() => false, () => true)) { return [...problems, 'a click with Select opened no composer with its text']; }
+		// An asset's composer holds its description; an episode card's has no text to edit.
+		if (await composer.locator(episode === ASSETS_CANVAS ? 'textarea' : 'button.generate').waitFor({ timeout: WAIT_MS }).then(() => false, () => true)) { return [...problems, 'a click with Select opened no composer']; }
 		await settle();
 		if (inspects() !== 1) { problems.push(`a click with Select posted ${inspects()} inspects, not 1`); }
 		const picked = await drawnViewport(page);
@@ -722,8 +723,8 @@ async function clickModelCase(source: Source, episode: string): Promise<Case> {
 		// The composer is the board's: its height is its text's, nothing in it scrolls, and a wheel over it pans the board
 		// down to its end.
 		type Scroller = { scrollHeight: number; clientHeight: number; querySelector(selector: string): Scroller | null };
-		const clipped = await composer.evaluate(element => [element as Scroller, (element as Scroller).querySelector('textarea')!]
-			.filter(e => e.scrollHeight > e.clientHeight + 1).map(e => `${e.scrollHeight} px in ${e.clientHeight} px`));
+		const clipped = await composer.evaluate(element => [element as Scroller, (element as Scroller).querySelector('textarea')]
+			.filter((e): e is Scroller => e !== null && e.scrollHeight > e.clientHeight + 1).map(e => `${e.scrollHeight} px in ${e.clientHeight} px`));
 		if (clipped.length) { problems.push(`the composer clips its text: ${clipped.join(', ')}`); }
 		const pane = (await page.locator('.react-flow').first().boundingBox())!;
 		const wheel = async () => {

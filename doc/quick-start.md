@@ -55,7 +55,7 @@ The agent also stops for a red line in the screenplay, and for a screenplay it r
 | Place | What's there | What you do |
 |---|---|---|
 | **Right: Chat** | The agent | Ask, answer, say go, press Stop |
-| **Center: canvas** | One canvas for the assets, one per episode | Edit a card's description (an episode card: its prompt), drop your picture on it, click an old version and press **Use** |
+| **Center: canvas** | One canvas for the assets, one per episode | Edit an asset's description, drop your picture on it, click an old version and press **Use** |
 | **Center: galleries** | Characters, places, props | **Create New**; click a card to see it on the canvas |
 | **Center: seg editor** | An episode's segments and takes | Play takes; **Generate** writes the request into the Chat for you to send |
 | **Left: Production** | The project and each object's versions | Look and open only |
