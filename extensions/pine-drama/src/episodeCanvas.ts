@@ -7,6 +7,9 @@ import { CANVAS_COMMANDS, CANVAS_PROTOCOL, readFromCanvas, type CanvasDetail, ty
 import { unchangedLine, type EntryDone } from './core/entryActions';
 import { recordOf } from './core/assetStatus';
 import { shootRequest } from './core/segEditor';
+import type { Catalog } from './core/catalog';
+import { madeWith, modelChoices, remakeCommands } from './core/cardModels';
+import { commandMessage } from './core/commandSend';
 import { nextDrawRequest, pictureHistory, receiptDetail } from './core/versionDetail';
 import { canvasTreePath } from './core/assetsCanvas';
 import { lineageMessage } from './core/canvasMessage';
@@ -20,9 +23,12 @@ import { closeUnrevived, globalStorageFolder, webviewHtml } from './webviewHtml'
 
 const VIEW_TYPE = 'pineDrama.episodeCanvas';
 
-/** `act`: the card actions (cardActions.ts), which the record panel and a card's box run. */
+/**
+ * `act`: the card actions (cardActions.ts), which the record panel and a card's box run. `catalog`: the Computer's model
+ * catalogue for the Model menu (ChatService.catalog), undefined while no session of the project has a running Computer.
+ */
 export function registerEpisodeCanvas(context: vscode.ExtensionContext, views: ProjectViews, output: vscode.OutputChannel,
-	act: (action: CardAction) => Promise<EntryDone | undefined>): { refresh(): void } {
+	act: (action: CardAction) => Promise<EntryDone | undefined>, catalog: () => Promise<Catalog | undefined>): { refresh(): void } {
 	const { project } = views;
 	const panels = new Map<string, vscode.WebviewPanel>();
 	// The card picked on each canvas, so that coming back to a canvas shows it in Versions again.
@@ -90,6 +96,21 @@ export function registerEpisodeCanvas(context: vscode.ExtensionContext, views: P
 		}
 	};
 
+	/** The Model menu's reply for a card: the catalogue's models for it and their costs (cardModels.ts), or why none. */
+	const modelsReply = async (stageId: string): Promise<ToCanvas> => {
+		const none = (why: string): ToCanvas => ({ v: CANVAS_PROTOCOL, type: 'models', stageId, choices: null, why });
+		try {
+			const object = (await project.drama()).objects.get(stageId);
+			if (!object) { return none(`${stageId} is not in the project any more`); }
+			const offered = await catalog();
+			if (!offered) { return none('Models are listed while the project\'s Computer runs: send a message to start it.'); }
+			return { v: CANVAS_PROTOCOL, type: 'models', stageId, choices: modelChoices(offered, object, await madeWith(project.root, object)), why: null };
+		} catch (error) {
+			output.appendLine(`canvas: models for ${stageId}: ${(error as Error).message} (project ${project.root})`);
+			return none((error as Error).message);
+		}
+	};
+
 	const setUp = (panel: vscode.WebviewPanel, episode: string) => {
 		panels.set(episode, panel);
 		panel.title = `${episode} · Canvas`;
@@ -144,6 +165,18 @@ export function registerEpisodeCanvas(context: vscode.ExtensionContext, views: P
 				// The canvas reads the project again, and the panel then shows the record as written.
 				await send(panel, episode);
 				await panel.webview.postMessage(await detailReply(panel.webview, episode, message.stageId));
+			} else if (message?.type === 'models') {
+				await panel.webview.postMessage(await modelsReply(message.stageId));
+			} else if (message?.type === 'generate' && message.model !== undefined) {
+				// The Model menu's choice is the person's explicit action: its command goes as a command turn (a "$ " message,
+				// commandSend.ts), sent. A take's second step, the paid shoot, waits in the input for the person's send.
+				const object = (await project.drama()).objects.get(message.stageId);
+				if (!object) { return; }
+				const [first, ...rest] = remakeCommands(object, message.model);
+				await vscode.commands.executeCommand('workbench.action.chat.open', { query: commandMessage(first!), isPartialQuery: false });
+				for (const next of rest) {
+					await vscode.commands.executeCommand('workbench.action.chat.open', { query: commandMessage(next), isPartialQuery: true });
+				}
 			} else if (message?.type === 'generate') {
 				// Put in the open chat's input for the person to send, never sent from here: an asset's picture or a
 				// keyframe's is drawn; a take is shot, asked as the seg editor's Generate asks it (segEditor.ts; shootRequest; amended 2026-11-11). Sending it is the person's explicit

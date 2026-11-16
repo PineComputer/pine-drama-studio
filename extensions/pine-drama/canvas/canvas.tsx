@@ -39,6 +39,9 @@ const COMMAND = 'pine-canvas-command';
 const DETAIL = 'pine-canvas-detail';
 /** A record panel's action ended (actionEnded): its key, drama-cli's words when it failed, and the line when it wrote nothing. */
 const ACTION_ENDED = 'pine-canvas-action-ended';
+/** The Model menu's choices for a card (models) arrive as this window event. */
+const MODELS = 'pine-canvas-models';
+type ModelsMessage = Extract<ToCanvas, { type: 'models' }>;
 /** The board's zoom range, React Flow's minZoom and maxZoom. */
 const ZOOM = { min: 0.05, max: 4 };
 // Generate with an unsaved edit: the request goes to the chat once that save is written, never after a refused one.
@@ -286,7 +289,9 @@ const notYet = 'Not available yet';
  * (Upload, + Variant, Reference, Style, Full prompt), the references, an asset's one editable text, its description,
  * and a bottom bar (model, settings, Generate). Its full prompt, the one its last draw sent, is read only; a keyframe's,
  * a storyboard's or a take's own prompt can only be removed here (doc/protocol.md 2.2). How the picture on the card was
- * made (its receipt) is behind "How it was made". The model and settings are greyed, as the Computer cannot take a choice yet.
+ * made (its receipt) is behind "How it was made". The Model menu lists the Computer's models for the card with their cost;
+ * choosing one makes the card again with it, at once (its Generate). The settings are greyed, as the Computer cannot
+ * take a choice yet.
  */
 function Composer({ card, reply, onGo, onClose }: { card: CanvasCard; reply: DetailMessage | undefined; onGo: (stageId: string) => void; onClose: () => void }) {
 	const record = reply?.record ?? null;
@@ -304,6 +309,24 @@ function Composer({ card, reply, onGo, onClose }: { card: CanvasCard; reply: Det
 		return () => window.removeEventListener(ACTION_ENDED, ended);
 	}, []);
 	const busy = outcome?.busy ?? false;
+	// The Model menu: asked for when opened, its choices as the Computer's catalogue gives them (models).
+	const [models, setModels] = useState<{ open: boolean; reply: ModelsMessage | null }>({ open: false, reply: null });
+	useEffect(() => {
+		const arrived = (event: Event) => {
+			const reply = (event as CustomEvent<ModelsMessage>).detail;
+			if (reply.stageId === card.id) { setModels(now => ({ ...now, reply })); }
+		};
+		window.addEventListener(MODELS, arrived);
+		return () => window.removeEventListener(MODELS, arrived);
+	}, [card.id]);
+	const openModels = () => {
+		setModels({ open: !models.open, reply: null });
+		if (!models.open) { post({ v: CANVAS_PROTOCOL, type: 'models', stageId: card.id }); }
+	};
+	const generateWith = (model: string) => {
+		setModels({ open: false, reply: null });
+		post({ v: CANVAS_PROTOCOL, type: 'generate', stageId: card.id, model });
+	};
 	const act = (action: EntryAction) => {
 		setOutcome({ key: action.key, busy: true, error: null, unchanged: null });
 		post({ v: CANVAS_PROTOCOL, type: 'entry', stageId: card.id, ...action });
@@ -387,8 +410,23 @@ function Composer({ card, reply, onGo, onClose }: { card: CanvasCard; reply: Det
 			{outcome?.busy && <div className="detail-note">Working…</div>}
 			{outcome?.error && <div className="detail-note error-text">{outcome.error}</div>}
 			{outcome?.unchanged && <div className="detail-note">{outcome.unchanged}</div>}
+			{models.open && (
+				<div className="model-menu" role="menu">
+					{!models.reply && <div className="detail-note">Reading the Computer's models…</div>}
+					{models.reply?.why && <div className="detail-note">{models.reply.why}</div>}
+					{models.reply?.choices?.length === 0 && <div className="detail-note">The Computer offers no model for this card.</div>}
+					{models.reply?.choices?.map(choice => (
+						<button key={choice.id} className="model-choice" role="menuitem" disabled={busy || choice.unfit !== null}
+							title={choice.unfit ?? `Make it again with ${choice.id}, now (${card.kind === 'take' ? 'its shoot waits in the Chat for your send' : choice.cost})`}
+							onClick={() => generateWith(choice.id)}>
+							<span className="model-id">{choice.id}</span><span className="model-cost">{choice.unfit ?? choice.cost}</span>
+						</button>
+					))}
+				</div>
+			)}
 			<div className="composer-bar">
-				<button className="quiet" disabled title={notYet}>Model ▾</button>
+				{(record || ownPrompt !== null || card.kind === 'take') && <button className="quiet" aria-expanded={models.open} onClick={openModels}
+					title="Make it again with another model">Model ▾</button>}
 				<span className="bar-sep" />
 				<button className="chip-button" disabled title={notYet}>Ratio · Quality · Resolution · Count ▾</button>
 				<span className="spacer" />
@@ -749,6 +787,8 @@ function App() {
 				window.dispatchEvent(new CustomEvent(DETAIL, { detail: event.data }));
 			} else if (event.data.type === 'actionEnded') {
 				window.dispatchEvent(new CustomEvent(ACTION_ENDED, { detail: event.data }));
+			} else if (event.data.type === 'models') {
+				window.dispatchEvent(new CustomEvent(MODELS, { detail: event.data }));
 			} else {
 				setMessage(event.data);
 			}

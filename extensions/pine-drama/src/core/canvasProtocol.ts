@@ -6,6 +6,18 @@ import { FAILED_MESSAGE_MAX } from './tuning';
 
 export const CANVAS_PROTOCOL = 1;
 
+/** One model the Model menu offers: its --model id, its cost line, and why it cannot make this card, if it cannot. */
+export interface ModelChoice {
+	readonly id: string;
+	readonly cost: string;
+	readonly unfit: string | null;
+}
+
+/** A provider:model id as drama-cli's --model takes it (drama_cli/cli.py): two names, no space, no shell sign. */
+export function isModelId(value: unknown): value is string {
+	return typeof value === 'string' && /^[a-z0-9][a-z0-9_.-]*:[A-Za-z0-9][A-Za-z0-9_.:/-]*$/.test(value) && value.length <= 200;
+}
+
 /** Who a history commit is by, in the person's words (doc/protocol.md 2.1): the Versions view's and the strip's. */
 export function madeBy(author: string): string {
 	return author === 'pine-computer' ? 'by the Pine Computer' : author === 'person' ? 'by you' : author === 'client-found-changes-on-disk' ? 'found on disk' : author;
@@ -113,6 +125,11 @@ export type ToCanvas =
 	 * commands zoom the whole window (canvas-scope.md, review finding 1).
 	 */
 	| { readonly v: typeof CANVAS_PROTOCOL; readonly type: 'command'; readonly name: CanvasCommand }
+	/**
+	 * The models a card may be made with, from the Computer's catalogue (catalog.ts), each with what a draw of it costs;
+	 * null with `why` when none can be offered now (no running Computer, or the card is none a model makes).
+	 */
+	| { readonly v: typeof CANVAS_PROTOCOL; readonly type: 'models'; readonly stageId: string; readonly choices: readonly ModelChoice[] | null; readonly why: string | null }
 	/** What the clicked card's shown file was made with (its receipt, versionDetail.ts), for the detail panel; `error` when it could not be read. */
 	| { readonly v: typeof CANVAS_PROTOCOL; readonly type: 'detail'; readonly stageId: string; readonly detail: CanvasDetail | null; readonly error: string | null;
 		/** An asset's card: what the record panel edits; null elsewhere. */
@@ -186,8 +203,13 @@ export type FromCanvas =
 	| { readonly v: typeof CANVAS_PROTOCOL; readonly type: 'failed'; readonly message: string }
 	/** A panel's card action (cardActions.ts), the asset grid's own. */
 	| ({ readonly v: typeof CANVAS_PROTOCOL; readonly type: 'entry'; readonly stageId: string } & EntryAction)
-	/** A box's Generate: a request for its picture or take, put in the open chat's input for the person to send. */
-	| { readonly v: typeof CANVAS_PROTOCOL; readonly type: 'generate'; readonly stageId: string };
+	/**
+	 * A box's Generate: without `model`, a request for its picture or take put in the open chat's input for the person to
+	 * send; with `model` (provider:model, a choice the Model menu offered), the command that makes it with that model, sent.
+	 */
+	| { readonly v: typeof CANVAS_PROTOCOL; readonly type: 'generate'; readonly stageId: string; readonly model?: string }
+	/** The Model menu opened on a card: the models it may be made with (models, ToCanvas). */
+	| { readonly v: typeof CANVAS_PROTOCOL; readonly type: 'models'; readonly stageId: string };
 
 const nullableString = (value: unknown): value is string | null => value === null || typeof value === 'string';
 
@@ -218,8 +240,11 @@ export function readFromCanvas(value: unknown): FromCanvas | undefined {
 	if (message.type === 'failed' && typeof message.message === 'string') {
 		return { v: CANVAS_PROTOCOL, type: 'failed', message: message.message.slice(0, FAILED_MESSAGE_MAX) };
 	}
-	if (message.type === 'generate' && isPath(message.stageId)) {
-		return { v: CANVAS_PROTOCOL, type: 'generate', stageId: message.stageId };
+	if (message.type === 'generate' && isPath(message.stageId) && (message.model === undefined || isModelId(message.model))) {
+		return { v: CANVAS_PROTOCOL, type: 'generate', stageId: message.stageId, ...(message.model === undefined ? {} : { model: message.model as string }) };
+	}
+	if (message.type === 'models' && isPath(message.stageId)) {
+		return { v: CANVAS_PROTOCOL, type: 'models', stageId: message.stageId };
 	}
 	if (message.type === 'entry' && isPath(message.stageId)) {
 		const action = readEntryAction(message);

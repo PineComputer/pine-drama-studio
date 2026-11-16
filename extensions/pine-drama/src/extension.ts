@@ -63,6 +63,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	// The project views read files only: they register first, whatever happens to the Chat store below.
 	// The project may arrive later: a session bound to an empty folder receives its config at the first publication
 	// (core/projectFinder.ts). The parts that read it register once, when it first appears.
+	// The Chat service, made below: the canvases ask it for the Computer's model catalogue.
+	let chatService: ChatService | undefined;
 	let opened: { views: ProjectViews; canvas: { refresh(): void }; galleries: ReturnType<typeof registerGalleries> } | undefined;
 	let protocolStorage: string | undefined;
 	const projects = await registerProjectViews(context, output, views => {
@@ -80,7 +82,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 			views,
 			// An episode's two views of one model: its seg editor and its canvas, refreshed together.
 			// The record panel on the canvas runs the grid's card actions (cardActions.ts).
-			canvas: both(registerEpisodeCanvas(context, views, output, cardActions(context, root)), registerSegEditor(context, views, output)),
+			canvas: both(registerEpisodeCanvas(context, views, output, cardActions(context, root), async () => chatService?.catalog(root)), registerSegEditor(context, views, output)),
 			galleries: registerGalleries(context, views, output),
 		};
 		// Whatever the folder holds that no commit records, changed by hand or by a Studio stopped mid-change, is committed
@@ -131,7 +133,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	};
 	let sessions: ReturnType<typeof registerPineSessions> | undefined;
 	let onChanged: (() => void) | undefined;
-	const service = new ChatService({
+	const service = chatService = new ChatService({
 		store,
 		port: new SdkPort(),
 		vault,

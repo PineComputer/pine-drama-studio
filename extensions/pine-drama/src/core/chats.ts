@@ -36,6 +36,7 @@ import { givenBack, refusalLine } from './refusal';
 import { Replay } from './replay';
 import { COLLECT_EVERY_MS, IDLE_WAITING_SECONDS, IDLE_WORKING_SECONDS, RECONNECT_LIMIT_MS, RECONNECT_WAITS_MS, START_WAIT_SECONDS, TURN_END_GRACE_MS, TURN_WAIT_MS } from './tuning';
 import { listHistory } from './projectHistory';
+import { CATALOG_COMMAND, readCatalog, type Catalog } from './catalog';
 import { commandOf } from './commandSend';
 import { collectTurn, landCaptures, putTurnFiles, turnRecordOf, type ComputerSession, type SentTurn, type TurnRecord } from './turn';
 import { applyPersonChange, type LeftOut } from './applyChange';
@@ -1598,6 +1599,19 @@ export class ChatService {
 		const secrets = conv && await this.secrets(conv);
 		if (!conv || conv.pine_session_name !== sessionName || !secrets?.binding || !secrets.sessionToken) { return undefined; }
 		return { port: this.port, env, session: { credentials: secrets.credentials, binding: secrets.binding, name: sessionName, token: secrets.sessionToken, ...secrets.workdir ? { workdir: secrets.workdir } : {} } };
+	}
+
+	/**
+	 * The drama module's catalogue (catalog.ts), read through a session of the project at `folder` whose Computer is
+	 * running; undefined when none is, as starting a Computer only to read a list would cost a start. Read each time it
+	 * is asked (a free exec), never kept.
+	 */
+	async catalog(folder: string): Promise<Catalog | undefined> {
+		const conv = this.store.chats().find(c => c.folder === folder && c.pine_session_state === 'open' && c.computer_state === 'running' && c.pine_session_name);
+		if (!conv) { return undefined; }
+		const at = await this.turnSession(conv.key, this.pineOf(conv), conv.pine_session_name!);
+		if (!at) { return undefined; }
+		return readCatalog(await at.port.exec(at.env, at.session, CATALOG_COMMAND));
 	}
 
 	/** The Studio's record of the project's turns at `root`, under the extension's storage (turn.ts, TurnRecord). */
