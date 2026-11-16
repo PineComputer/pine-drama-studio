@@ -137,7 +137,7 @@ function groupLayout(own: readonly CanvasCard[], size: (id: string) => Size): Gr
 
 /**
  * The assets canvas's default arrangement: one frame per asset group (assetsCanvas.ts) with its cards in a grid
- * (groupLayout); the characters', scenes' and props' groups are three regions stacked top to bottom, each under its
+ * (groupLayout); the characters', scenes' and props' groups are three regions side by side, left to right, each under its
  * heading (`heading:<kind>`), each packed into a near-square block by potpack, mapbox's rectangle packer ("packs 2D
  * rectangles into a near-square container", https://github.com/mapbox/potpack). Every asset is a frame, one with no
  * variant too. Frames and headings absolute, a card relative to its frame.
@@ -151,19 +151,19 @@ export function layoutAssets(sections: readonly string[], cards: readonly Canvas
 		return { key, region, own, grid: groupLayout(own, size) };
 	}).filter(g => g.own.length);
 	const positions: Record<string, Point> = {};
-	let top = 0;
+	let left = 0;
 	for (const name of ['characters', 'scenes', 'props']) {
 		const region = groups.filter(g => g.region === name);
 		if (!region.length) { continue; }
-		positions[`heading:${name}`] = { x: 0, y: top };
+		positions[`heading:${name}`] = { x: left, y: 0 };
 		// Each box carries the gap on its right and bottom, so packed boxes keep it between them.
 		const boxes = region.map(g => ({ g, w: g.grid.w + ASSET_GROUP_GAP, h: g.grid.h + ASSET_GROUP_GAP, x: 0, y: 0 }));
 		const packed = potpack(boxes);
 		for (const { g, x, y } of boxes) {
-			positions[frameId(g.key)] = { x, y: top + ASSET_HEADING_HEIGHT + y };
+			positions[frameId(g.key)] = { x: left + x, y: ASSET_HEADING_HEIGHT + y };
 			for (const [id, at] of g.grid.at) { positions[id] = at; }
 		}
-		top += ASSET_HEADING_HEIGHT + packed.h + CARD_GAP;
+		left += packed.w + CARD_GAP;
 	}
 	return { positions };
 }
